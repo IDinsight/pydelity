@@ -576,7 +576,7 @@ warning printed and nothing failed. After `export PROJECT_ENV=production` and
 
 ### DEV-008 — Scaffold leftovers cleaned up
 
-`Status`: `PENDING` `Depends On`: `DEV-004` `Acceptance`: `AC-042`
+`Status`: `DONE` `Depends On`: `DEV-004` `Acceptance`: `AC-042`
 
 **Goal**
 
@@ -598,6 +598,36 @@ intended.
 
 `just clean`; `git status --ignored`; `git grep` for `backend`, `cicd`,
 `frontend`, `pnpm` and `docker` outside STANDARDS paths.
+
+Evidence (2026-11-16, uncommitted working tree):
+
+- Reviewed: `.gitignore`, `.github/` (CODEOWNERS, issue templates, pull request
+  template, workflows), `.secrets.baseline`, tracked files and `git grep` for
+  `backend`, `cicd`, `frontend`, `pnpm`, `docker` and `vite`. The issue and pull
+  request templates and the secrets baseline already fit pydelity.
+- Changed, as the user chose: `.gitignore` drops `!backend/tests/test.env` and
+  `vite-project/` and its header no longer calls it the "global" file;
+  `git rm --cached .DS_Store` (the file stays on disk and `git check-ignore`
+  shows `.gitignore:16` ignoring it); the README shows the interrogate badge
+  under the title, from
+  `https://raw.githubusercontent.com/IDinsight/pydelity/main/interrogate_badge.svg`,
+  linked to the interrogate docs. Kept, as the user chose: the `data/`,
+  `results/`, `logs/`, `caches/`, `secrets/` and `docs/_build/` ignores and the
+  CODEOWNERS sample text.
+- `git grep` outside STANDARDS paths finds none of those words except
+  `build-backend` in `pyproject.toml`. `git status --ignored` lists only local
+  files (`.DS_Store`, `.env`, `.env.local`, `.idea/`, caches, `.venv/`,
+  `build/`, `dist/`, `src/pydelity.egg-info/`).
+- `just clean` in a scratch copy removed `.venv`, `build`, `dist`,
+  `.pytest_cache` and `.coverage`. A scratch `uv build` of the changed README
+  passed `twine check --strict`. `uv run --locked prek run --all-files`: every
+  hook passed.
+
+**Implementation Notes**
+
+- The badge points at `main`, which today holds only `.gitignore`, `LICENSE` and
+  `README.md`, so the image stays broken until this branch is merged. PyPI shows
+  the README from the next release on.
 
 ---
 
@@ -1029,6 +1059,10 @@ interrogate 100 %); `uv run --locked just test`: 1 passed.
     (local, development, production), with two changes the user approved:
     `PROJECT_ENV` defaults to `local` but can be set from the shell, and a
     missing env file is a warning rather than an error.
+  - Leftovers (`DEV-008`), as the user chose on 2026-11-16: drop the stale
+    `.gitignore` lines and untrack `.DS_Store`; keep the `data/`, `results/`,
+    `logs/`, `caches/`, `secrets/` and `docs/_build/` ignores and the CODEOWNERS
+    text; show the interrogate badge under the README title.
   - Extra Ruff rule families (`DEV-004`), as the user chose on 2026-11-16: `B`,
     `UP`, `SIM`, `C4`, `RET`, `RUF`, `PT` and `S`, on top of the chosen `E`,
     `W`, `F`, `I`, `D` (format only), `C90`, `PL` and `ANN`.

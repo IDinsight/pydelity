@@ -1,11 +1,10 @@
-# This is the global .gitignore file.
+# Files and folders git ignores in this repo.
 
 # Environments
 .env*
 *.env*
 !.envrc
 !.template.env*
-!backend/tests/test.env
 .venv
 env/
 venv/
@@ -23,7 +22,6 @@ graveyard/
 logs/
 results/
 secrets/
-vite-project/
 
 # PyCharm
 # JetBrains specific template is maintained in a separate JetBrains.gitignore that can

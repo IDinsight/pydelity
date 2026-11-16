@@ -1,5 +1,7 @@
 # pydelity
 
+[![Docstring coverage](https://raw.githubusercontent.com/IDinsight/pydelity/main/interrogate_badge.svg)](https://interrogate.readthedocs.io/)
+
 Under development and not yet usable.
 
 `pydelity` will turn PDFs into faithful, structured JSON. This release only
