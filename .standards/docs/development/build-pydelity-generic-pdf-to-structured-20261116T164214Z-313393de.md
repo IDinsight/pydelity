@@ -549,3 +549,12 @@ the upload in `DEV-003` is the working proof of the account and token.
 - **Styles loaded:** `styles/universal.md`, user style `tony`,
   `styles/python.md`; `styles/github-actions.md` for `DEV-009`.
 - **Project references loaded:** `NONE`.
+
+### Suspended Assignment 1
+
+`Recovery Frame`: `1` `Recovery Reason`:
+`User rework: replace Make with just and pre-commit with prek, and add Dependabot and zizmor; AC-001 names make and pre-commit.`
+`Purpose`: `DEVELOPMENT` `Target`: `NONE` `Assessed Inputs`:
+`commit a5aacd0 (DEV-001, DEV-002, DEV-011 and DEV-003 done; pydelity 0.0.1 on PyPI)`
+`Next Action`:
+`Reconcile DEV-004 to DEV-010 with the corrected scope and design, get approval if the plan changes materially, then continue STEPWISE with the next approved step.`

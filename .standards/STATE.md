@@ -1,21 +1,20 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
 `CompletionPolicy`: `FULL_DELIVERABLE` `Id`:
 `build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de` `Request`:
-`Build pydelity, a standalone Python 3.13 library with a Typer CLI that turns (almost) any PDF into a faithful document.json with item-level provenance and optionally a per-PDF domain.json (steps 1-6: survey, page extraction, page-break verification, assembly, schema proposal, projection). It replaces KGForEdGlobal stages 1-3 and its document.json must stay usable by the KGForEdGlobal KG stage. Publishing to PyPI is a project goal. User rework 2026-11-16: this cycle is only the interactive repo setup (signed off by the user) plus a placeholder pydelity release on PyPI, published as early as possible so the user owns the name; the pipeline (steps 1-6) and a working PyPI release move to the next cycle. User rework 2026-11-16 (2): Markdown linting and formatting cover all Markdown files, including STANDARDS-generated ones, since those changes are cosmetic. Full request, design directions, evidence E1-E23 and open questions: artifacts/design_brief.md.`
+`Build pydelity, a standalone Python 3.13 library with a Typer CLI that turns (almost) any PDF into a faithful document.json with item-level provenance and optionally a per-PDF domain.json (steps 1-6: survey, page extraction, page-break verification, assembly, schema proposal, projection). It replaces KGForEdGlobal stages 1-3 and its document.json must stay usable by the KGForEdGlobal KG stage. Publishing to PyPI is a project goal. User rework 2026-11-16: this cycle is only the interactive repo setup (signed off by the user) plus a placeholder pydelity release on PyPI, published as early as possible so the user owns the name; the pipeline (steps 1-6) and a working PyPI release move to the next cycle. User rework 2026-11-16 (2): Markdown linting and formatting cover all Markdown files, including STANDARDS-generated ones, since those changes are cosmetic. User rework 2026-11-16 (3), after the 0.0.1 placeholder was published: use just instead of Make as the task runner, prek instead of pre-commit as the hook runner, Dependabot to keep pinned versions current, and zizmor to check the GitHub Actions workflows; also record for the next cycle that the user wants people to be able to install and use pydelity on Windows. Full request, design directions, evidence E1-E23 and open questions: artifacts/design_brief.md.`
 `Scope`:
 `.standards/docs/scope/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
 `Architecture`:
 `.standards/docs/specs/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
 `Development`:
 `.standards/docs/development/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-003 is done (pydelity 0.0.1 is on PyPI). Start the planned user rework now (just, prek, Dependabot, zizmor, plus the Windows input for the next cycle), which routes to Scoper?`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
@@ -28,12 +27,18 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `AUDITING` `FailureType`: `NONE` `Reason`:
-`Initial greenfield audit complete: .standards/CONTEXT.md records the pre-implementation baseline.`
+`Kind`: `FORWARD` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
+`Scope replanned: just and prek replace Make and pre-commit (AC-001 retired for AC-042; new AC-043), plus Dependabot (AC-044) and zizmor (AC-045); the design must cover them.`
 
 ## Recovery
 
-`Active`: `false`
+`Active`: `true`
+
+### Frame 1
+
+`From`: `DEVELOPING` `Owner`: `SCOPING` `FailureType`: `SCOPING` `Reason`:
+`User rework: replace Make with just and pre-commit with prek, and add Dependabot and zizmor; AC-001 names make and pre-commit.`
+`ResumeAt`: `DEVELOPING` `RerunThrough`: `ARCHITECTING`
 
 ## Outstanding Obligations
 

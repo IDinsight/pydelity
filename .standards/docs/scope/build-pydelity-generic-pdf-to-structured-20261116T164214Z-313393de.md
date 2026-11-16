@@ -29,6 +29,10 @@ of this cycle.
 
 - Python 3.13 library with a Typer CLI. The package and the PyPI project are
   both named `pydelity`.
+- The task runner is just and the git hook runner is prek, in place of Make and
+  pre-commit; Dependabot keeps the repo's pinned versions current; zizmor checks
+  the GitHub Actions workflows. The user chose these on 2026-11-16, after the
+  placeholder was published.
 - Repo setup is interactive: the user points out what to change, and Developer
   proposes and makes each change, without a pre-planned exhaustive list.
 - Package code stays limited to empty modules and a smoke test. The STANDARDS
@@ -50,6 +54,8 @@ of this cycle.
   Cycle**.
 - A usable package on PyPI. The placeholder only reserves the name.
 - Any change to KGForEdGlobal.
+- Windows support. The user wants people to be able to install and use pydelity
+  on Windows, but that belongs to the next cycle.
 
 ## Work
 
@@ -58,15 +64,25 @@ of this cycle.
 **Intent:** The scaffold came from KGForEdGlobal and still carries its leftovers
 (web-app and KG settings, Docker targets, unused dependencies). Get the files
 and folders into shape for a Python 3.13 library with a Typer CLI that ships to
-PyPI: READMEs, `pyproject.toml`, Makefiles, env templates and `.envrc`,
-`.gitignore`, pre-commit, CI workflows, and the folder layout (including whether
+PyPI: READMEs, `pyproject.toml`, the task runner (just), env templates and
+`.envrc`, `.gitignore`, git hooks (prek), CI workflows, dependency updates
+(Dependabot), workflow checks (zizmor), and the folder layout (including whether
 `backend/` stays or the package moves to the repo root).
 
 **Done when:**
 
-- `AC-001`: On a clean checkout, `make install`, every lint target, `make test`
-  (running at least one smoke test of the package) and
-  `pre-commit run --all-files` all succeed.
+- `AC-042`: On a clean checkout, `just install`, every lint recipe, `just test`
+  (running at least one smoke test of the package) and `prek run --all-files`
+  all succeed.
+- `AC-043`: The repo has no Makefile, and its READMEs, CI workflows, scripts and
+  hook configuration neither run nor tell anyone to run the `make` or
+  `pre-commit` commands.
+- `AC-044`: Dependabot is set up to keep the repo's pinned versions current. Its
+  configuration is valid and covers every kind of pinned version in the repo
+  that Dependabot supports, such as GitHub Actions and Python dependencies.
+- `AC-045`: zizmor checks every GitHub Actions workflow in the repo whenever the
+  lint checks run, locally and in CI, and the workflows pass with no finding
+  suppressed without a written reason.
 - `AC-002`: The user has signed off the repo setup before any pipeline code is
   written.
 - `AC-041`: The Markdown lint and format checks cover every Markdown file in the
@@ -94,8 +110,12 @@ installable placeholder, not a working package.
 
 ## Retired Acceptance Identifiers
 
-All of these moved to the next cycle when the user split out the pipeline on
-2026-11-16. Their text is kept under **Deferred to the Next Cycle**.
+- `AC-001`: `make install`, the lint targets, `make test` and
+  `pre-commit run --all-files` succeed. Replaced by `AC-042` on 2026-11-16, when
+  the user moved from Make and pre-commit to just and prek.
+
+All of the following moved to the next cycle when the user split out the
+pipeline on 2026-11-16. Their text is kept under **Deferred to the Next Cycle**.
 
 - `AC-003`: Survey (step 1) output.
 - `AC-004`: User sign-off of step 1.
@@ -169,6 +189,8 @@ current obligations; the next cycle numbers its own acceptance conditions.
 - Architect picks the step 3 design (no comparison gate), the final `kind` and
   `role` lists, and the default model for each step.
 - The working pydelity is published to PyPI when the pipeline is signed off.
+- Added 2026-11-16, after the placeholder release: people must be able to
+  install and use pydelity on Windows.
 
 ### Constraints, non-goals and assumptions scoped for the pipeline
 
