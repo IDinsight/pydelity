@@ -19,14 +19,15 @@ Cycle: build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de
 - `Request`: Interactive repo setup for a Python 3.13 library with a Typer CLI
   that ships to PyPI (signed off by the user), plus a placeholder `pydelity`
   release on PyPI published as early as possible. Markdown linting and
-  formatting cover every Markdown file, STANDARDS files included. No pipeline
-  code.
+  formatting cover every Markdown file, STANDARDS files included. After the
+  placeholder: just and prek replace Make and pre-commit, Dependabot keeps pins
+  current, and zizmor checks the workflows. No pipeline code.
 
 ## Build Steps
 
 ### DEV-001 — Root src layout and placeholder packaging
 
-`Status`: `DONE` `Depends On`: `NONE` `Acceptance`: `AC-001, AC-040`
+`Status`: `DONE` `Depends On`: `NONE` `Acceptance`: `AC-042, AC-040`
 
 **Goal**
 
@@ -97,6 +98,13 @@ because the agent sandbox cannot write to `~/.cache/uv` or the installed uv):
   tool settings moved unchanged and wait for `DEV-004`. Until `DEV-004`,
   `DEV-006` and `DEV-007` run, `.pre-commit-config.yaml` still names `backend/`
   and `--project python`, so its Python and env hooks fail.
+- Superseded on 2026-11-16 by the design revision for `AC-042` to `AC-045`: the
+  Makefile `install` and `test` targets move to the justfile, and the exact uv
+  pin becomes a lower bound, both in `DEV-012`. `AC-001` was retired for
+  `AC-042`.
+- Corrected on 2026-11-16 during `DEV-006`: `cache-keys` watches
+  `src/pydelity/**/*` instead of `src/**/*`, which rebuilt the project on every
+  `uv run` (details under `DEV-006`).
 - `tests/test.env` (KGForEdGlobal values) was removed with `backend/`;
   `make test` needs no env file.
 
@@ -219,19 +227,19 @@ Evidence (2026-11-16):
 
 ### DEV-004 — Python lint, format and type toolchain
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`: `AC-001`
+`Status`: `PENDING` `Depends On`: `DEV-006` `Acceptance`: `AC-042`
 
 **Goal**
 
 Move the Python tooling to Ruff wherever Ruff covers the same check, type-check
 with ty, keep interrogate, trim the leftover test plugins, and run everything
-from one locked set of versions. The exact Ruff rule sets are settled with the
-user in this step.
+from one locked set of versions through just recipes and prek hooks. The exact
+Ruff rule sets are settled with the user in this step.
 
 **Affected Area**
 
-`pyproject.toml` (dev group and tool settings), `.pylintrc` (removed), root
-`Makefile` lint and test targets, the local Python hooks in
+`pyproject.toml` (dev group and tool settings), `uv.lock`, `.pylintrc`
+(removed), `justfile` lint recipes, the local Python hooks in
 `.pre-commit-config.yaml`, `interrogate_badge.svg`.
 
 **Expected Outcome**
@@ -250,27 +258,28 @@ user in this step.
   replaces mypy and checks `src/` and `tests/`.
 - interrogate stays at 100 %, covering the private and nested functions that
   Ruff's docstring rules skip, and regenerates `interrogate_badge.svg` at the
-  repo root instead of outside the repo.
+  repo root.
 - black, isort, mypy, mypy-extensions, pylint, pylint-pytest, `.pylintrc` and
   cloc are gone. The dev group keeps only tools in use: the pytest plugins and
   type stubs left from KGForEdGlobal (asyncio, bdd, mock, order, randomly,
   xdist, `types-*`) go, with their pytest settings; the next cycle adds what
   pipeline tests need.
-- Root `make` lint targets and the local pre-commit hooks run the tools through
-  `uv run` over `src/` and `tests/`, with no `--project backend` and no
-  `backend/` path. No Python tool touches STANDARDS paths or writes outside the
-  repo.
+- The justfile's lint recipes and the local prek hooks run these tools through
+  `uv run` over `src/` and `tests/`. No Python tool touches STANDARDS paths or
+  writes outside the repo.
 
 **Self-Check**
 
-`make lint` (Python targets) and
-`uv run pre-commit run <python hook ids> --all-files` pass on the current tree.
+The Python lint recipes and
+`uv run --locked prek run <python hook ids> --all-files` pass on the current
+tree; `just test` still passes.
 
 ---
 
 ### DEV-005 — Markdown format runner, configs and linting
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`: `AC-041, AC-001`
+`Status`: `PENDING` `Depends On`: `DEV-006` `Acceptance`:
+`AC-041, AC-042, AC-044`
 
 **Goal**
 
@@ -282,16 +291,18 @@ tracks or would track, with the whitespace guard for STANDARDS files and
 **Affected Area**
 
 New `scripts/` format runner (Node), `.prettierrc`, `.markdownlint-cli2.yaml`,
-Markdown hooks in `.pre-commit-config.yaml`, root `Makefile` Markdown targets,
+Markdown hooks in `.pre-commit-config.yaml`, the justfile's Markdown recipes,
 `.prettierignore`.
 
 **Expected Outcome**
 
-- Versions are pinned once in `.pre-commit-config.yaml`: prettier `3.10.1` as a
-  local `language: node` hook dependency and markdownlint-cli2 by hook `rev`,
-  both on a pinned Node. `make` and CI call those hooks through
-  `uv run pre-commit run ... --all-files`, so they need no system Node, no
-  `package.json` and no unpinned `npx`.
+- prettier `3.10.1` is the `additional_dependencies` pin of a local
+  `language: node` hook with a pinned Node `language_version`, and
+  markdownlint-cli2 is pinned by its hook `rev`. The two hand-kept pins carry a
+  comment saying so. The Markdown recipes, and CI through them, call those hooks
+  with `uv run prek run <id> --all-files`, so they need no system Node, no
+  `package.json` and no `npx`. The Markdown recipe ported in `DEV-012` is
+  replaced.
 - The runner formats project Markdown unconditionally; a STANDARDS file is
   rewritten only when prettier's output matches it with all whitespace removed,
   otherwise it is left byte-identical and named in a warning. It then runs
@@ -302,68 +313,113 @@ Markdown hooks in `.pre-commit-config.yaml`, root `Makefile` Markdown targets,
 
 **Self-Check**
 
-The Markdown `make` targets on the full tree; `git diff` of STANDARDS paths
-shows whitespace-only changes; `check.mjs` passes; a guard test in a scratch
-copy (a non-whitespace change to a STANDARDS table is warned and left
-byte-identical). Limitation: this agent sandbox cannot write under
-`.claude/skills/`; prettier `3.10.1` leaves those shipped files unchanged.
+The Markdown recipes on the full tree; `git diff` of STANDARDS paths shows
+whitespace-only changes; `check.mjs` passes; a guard test in a scratch copy (a
+non-whitespace change to a STANDARDS table is warned and left byte-identical).
+Limitation: this agent sandbox cannot write under `.claude/skills/`; prettier
+`3.10.1` leaves those shipped files unchanged.
 
 ---
 
-### DEV-006 — Generic pre-commit hooks and STANDARDS exclusions
+### DEV-006 — Hook configuration for prek
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`: `AC-001, AC-041`
+`Status`: `DONE` `Depends On`: `DEV-012` `Acceptance`:
+`AC-042, AC-043, AC-041`
 
 **Goal**
 
-Make the generic and secret-scanning hooks fit the new layout and decision 10.
+Make `.pre-commit-config.yaml` work under prek in the new layout, with one pin
+per tool, and keep every hook that writes files away from STANDARDS files
+(design decisions 3, 10 and 12).
 
 **Affected Area**
 
-`.pre-commit-config.yaml` (pre-commit-hooks, detect-secrets),
+`.pre-commit-config.yaml`, `pyproject.toml` (detect-secrets pin),
 `.secrets.baseline` if a rescan is needed.
 
 **Expected Outcome**
 
-`end-of-file-fixer`, `trailing-whitespace` and every other hook that can write
-files exclude `.standards/`, `.agents/`, `.claude/skills/`,
-`.claude/settings.json`, `.codex/hooks.json`, `AGENTS.md` and `CLAUDE.md`.
-Read-only checks (`check-yaml`, detect-secrets) still scan them. Leftover
-excludes (for example `pnpm-lock.yaml`) are dropped. External repos stay pinned
-by `rev`.
+- Local hooks call dev-group tools through `uv run`, with no `--project` option
+  and only paths that exist (`src/`, `tests/`). `env-template-sync` runs
+  `scripts/check_env_template.py` through `uv run`.
+- `end-of-file-fixer`, `trailing-whitespace` and every other hook that can write
+  files exclude `.standards/`, `.agents/`, `.claude/skills/`,
+  `.claude/settings.json`, `.codex/hooks.json`, `AGENTS.md` and `CLAUDE.md`.
+  Read-only checks (`check-yaml`, detect-secrets) still scan them. Leftover
+  excludes (`pnpm-lock.yaml`) go.
+- detect-secrets keeps either its dev-group pin or its hook `rev`, not both. The
+  file uses only remote repos (by URL and `rev`), `local` hooks and `meta`
+  hooks; no `repo: builtin`.
+- Comments name prek; nothing in the file runs or tells anyone to run a
+  `pre-commit` command.
 
 **Self-Check**
 
-`uv run pre-commit run <generic hook ids> --all-files` passes with no file
-changes; STANDARDS paths unchanged in `git status`.
+`uv run --locked prek run --all-files`: every hook passes except the Python tool
+hooks that `DEV-004` replaces, whose failures are recorded; no STANDARDS path
+changes; `git grep` finds no `make` or `pre-commit` command outside STANDARDS
+paths.
+
+Evidence (2026-11-16, uncommitted working tree on `cd6b470`, `PREK_HOME` and
+`UV_CACHE_DIR` in the session temp directory):
+
+- `uv run --locked prek validate-config .pre-commit-config.yaml`: all configs
+  valid.
+- `uv run --locked prek run --all-files`: `check-yaml`, `end-of-file-fixer`,
+  `trailing-whitespace`, `detect-secrets`, `env-template-sync`, black, isort,
+  ruff and pylint passed. Failed as expected: interrogate (`tests/conftest.py`
+  has no module docstring; it also rewrote `interrogate_badge.svg`, which was
+  restored with `git checkout`) and mypy (the `pydantic.mypy` plugin cannot
+  load), both replaced in `DEV-004`; markdownlint-cli2 (567 findings, mostly
+  `MD013` in shipped skill references), which `DEV-005` settles.
+- No STANDARDS path changed (`git status` over `.standards`, `.agents`,
+  `.claude`, `.codex`, `AGENTS.md` and `CLAUDE.md` shows only this plan, edited
+  by Developer).
+- `git grep` outside STANDARDS paths: no `make` or `pre-commit` command. The
+  file keeps the `pre-commit/pre-commit-hooks` repo URL and calls itself a
+  pre-commit-format file; both are names, which the design allows.
+
+**Implementation Notes**
+
+- detect-secrets is pinned once, in the dev group, and runs as a local hook
+  (`detect-secrets-hook`), so `uv run detect-secrets scan` can refresh the
+  baseline with the same version. Its old `pnpm-lock.yaml` exclude is gone; the
+  `.template.env` exclude stays.
+- Each writing hook repeats the STANDARDS exclude pattern instead of using a
+  YAML anchor, so every reader of the file (prek, Dependabot, zizmor) sees it
+  plainly.
+- Correction to `DEV-001` found here: the `cache-keys` glob `src/**/*` also
+  matched `src/pydelity.egg-info/`, which every build rewrites, so each
+  `uv run` rebuilt the project (and needed the network for `setuptools`). The
+  glob is now `src/pydelity/**/*`. Three `uv run` calls in a row built once; a
+  new module was still picked up and a deleted one dropped; `uv lock --check`
+  passed; the uv bound script passed again with 0.8.1 and 0.13.7.
 
 ---
 
 ### DEV-007 — Env templates, .envrc and the env-template check
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`: `AC-001`
+`Status`: `PENDING` `Depends On`: `DEV-006` `Acceptance`: `AC-042`
 
 **Goal**
 
 Decide with the user which environment variables and env-file behaviour the
-library keeps, and fix the broken `env-template-sync` hook.
+library keeps, and make the env-template check fit the layout.
 
 **Affected Area**
 
-`.template.env`, `.envrc`, `scripts/check_env_template.py`, the
-`env-template-sync` hook.
+`.template.env`, `.envrc`, `scripts/check_env_template.py`.
 
 **Expected Outcome**
 
 The templates declare only variables the user keeps (KGForEdGlobal leftovers
-such as `CHAT_ENV` are gone with `backend/`). `.envrc` behaviour matches the
-user's choice. The script checks only sections that exist (no `backend` or
-`frontend`), and the hook runs it through `uv run` with no `--project python`.
-No `make` target or test needs an env file.
+such as `CHAT_ENV` went with `backend/`). `.envrc` behaviour matches the user's
+choice. The script checks only sections that exist (no `backend` or `frontend`).
+No recipe or test needs an env file.
 
 **Self-Check**
 
-`uv run pre-commit run env-template-sync --all-files` passes; the script run
+`uv run --locked prek run env-template-sync --all-files` passes; the script run
 directly reports the expected pairs. Values in `.env*` files are never read or
 printed.
 
@@ -371,7 +427,7 @@ printed.
 
 ### DEV-008 — Scaffold leftovers cleaned up
 
-`Status`: `PENDING` `Depends On`: `DEV-004` `Acceptance`: `AC-001`
+`Status`: `PENDING` `Depends On`: `DEV-004` `Acceptance`: `AC-042`
 
 **Goal**
 
@@ -379,29 +435,28 @@ Remove the remaining KGForEdGlobal and web-app leftovers the user agrees to.
 
 **Affected Area**
 
-`.gitignore`, root `Makefile` `clean`, tracked `.DS_Store`,
-`interrogate_badge.svg` (per `DEV-004`), `.github/` templates if they carry
-leftovers.
+`.gitignore`, tracked `.DS_Store`, `interrogate_badge.svg` (per `DEV-004`),
+`.github/` templates if they carry leftovers.
 
 **Expected Outcome**
 
 `.gitignore` has no stale entries (`!backend/tests/test.env`, `vite-project/`
-and others the user drops). `make clean` removes only this repo's Python caches
-and build output; no `pnpm store prune` or JavaScript directories. `.DS_Store`
-is untracked. No tracked file outside STANDARDS paths names `backend/`, `cicd/`
-or `frontend/` unless intended.
+and others the user drops). `.DS_Store` is untracked. No tracked file outside
+STANDARDS paths names `backend/`, `cicd/`, `frontend/`, `pnpm` or Docker unless
+intended.
 
 **Self-Check**
 
-`make clean`; `git status --ignored`; `git grep` for `backend`, `cicd`,
+`just clean`; `git status --ignored`; `git grep` for `backend`, `cicd`,
 `frontend`, `pnpm` and `docker` outside STANDARDS paths.
 
 ---
 
-### DEV-009 — CI workflow for the AC-001 commands
+### DEV-009 — CI workflow
 
-`Status`: `PENDING` `Depends On`: `DEV-004, DEV-005, DEV-006, DEV-007, DEV-008`
-`Acceptance`: `AC-001`
+`Status`: `PENDING` `Depends On`:
+`DEV-004, DEV-005, DEV-006, DEV-007, DEV-008, DEV-013, DEV-014` `Acceptance`:
+`AC-042, AC-045`
 
 **Goal**
 
@@ -409,29 +464,33 @@ Add the GitHub Actions workflow from design decision 8 and the CI contract.
 
 **Affected Area**
 
-New `.github/workflows/ci.yml`; `trufflehog-pr.yml` unchanged.
+New `.github/workflows/ci.yml`.
 
 **Expected Outcome**
 
-On pull requests to `main` and pushes to `main`, one job on `ubuntu-latest`
-installs a uv that meets `required-version`, then runs `make install`, every
-lint target, `make test` and `pre-commit run --all-files`, failing if any fails
-(including a hook that modifies files). `permissions: contents: read`,
-`timeout-minutes`, a concurrency group, and third-party actions pinned by commit
-SHA with a version comment.
+On pull requests to `main` (Dependabot's included) and pushes to `main`, one
+named job on `ubuntu-latest` installs one exact uv that meets `required-version`
+(with a comment saying it is kept by hand), uses Python 3.13 from
+`.python-version`, and runs `just install`, every lint recipe, `just test` and
+`prek run --all-files`, each through `uv run --locked`. It fails if any of them
+fails, including a hook that modifies files. The zizmor step gets `GH_TOKEN`
+from `github.token`, so the online audits run. `permissions: contents: read`,
+`timeout-minutes`, a concurrency group, `persist-credentials: false` on
+checkout, and third-party actions pinned by commit SHA with a version comment.
+The workflow passes zizmor.
 
 **Self-Check**
 
-`check-yaml` over the workflow and a review against the CI contract. The
-workflow cannot run from this session; it stays unverified until the user pushes
-the branch.
+The zizmor recipe and a YAML check over the workflow, and a review against the
+CI contract. The workflow cannot run from this session; it stays unverified
+until the user pushes the branch.
 
 ---
 
 ### DEV-010 — Clean-checkout run and user sign-off of the repo setup
 
 `Status`: `PENDING` `Depends On`: `DEV-003, DEV-009` `Acceptance`:
-`AC-002, AC-001, AC-041`
+`AC-002, AC-042, AC-043, AC-044, AC-045, AC-041`
 
 **Goal**
 
@@ -444,10 +503,12 @@ This plan (sign-off record); a scratch copy of the tracked and new files.
 
 **Expected Outcome**
 
-In a fresh copy with no `.env*` files, `make install`, every lint target,
-`make test`, `pre-commit run --all-files` and `check.mjs` all pass. The user has
-reviewed the setup and signed it off; the date and what was signed off are
-recorded here.
+In a fresh copy with no `.env*` files and no system Node on the path the recipes
+use, `just install`, every lint recipe, `just test`, `prek run --all-files` and
+`check.mjs` all pass, and there is no `Makefile`. If the user has pushed the
+branch, the CI run and GitHub's check of the Dependabot file are reviewed too.
+The user has reviewed the setup and signed it off; the date and what was signed
+off are recorded here.
 
 **Self-Check**
 
@@ -502,52 +563,220 @@ the upload in `DEV-003` is the working proof of the account and token.
 
 ---
 
+### DEV-012 — just and prek replace Make and pre-commit
+
+`Status`: `DONE` `Depends On`: `DEV-001` `Acceptance`: `AC-042, AC-043`
+
+**Goal**
+
+Switch the task runner to just and the hook runner to prek in one step, so the
+repo always has a working entry point (design decisions 3, 11 and 12, Build Plan
+step 3).
+
+**Affected Area**
+
+`pyproject.toml` (dev group, `[tool.uv]`), `uv.lock`, new `justfile`, `Makefile`
+(deleted), `README.md`.
+
+**Expected Outcome**
+
+- The dev group adds `rust-just`, `prek` and `zizmor` at exact pins (1.59.0,
+  0.5.11 and 1.32.0 were the latest on 2026-11-16) and drops `pre-commit`;
+  `uv.lock` is regenerated.
+- `[tool.uv] required-version` is a lower bound: the oldest uv that reads this
+  lock and handles the `[tool.uv]` settings in use (`cache-keys`,
+  `config-settings-package`), and no newer than the uv Dependabot runs (0.13.7
+  on 2026-11-16). Candidate versions are tried with `uv sync --locked` and the
+  test recipe to find it.
+- A root `justfile` with `install` (`uv sync --locked`), `test`, `clean` (only
+  this repo's Python caches and build output; no `pnpm store prune`) and the one
+  lint recipe that exists so far, the Makefile's Markdown format, ported as it
+  is until `DEV-005` replaces it. `just --list` shows a one-line description per
+  recipe, and recipes call tools through `uv run`. Whether `just install` also
+  installs the prek git hook is settled with the user in this step.
+- The `Makefile` is gone.
+- `README.md` keeps its opening under-development statement and gains a short
+  development section: prerequisites (git, a uv at or above the bound, a just at
+  or above the justfile's minimum version) and the `just` commands.
+
+**Self-Check**
+
+`just --list`; `just install` and `just test` with the lowest allowed uv and
+with the newest; `uv lock --check`; `uv run --locked just test`; `git grep` for
+`make` and `pre-commit` commands outside STANDARDS paths (only
+`.pre-commit-config.yaml`, which `DEV-006` rewrites, may still have them).
+
+Evidence (2026-11-16, uncommitted working tree on `cd6b470`, uv 0.13.8 from the
+scratch tool directory as in `DEV-001`, `PREK_HOME` and `UV_CACHE_DIR` in the
+session temp directory because the agent sandbox cannot write to `~/.cache`):
+
+- `uv lock`: removed `pre-commit` 4.3.0 (and its `virtualenv` and
+  `python-discovery`), added `prek` 0.5.11, `rust-just` 1.59.0 and `zizmor`
+  1.32.0; 53 packages, lock `revision = 5`. `uv lock --check` passes after
+  `required-version` became `>=0.8.1`.
+- Lower uv bound: a script copied the project to a scratch directory, ran
+  `uv sync --locked` with a given uv, checked that `uv.lock` was not rewritten,
+  that `pydelity` imports from the strict editable tree with no `src` entry on
+  `sys.path`, that the tests pass, and that a new module under `src/pydelity/`
+  is picked up. Passed: 0.8.1, 0.8.24, 0.9.30, 0.10.0, 0.13.7, 0.13.8. Failed:
+  0.7.0 and 0.8.0, whose installs ignore `config-settings-package` and put
+  `src/` on the path (uv's changelog adds it in 0.8.1). uv 0.8.24 and 0.9.15
+  panicked inside the agent sandbox while reading macOS proxy settings
+  (`system-configuration`, "Attempted to create a NULL object"); 0.8.24 passed
+  when rerun outside the sandbox, so the panic is a sandbox effect. 0.8.1 is at
+  or below Dependabot's uv (0.13.7).
+- Lower just bound: rust-just 1.35.0 (the oldest on PyPI) and 1.59.0 both list
+  the recipes, run `just test` (1 passed) and dry-run `clean` and `install`.
+- Scratch git copies with uv 0.8.1 and with uv 0.13.8, both with just 1.35.0: no
+  `Makefile`; `just install` synced the environment and installed
+  `.git/hooks/pre-commit` through prek; `just test` 1 passed; `uv.lock`
+  unchanged; `pydelity` imported from
+  `build/__editable__.pydelity-0.0.1-py3-none-any/`. In the 0.13.8 copy,
+  `just clean` removed `.venv`, `build` and `dist`, and `just install` then
+  `just test` worked again.
+- Repo: `uv run --locked just --version` is 1.59.0 and
+  `uv run --locked just test` 1 passed. The prek hook was not installed in the
+  user's checkout.
+- `git grep` outside STANDARDS paths: no `make` command; `pre-commit` appears
+  only in `.pre-commit-config.yaml` (a repo URL and a comment) and in a comment
+  in `scripts/check_env_template.py` naming that file, both left for `DEV-006`.
+  `.pylintrc` has the English phrase "To make it work" and goes in `DEV-004`.
+
+**Implementation Notes**
+
+- `just clean` also removes `.venv` and `build/`, as the old backend `clean`
+  did: the strict editable install lives in `build/`, so removing one without
+  the other would leave a broken environment.
+- The ported `lint-markdown` recipe still calls an unpinned `npx prettier`, as
+  the design's Build Plan step 3 asks ("the lint recipes that exist so far");
+  `DEV-005` replaces it.
+- Until `DEV-006` and `DEV-004` fix the hook configuration, running
+  `just install` in the user's checkout would install a git hook whose Python
+  and env hooks fail, blocking commits.
+
+---
+
+### DEV-013 — zizmor checks the workflows
+
+`Status`: `PENDING` `Depends On`: `DEV-006` `Acceptance`: `AC-045`
+
+**Goal**
+
+Run zizmor over the repo as a lint recipe and a prek hook, and fix the existing
+TruffleHog workflow until it passes (design decision 13 and the zizmor
+contract).
+
+**Affected Area**
+
+`justfile` (lint recipe), `.pre-commit-config.yaml` (local zizmor hook),
+`.github/workflows/trufflehog-pr.yml`, `.github/zizmor.yml` only if a finding
+has to be ignored in config.
+
+**Expected Outcome**
+
+- `zizmor --persona=auditor .` from the dev group runs as part of the lint
+  recipes and as a local prek hook through `uv run`. It never runs with `--fix`,
+  `--min-severity`, `--min-confidence` or `--no-online-audits`, and no audit is
+  disabled. Locally it runs offline unless a GitHub token is in the environment.
+- `trufflehog-pr.yml` passes: for example `actions/checkout` sets
+  `persist-credentials: false`, and the job has a name and a concurrency limit.
+- A finding is fixed wherever possible. One that is accepted is ignored for that
+  finding only, inline or in `.github/zizmor.yml`, with its reason written
+  beside it.
+
+**Self-Check**
+
+The zizmor recipe and `uv run --locked prek run zizmor --all-files` exit 0; the
+summary's suppressed count matches the written ignores. Limitation: the online
+audits need a token, so they first run in CI (`DEV-009`).
+
+---
+
+### DEV-014 — Dependabot keeps the pins current
+
+`Status`: `PENDING` `Depends On`: `DEV-005, DEV-013` `Acceptance`:
+`AC-044, AC-045`
+
+**Goal**
+
+Add the Dependabot configuration from design decision 13 and the Dependabot
+contract, and mark every pin Dependabot cannot update as kept by hand.
+
+**Affected Area**
+
+New `.github/dependabot.yml`; comments beside hand-kept pins in `pyproject.toml`
+and `.pre-commit-config.yaml`.
+
+**Expected Outcome**
+
+- `.github/dependabot.yml` is `version: 2` with `uv`, `pre-commit` and
+  `github-actions` updaters for `/`, each with a schedule and
+  `cooldown.default-days` of at least 7, and none allowing insecure external
+  code execution. Schedule, grouping and pull-request limits are chosen with the
+  user.
+- `required-version`, Node's `language_version` and prettier's
+  `additional_dependencies` pin each carry a comment saying they are kept by
+  hand; `DEV-009` adds the same comment beside CI's uv version.
+- zizmor passes on the new file.
+
+**Self-Check**
+
+The zizmor recipe; a YAML check; validation against the published Dependabot
+configuration schema. GitHub itself validates the file only once the branch is
+pushed, so that part stays unverified until then.
+
+---
+
 ## Plan Notes
 
-- **Approval.** The user approved this plan on 2026-11-16 with its defaults and
-  just as the task runner (for the rework).
-- **Order.** `DEV-001`, `DEV-002`, `DEV-011` and `DEV-003` run first so the name
-  is reserved early. The user may start `DEV-011` (account, 2FA, token) sooner,
-  since it needs nothing from the repo. `DEV-004` to `DEV-008` follow in the
-  order the user prefers; `DEV-009` and `DEV-010` come last. STEPWISE pauses
-  after every step.
+- **Approval.** The user approved the first version of this plan on 2026-11-16
+  (STEPWISE, user style `tony`, its defaults). The version revised after the
+  rework below was approved by the user on 2026-11-16.
+- **Rework reconciliation (2026-11-16).** Suspended Assignment 1 was restored on
+  the `RESUME` from `ARCHITECTING` (frame 1 closed). The scope retired `AC-001`
+  for `AC-042` (just and prek) and added `AC-043` (no Make or pre-commit
+  commands), `AC-044` (Dependabot) and `AC-045` (zizmor); the design made
+  `required-version` a lower bound and added decisions 11 to 13.
+  - `DEV-001` stays `DONE`: its layout, packaging, lock and smoke-test outcomes
+    stand. Its Makefile targets and exact uv pin are superseded by `DEV-012`.
+  - `DEV-002`, `DEV-003` and `DEV-011` are unaffected (`AC-040`).
+  - `DEV-004` to `DEV-010` are revised for just, prek, zizmor and Dependabot.
+    `DEV-006` now holds the prek hook configuration, including the env-template
+    hook entry that was in `DEV-007`, and `make clean` moved from `DEV-008` to
+    `DEV-012`.
+  - New: `DEV-012` (just and prek), `DEV-013` (zizmor), `DEV-014` (Dependabot).
+- **Order.** `DEV-012`, then `DEV-006`. After that `DEV-004`, `DEV-005`,
+  `DEV-007`, `DEV-008` and `DEV-013` in the order the user prefers, `DEV-014`
+  once `DEV-005` and `DEV-013` are done, then `DEV-009` and `DEV-010`. STEPWISE
+  pauses after every step.
 - **Interactive setup.** The scope makes setup user-directed. When the user
   points out a further change inside the design's contracts, it is folded into
   the matching pending step or added as a new `DEV-NNN` and shown before it is
   made. A change that would alter the scope or design is routed to its owner.
-- **Decisions taken at approval (defaults unless the user says otherwise):**
-  - uv: the user upgrades their uv to `0.13.8` (`uv self update 0.13.8`, their
-    terminal); `[tool.uv] required-version = "==0.13.8"`. An exact pin keeps
-    every uv able to read the lock; upgrades are deliberate, like prettier's.
-  - Public author and maintainer: unchanged, `IDinsight DSEM`
-    `<dsem@idinsight.org>`. Project URLs: `Homepage` and `Repository` point at
-    `https://github.com/IDinsight/pydelity` and `Issues` at its issues page (the
-    user made the repo public on 2026-11-16).
+- **Decisions (defaults unless the user says otherwise):**
+  - uv: `required-version` is a lower bound found in `DEV-012` (design decision
+    3), replacing the exact `==0.13.8` chosen at first approval. The user's uv
+    is 0.13.8.
+  - Public author and maintainer: `IDinsight DSEM` `<dsem@idinsight.org>`.
+    Project URLs point at `https://github.com/IDinsight/pydelity` (public since
+    2026-11-16).
   - Python tooling (`DEV-004`), as the user chose on 2026-11-16: Ruff wherever
     it covers the check, interrogate kept with its badge, pylint and cloc
-    dropped. ty replaces mypy, and the leftover test plugins go, unless the user
-    says otherwise.
-- **User rework after `DEV-003`.** On 2026-11-16 the user chose prek in place of
-  pre-commit, Dependabot, and zizmor for the workflows, and is choosing chose
-  just as the task runner. `AC-001` names `make` and `pre-commit`, and the
-  design owns the task runner, hook runner, CI and new services, so these are
-  routed to Scoper and Architect as user rework, not absorbed here. The rework
-  runs once `DEV-003` has reserved the name; this plan is then reconciled with
-  the corrected scope and design (`DEV-004` to `DEV-010` are likely to change).
-  The same rework passes the Scoper a next-cycle input: the user wants people to
-  be able to install and use pydelity on Windows.
+    dropped, ty in place of mypy, leftover test plugins removed.
   - The empty `cli/` and `utils/` subpackages are dropped; the next cycle adds
     the Typer CLI.
-- **Smoke test.** The design's Build Plan step 1 puts one smoke test in
-  `DEV-001` so `make test` has something to run. It is scaffold, not formal
+  - Git hook (`DEV-012`), as the user chose on 2026-11-16: `just install` also
+    runs `prek install`, so the hooks run before every commit.
+- **Smoke test.** The design's Build Plan step 1 put one smoke test in `DEV-001`
+  so the test command has something to run. It is scaffold, not formal
   verification; Tester owns formal tests and may revise it.
 - **Local ignored files under `backend/`.** `.venv/`, `.ruff_cache/` and
   `backend/.env.local` (empty, per the user, who asked for its removal on
-  2026-11-16; not read) are deleted with `backend/`.
-- **Upload.** `DEV-003` blocks on the user's go-ahead and upload. No commit is
-  made unless the user asks.
+  2026-11-16; not read) were deleted with `backend/`.
+- **Commits.** No commit is made unless the user asks.
 - **Styles loaded:** `styles/universal.md`, user style `tony`,
-  `styles/python.md`; `styles/github-actions.md` for `DEV-009`.
+  `styles/python.md`; `styles/github-actions.md` for `DEV-009`, `DEV-013` and
+  `DEV-014`.
 - **Project references loaded:** `NONE`.
 
 ### Suspended Assignment 1
@@ -558,3 +787,6 @@ the upload in `DEV-003` is the working proof of the account and token.
 `commit a5aacd0 (DEV-001, DEV-002, DEV-011 and DEV-003 done; pydelity 0.0.1 on PyPI)`
 `Next Action`:
 `Reconcile DEV-004 to DEV-010 with the corrected scope and design, get approval if the plan changes materially, then continue STEPWISE with the next approved step.`
+
+Restored on 2026-11-16 when frame 1 closed; the reconciliation is recorded
+above.

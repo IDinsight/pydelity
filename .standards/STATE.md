@@ -14,7 +14,8 @@
 `.standards/docs/specs/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
 `Development`:
 `.standards/docs/development/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
+`DEV-006 is done; which step next: DEV-004 (Python tools), DEV-005 (Markdown), DEV-007 (env files), DEV-008 (leftovers) or DEV-013 (zizmor)?`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

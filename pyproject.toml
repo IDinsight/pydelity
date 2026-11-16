@@ -44,7 +44,7 @@ dev = [
     "isort==6.1.0",
     "mypy==1.18.2",
     "mypy-extensions==1.1.0",
-    "pre-commit==4.3.0",
+    "prek==0.5.11",
     "pylint==3.3.8",
     "pylint-pytest==1.1.8",
     "pytest==8.2.0",
@@ -56,19 +56,23 @@ dev = [
     "pytest-randomly==4.0.1",
     "pytest-xdist==3.8.0",
     "ruff==0.13.3",
+    "rust-just==1.59.0",
     "types-aiofiles==24.1.0.20250822",
     "types-requests==2.32.4.20260107",
+    "zizmor==1.32.0",
 ]
 
 [tool.uv]
 # Reinstall the project when any packaged file changes, so new modules are picked up
-# by the strict editable install below.
-cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*" }]
+# by the strict editable install below. Only the package folder is watched: the build
+# writes `src/pydelity.egg-info/`, and watching that would rebuild on every `uv run`.
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/pydelity/**/*" }]
 # Strict editable install: the environment sees only the files a wheel would contain,
 # instead of the whole `src/` directory, so packaging mistakes fail the tests.
 config-settings-package = { pydelity = { editable_mode = "strict" } }
-# One exact uv for everyone, so a lock written by one uv can be read by the others.
-required-version = "==0.13.8"
+# A lower bound, not an exact pin: Dependabot's uv updater fails on any uv the bound
+# excludes, so it must stay at or below the uv Dependabot runs.
+required-version = ">=0.8.1"
 
 # TOOLS #
 
