@@ -7,13 +7,24 @@
 #   ^(\.standards/|\.agents/|\.claude/skills/|\.claude/settings\.json$|
 #     \.codex/hooks\.json$|AGENTS\.md$|CLAUDE\.md$)
 repos:
-  # Generic file checks
+  # Generic file checks, in alphabetical order. The three that rewrite files
+  # (end-of-file-fixer, mixed-line-ending, trailing-whitespace) skip STANDARDS paths.
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      # Newly added files over 500 KB, such as a stray PDF.
+      - id: check-added-large-files
+      # File names that differ only in case, which break on macOS and Windows.
+      - id: check-case-conflict
+      # Leftover `<<<<<<<` / `>>>>>>>` merge markers.
+      - id: check-merge-conflict
+      - id: check-toml
       - id: check-yaml
         args: ["--unsafe"]
+      - id: detect-private-key
       - id: end-of-file-fixer
+        exclude: ^(\.standards/|\.agents/|\.claude/skills/|\.claude/settings\.json$|\.codex/hooks\.json$|AGENTS\.md$|CLAUDE\.md$)
+      - id: mixed-line-ending
         exclude: ^(\.standards/|\.agents/|\.claude/skills/|\.claude/settings\.json$|\.codex/hooks\.json$|AGENTS\.md$|CLAUDE\.md$)
       - id: trailing-whitespace
         exclude: ^(\.standards/|\.agents/|\.claude/skills/|\.claude/settings\.json$|\.codex/hooks\.json$|AGENTS\.md$|CLAUDE\.md$)
@@ -69,32 +80,32 @@ repos:
         entry: uv run --locked ruff check --fix --exit-non-zero-on-fix
         language: system
         types: [python]
-        files: ^(src|tests)/
+        files: ^(scripts|src|tests)/
 
       - id: ruff-format
         name: ruff format
         entry: uv run --locked ruff format
         language: system
         types: [python]
-        files: ^(src|tests)/
+        files: ^(scripts|src|tests)/
 
-      # ty and interrogate check the whole of src/ and tests/ on any Python change:
+      # ty and interrogate check all of scripts/, src/ and tests/ on any Python change:
       # ty needs the full import graph, and interrogate's badge must show the full
       # coverage, not that of the changed files only.
       - id: ty
         name: ty
-        entry: uv run --locked ty check src tests
+        entry: uv run --locked ty check scripts src tests
         language: system
         types: [python]
-        files: ^(src|tests)/
+        files: ^(scripts|src|tests)/
         pass_filenames: false
 
       - id: interrogate
         name: interrogate
-        entry: uv run --locked interrogate src tests
+        entry: uv run --locked interrogate scripts src tests
         language: system
         types: [python]
-        files: ^(src|tests)/
+        files: ^(scripts|src|tests)/
         pass_filenames: false
 
       # GitHub Actions: zizmor audits the workflows, any action definitions, this file

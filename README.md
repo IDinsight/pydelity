@@ -41,7 +41,41 @@ installed, `uv run --locked just <recipe>` runs the pinned just instead.
 | `just lint-markdown`  | Format every Markdown file with Prettier, then lint it with markdownlint                                       |
 | `just lint-python`    | Fix and format the Python code with Ruff, type-check it with ty, and check docstring coverage with interrogate |
 | `just lint-workflows` | Audit the GitHub Actions workflows, the hook config and the Dependabot config with zizmor                      |
-| `just test`           | Run the tests                                                                                                  |
+| `just test`           | Run the tests in random order and stop at the first failure                                                    |
+
+### Dependencies
+
+`uv add` and `uv remove` update `pyproject.toml` and `uv.lock` and sync `.venv`
+in one step, and keep the lists in alphabetical order.
+
+| Task                                    | Command                                                    |
+| --------------------------------------- | ---------------------------------------------------------- |
+| Add a dev tool (test, lint, type check) | `uv add --dev "<package>==<version>"`                      |
+| Add a runtime dependency                | `uv add <package>`                                         |
+| Upgrade a dev tool                      | `uv add --dev "<package>==<new version>"`                  |
+| Upgrade a runtime dependency            | `uv lock --upgrade-package <package>`, then `just install` |
+| Remove a dependency                     | `uv remove <package>` (with `--dev` for a dev tool)        |
+| After editing `pyproject.toml` by hand  | `uv lock`, then `just install`                             |
+| Rebuild `.venv` from scratch            | `just clean`, then `just install`                          |
+
+- Dev tools are pinned to an exact version (`==`), so everyone and CI run the
+  same one. Runtime dependencies get a minimum version (`uv add` writes `>=`),
+  so pydelity installs alongside other packages.
+- Afterwards, run `just lint` and `just test`, and commit `pyproject.toml` and
+  `uv.lock` together. CI fails if the lock does not match `pyproject.toml`.
+- After pulling someone else's dependency change, run `just install`.
+- Dependabot opens a monthly pull request that moves the pins to newer releases.
+
+### Tests
+
+- `just test` stops at the first failing test. To run the whole suite and
+  collect every failure instead, use `KEEP_GOING=1 just test`; the failures and
+  errors are also written to `.cache/test-errors`.
+- Tests run in a random order. pytest prints the seed at the top
+  (`Using --randomly-seed=...`); `uv run pytest --randomly-seed=<seed>` repeats
+  that order.
+
+### Git hooks
 
 With the git hook installed, prek runs the checks on the files in each commit.
 To run every hook on every file, use `uv run prek run --all-files`.

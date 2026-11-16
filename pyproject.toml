@@ -11,8 +11,9 @@ dev = [
     "detect-secrets==1.5.0",
     "interrogate==1.7.0",
     "prek==0.5.11",
-    "pytest==8.2.0",
-    "pytest-cov==7.0.0",
+    "pytest==9.2.0",
+    "pytest-cov==7.1.0",
+    "pytest-randomly==5.1.0",
     "ruff==0.17.5",
     "rust-just==1.59.0",
     "ty==0.0.104",
@@ -87,9 +88,15 @@ whitelist-regex = []
 
 # pytest
 # Tests import `pydelity` as installed in the environment; nothing adds `src` to the path.
+# pytest-randomly runs them in a random order and prints the seed; rerun that order with
+# `uv run pytest --randomly-seed=<seed>`.
 [tool.pytest.ini_options]
-markers = ["costs-money"]
+# Fail on an unknown marker or setting instead of ignoring it.
+addopts = ["--strict-config", "--strict-markers"]
+markers = ["costs-money: calls a paid model provider API"]
 testpaths = ["tests"]
+# A test marked xfail that passes fails the run, so stale xfail marks get noticed.
+xfail_strict = true
 
 # ruff: formatting (in place of black), import sorting (in place of isort) and linting
 # (in place of pylint, plus flake8-style rule families).

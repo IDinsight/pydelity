@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Check that each .env file and its .template.env partner declare the same variables.
+
+Run it from the repo root, as the env-template-sync hook does. Only variable names are
+read and printed, never values.
+"""
 
 # Standard Library
 import sys
@@ -22,8 +27,9 @@ FILE_PAIRS = [
 
 
 def keys(*, path: Path) -> set[str]:
-    """Return the set of variable names (strings before the first '=') from a
-    .env-style file, ignoring blank lines and comments.
+    """Return the variable names declared in a .env-style file.
+
+    A name is the text before the first '='; blank lines and comments are ignored.
 
     Parameters
     ----------
@@ -47,8 +53,9 @@ def keys(*, path: Path) -> set[str]:
 
 
 def main() -> int:
-    """Check that each .env.* file has a corresponding .template.env.* file with the
-    same variable names, and vice versa.
+    """Compare each .env file with its .template.env partner.
+
+    Report every variable that one file of a pair declares and the other does not.
 
     Returns
     -------
@@ -65,7 +72,8 @@ def main() -> int:
 
             if not (env_file.is_file() and template_file.is_file()):
                 print(
-                    f"Skipping {section} ({env_name} <-> {template_file}) – missing one or both files"
+                    f"Skipping {section} ({env_name} <-> {template_file}) - "
+                    "missing one or both files"
                 )
                 continue
 
@@ -80,7 +88,7 @@ def main() -> int:
             if missing_in_template:
                 had_errors = True
                 print(
-                    f"\n{rel} – The following variables are in .env.* but missing in "
+                    f"\n{rel} - The following variables are in .env.* but missing in "
                     f"its corresponding .template.env.*:"
                 )
                 for k in sorted(missing_in_template):
@@ -89,7 +97,7 @@ def main() -> int:
             if extra_in_template:
                 had_errors = True
                 print(
-                    f"\n{rel} – The following variables are in .template.env.* but not "
+                    f"\n{rel} - The following variables are in .template.env.* but not "
                     f"in its corresponding .env.*:"
                 )
                 for k in sorted(extra_in_template):

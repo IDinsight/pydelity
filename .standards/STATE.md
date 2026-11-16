@@ -15,7 +15,7 @@
 `Development`:
 `.standards/docs/development/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-010: does the user sign off the repo setup (AC-002) before any pipeline code is written?`
+`DEV-019 is done; move on to the GitHub settings walkthrough (then sign-off)?`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

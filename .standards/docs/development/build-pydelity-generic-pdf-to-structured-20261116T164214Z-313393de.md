@@ -705,7 +705,8 @@ Evidence (2026-11-16, uncommitted working tree):
 
 ### DEV-010 — Clean-checkout run and user sign-off of the repo setup
 
-`Status`: `IN_PROGRESS` `Depends On`: `DEV-003, DEV-009` `Acceptance`:
+`Status`: `IN_PROGRESS` `Depends On`:
+`DEV-003, DEV-009, DEV-016, DEV-017, DEV-018, DEV-019` `Acceptance`:
 `AC-002, AC-042, AC-043, AC-044, AC-045, AC-041`
 
 **Goal**
@@ -1119,6 +1120,169 @@ the "ocally" typo in `ci.yml`):
 
 ---
 
+### DEV-017 — More file checks, stricter tests and scripts linted
+
+`Status`: `DONE` `Depends On`: `DEV-016` `Acceptance`: `AC-002, AC-042`
+
+**Goal**
+
+The setup additions the user agreed on 2026-11-16 before sign-off: more generic
+file checks, stricter pytest with tests in random order, a `test` recipe that
+stops at the first failure unless `KEEP_GOING=1`, `scripts/` linted like `src/`
+and `tests/`, and prek environments cached in CI. (No `.editorconfig`, at the
+user's request.)
+
+**Affected Area**
+
+`.pre-commit-config.yaml`, `pyproject.toml` and `uv.lock`, `justfile`,
+`scripts/check_env_template.py`, `.github/workflows/ci.yml`, `README.md`.
+
+**Expected Outcome**
+
+- prek runs `check-toml`, `check-merge-conflict`, `check-added-large-files`,
+  `check-case-conflict`, `mixed-line-ending` and `detect-private-key` from
+  `pre-commit-hooks`; `mixed-line-ending`, which rewrites files, excludes
+  STANDARDS paths.
+- pytest runs with `--strict-markers`, `--strict-config` and
+  `xfail_strict = true`, and in random order (`pytest-randomly`, which prints
+  the seed to reproduce an order).
+- `just test` stops at the first failure. With `KEEP_GOING=1` it runs every test
+  and writes all failures and errors to `.cache/test-errors` (gitignored).
+- The Python lint recipe and hooks cover `scripts/`, and
+  `scripts/check_env_template.py` passes Ruff, ty and interrogate.
+- CI caches prek's hook environments, keyed on the hook config and `uv.lock`,
+  with `actions/cache` pinned by SHA.
+- The README describes the test options.
+
+**Self-Check**
+
+prek over all files; `just lint`; `just test` with a passing and a failing
+scratch test, with and without `KEEP_GOING=1`; two runs show different seeds;
+zizmor and actionlint on the workflow.
+
+Evidence (2026-11-16, uncommitted working tree on the user's latest commit):
+
+- Hooks: the six `pre-commit-hooks` v6.0.0 ids were confirmed in that release's
+  hook manifest and added in alphabetical order; `mixed-line-ending` excludes
+  STANDARDS paths like the other two writing hooks. Run over all files: all six
+  passed and changed nothing.
+- pytest: `addopts = ["--strict-config", "--strict-markers"]`,
+  `xfail_strict = true`, the `costs-money` marker now has a description, and
+  `pytest-randomly` 5.1.0 is in the dev group (lock: 26 packages). A scratch
+  test with an unregistered marker failed collection; two runs printed different
+  seeds; `--randomly-seed=1234` reran with that seed.
+- `just test`: with two failing scratch tests (removed afterwards) the default
+  run stopped after 1 failure (exit 1); `KEEP_GOING=1` ran all (2 failed, 1
+  passed, exit 1) and `.cache/test-errors` held the FAILURES section with both
+  failures and pytest's short summary. With all tests passing, `KEEP_GOING=1`
+  exited 0 and the file held the final summary line. `.cache/` is gitignored and
+  `just clean` now removes it. The recipe also ran under just 1.35.0.
+- `scripts/`: `scripts/check_env_template.py` gained a module docstring,
+  one-line docstring summaries (`D205`), hyphens instead of en dashes (`RUF001`)
+  and a split long line (`E501`); messages are otherwise unchanged. The
+  `lint-python` recipe and the `ruff-check`, `ruff-format`, `ty` and
+  `interrogate` hooks now cover `scripts/`; all passed, interrogate at 100 %.
+- CI: an `actions/cache` v5.1.0 step (lightweight tag on commit
+  `caa296126883cff596d87d8935842f9db880ef25`) caches `~/.cache/prek`, prek's
+  documented default on Linux, keyed on `.pre-commit-config.yaml` and `uv.lock`.
+  zizmor: no findings; actionlint 1.7.12: exit 0.
+- README: the `just test` row and a short Tests section describe stopping at the
+  first failure, `KEEP_GOING=1`, `.cache/test-errors` and replaying a seed.
+- `uv lock --check`, `uv run --locked just lint` (exit 0) and
+  `uv run --locked prek run --all-files` (every hook) all passed.
+
+**Implementation Notes**
+
+- The `test` recipe is a bash script recipe. Its raw log goes to
+  `.cache/test-output` and is deleted on exit, so it needs no system temp
+  folder.
+- CI still runs `just test`, which stops at the first failure; setting
+  `KEEP_GOING=1` there would report every failure in one run.
+
+---
+
+### DEV-018 — Dev tools at their latest stable releases
+
+`Status`: `DONE` `Depends On`: `DEV-017` `Acceptance`: `AC-002, AC-042`
+
+**Goal**
+
+As the user asked on 2026-11-16: check PyPI for every pinned tool in
+`pyproject.toml` and move the outdated ones to their latest stable release.
+
+**Affected Area**
+
+`pyproject.toml` (`dev` group) and `uv.lock`.
+
+**Expected Outcome**
+
+Every `dev` pin is the latest stable release on PyPI on 2026-11-16 (pytest 8.2.0
+to 9.2.0 and pytest-cov 7.0.0 to 7.1.0; the other eight already were), the lock
+matches, and every recipe and hook still passes.
+
+**Self-Check**
+
+`uv lock --check`; `just test`, `KEEP_GOING=1 just test`, `just lint`; prek over
+all files.
+
+Evidence (2026-11-16, uncommitted working tree): PyPI's JSON API, one request
+per package, showed detect-secrets 1.5.0, interrogate 1.7.0, prek 0.5.11,
+pytest-randomly 5.1.0, ruff 0.17.5, rust-just 1.59.0, ty 0.0.104 and zizmor
+1.32.0 already at their latest release, and pytest (9.2.0, 2026-10-27) and
+pytest-cov (7.1.0, 2026-03-21) behind; none of the latest releases is a
+pre-release or yanked. After the bump, `uv lock` updated both and added pygments
+2.21.0 (a new pytest dependency); 27 packages; `uv lock --check` passed.
+`just test` (pytest 9.2.0, cov 7.1.0, randomly 5.1.0): 1 passed;
+`KEEP_GOING=1 just test` with a failing scratch test (removed afterwards) exited
+1 and `.cache/test-errors` began with the FAILURES header and ended with the
+summary; an unregistered marker still failed collection;
+`pytest -W error::DeprecationWarning` passed; `uv run --locked just lint` exited
+0; `uv run --locked prek run --all-files`: every hook passed. The
+`setuptools>=77` build requirement is a lower bound, not a pin, and stays.
+
+---
+
+### DEV-019 — README explains how to add, remove and upgrade dependencies
+
+`Status`: `DONE` `Depends On`: `DEV-018` `Acceptance`: `AC-002, AC-042`
+
+**Goal**
+
+As the user asked on 2026-11-16: the README's Development section explains how
+to add, remove and upgrade a third-party library and what to run afterwards.
+
+**Affected Area**
+
+`README.md`.
+
+**Expected Outcome**
+
+A Dependencies subsection with the uv commands for dev tools (exact pins) and
+runtime dependencies (minimum versions), removing and upgrading, hand edits and
+rebuilding `.venv`, and what to run and commit afterwards, matching how uv
+0.13.8 behaves in this repo.
+
+**Self-Check**
+
+Each command tried in a scratch copy; the Markdown recipe; a scratch `uv build`
+with `twine check --strict`.
+
+Evidence (2026-11-16, uncommitted working tree, uv 0.13.8): in scratch copies of
+the project, `uv add --dev "pytest-timeout"` wrote `>=2.4.0` and
+`uv add --dev "pytest-timeout==2.4.0"` an exact pin, both in alphabetical place;
+`uv add --dev "pytest-randomly==5.0.0"` replaced the existing pin, relocked and
+installed 5.0.0; `uv add requests` and `uv add pyyaml` wrote `>=` minimums in
+alphabetical order; `uv lock --upgrade-package`, `uv remove` and
+`uv remove --dev` worked; after a hand edit `uv sync --locked` (what
+`just install` runs) refused the stale lock until `uv lock`. The README's new
+Dependencies subsection gives those commands, the exact-pin versus minimum rule,
+and what to run and commit afterwards. `just lint-markdown` formatted the README
+table and markdownlint passed; a scratch `uv build` passed
+`twine check --strict`; `uv run --locked prek run --all-files`: every hook
+passed.
+
+---
+
 ## Plan Notes
 
 - **Approval.** The user approved the first version of this plan on 2026-11-16
@@ -1173,6 +1337,8 @@ the "ocally" typo in `ci.yml`):
     `.gitignore` lines and untrack `.DS_Store`; keep the `data/`, `results/`,
     `logs/`, `caches/`, `secrets/` and `docs/_build/` ignores and the CODEOWNERS
     text; show the interrogate badge under the README title.
+  - CI (`DEV-017` review), as the user chose on 2026-11-16: CI keeps running
+    plain `just test`, which stops at the first failed test.
   - Extra Ruff rule families (`DEV-004`), as the user chose on 2026-11-16: `B`,
     `UP`, `SIM`, `C4`, `RET`, `RUF`, `PT` and `S`, on top of the chosen `E`,
     `W`, `F`, `I`, `D` (format only), `C90`, `PL` and `ANN`.
