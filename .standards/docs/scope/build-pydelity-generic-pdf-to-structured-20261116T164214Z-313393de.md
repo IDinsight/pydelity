@@ -33,7 +33,11 @@ of this cycle.
   proposes and makes each change, without a pre-planned exhaustive list.
 - Package code stays limited to empty modules and a smoke test. The STANDARDS
   files (`.standards/`, `.agents/`, `.claude/skills`, `AGENTS.md`, `CLAUDE.md`)
-  stay unchanged.
+  stay unchanged, with one exception the user chose on 2026-11-16: Markdown
+  linting and formatting cover every Markdown file, STANDARDS ones included,
+  because the changes they make there are cosmetic. The protocol treats shipped
+  framework files as changed only by installation or upgrade; the user accepts
+  cosmetic formatting of them anyway.
 - The PyPI project belongs to the user's PyPI account. Upload credentials never
   enter the repo, and nothing is uploaded to PyPI without the user's go-ahead
   for that upload.
@@ -65,6 +69,12 @@ PyPI: READMEs, `pyproject.toml`, Makefiles, env templates and `.envrc`,
   `pre-commit run --all-files` all succeed.
 - `AC-002`: The user has signed off the repo setup before any pipeline code is
   written.
+- `AC-041`: The Markdown lint and format checks cover every Markdown file in the
+  repo, including those under `.standards/`, `.agents/` and `.claude/skills`
+  and `AGENTS.md` and `CLAUDE.md`. Any change they make to a STANDARDS file is
+  whitespace or line wrapping only, and `node .standards/bin/check.mjs` still
+  passes afterwards. Other formatters, linters and hooks leave STANDARDS files
+  unchanged.
 
 **Depends on:** None.
 

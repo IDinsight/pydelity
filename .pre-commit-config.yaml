@@ -37,7 +37,7 @@ repos:
     # Global
     - id: env-template-sync
       name: Ensure .template.env and .env matches each other
-      entry: uv run --project python scripts/tools/check_env_template.py
+      entry: uv run --project python scripts/check_env_template.py
       language: system
       pass_filenames: false
 
