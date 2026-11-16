@@ -705,7 +705,7 @@ Evidence (2026-11-16, uncommitted working tree):
 
 ### DEV-010 — Clean-checkout run and user sign-off of the repo setup
 
-`Status`: `PENDING` `Depends On`: `DEV-003, DEV-009` `Acceptance`:
+`Status`: `IN_PROGRESS` `Depends On`: `DEV-003, DEV-009` `Acceptance`:
 `AC-002, AC-042, AC-043, AC-044, AC-045, AC-041`
 
 **Goal**
@@ -730,6 +730,27 @@ off are recorded here.
 
 The commands above in the scratch copy, with actual output recorded; the user's
 sign-off message.
+
+Evidence (2026-11-16):
+
+- Clean checkout: `git clone` of the branch at `48cbd00` (all repo-setup
+  commits, pushed to `origin/tz6/port-over`) into a new temporary folder. Run
+  with an empty environment except `HOME`, the sandbox proxy settings and `PATH`
+  = scratch uv 0.13.8 plus `/usr/bin:/bin:/usr/sbin:/sbin`: no `node` and no
+  `python3.13` on `PATH`, no `Makefile`, no `.env*` files, fresh `PREK_HOME` and
+  Python install folders.
+- In order, each exit 0: `uv run --locked just install` (synced the environment,
+  installed the prek git hook),
+  `uv run --locked prek run --all-files --show-diff-on-failure` (every hook
+  passed), `uv run --locked just lint` (zizmor: no findings),
+  `git diff --exit-code`, `uv run --locked just test` (1 passed). uv downloaded
+  Python 3.13.18 for `.venv`; prek downloaded Node 24.22.3 for the Markdown
+  hooks. `node .standards/bin/check.mjs` in the clone: passed.
+- GitHub: the public API shows no pull request from `tz6/port-over` and no
+  workflow runs on it, since CI runs on pull requests to `main` and pushes to
+  `main`. GitHub reads `.github/dependabot.yml` only on the default branch, so
+  neither the CI run nor GitHub's check of the Dependabot file has happened.
+- Waiting for the user's sign-off of the repo setup (`AC-002`).
 
 ---
 
@@ -1043,6 +1064,58 @@ lists and interrogate's `ignore-regex` are compared as sorted lists. The 18
 tables run `build-system` to `tool.uv` in `LC_ALL=C` sort order.
 `uv lock --check` passed; `uv run --locked just lint-python` passed (Ruff, ty,
 interrogate 100 %); `uv run --locked just test`: 1 passed.
+
+---
+
+### DEV-016 — README lists every just recipe and how to get the tools
+
+`Status`: `DONE` `Depends On`: `DEV-009` `Acceptance`: `AC-002, AC-042`
+
+**Goal**
+
+As the user asked on 2026-11-16 while reviewing the setup for sign-off: the
+README names every just recipe and tells people how and where to get prek (and
+just), since not everyone has them installed.
+
+**Affected Area**
+
+`README.md` (the Development section; the README is also the PyPI page).
+
+**Expected Outcome**
+
+The Development section lists the prerequisites, explains that prek and the
+other dev tools come with `just install` (installed into `.venv` from
+`uv.lock`), gives optional global installs for prek and just with links to their
+docs, and lists every recipe in the justfile (`just`, `clean`, `install`,
+`lint`, `lint-markdown`, `lint-python`, `lint-workflows`, `test`) with what each
+does.
+
+**Self-Check**
+
+Compare the README's recipe list with `just --list`; the Markdown hooks; a
+scratch `uv build` with `twine check --strict`.
+
+Evidence (2026-11-16, uncommitted working tree on `48cbd00`; the user had fixed
+the "ocally" typo in `ci.yml`):
+
+- `README.md` Development section: Prerequisites (git, uv 0.8.1+, just 1.35.0+
+  with `uv tool install rust-just` or `brew install just`); a paragraph saying
+  prek, Ruff, ty, interrogate, pytest and zizmor come with `just install` from
+  the lock, with `uv run` as the way to call them; optional global installs of
+  prek (`uv tool install prek`, `brew install prek`, linking prek's installation
+  guide) and `uv run --locked just <recipe>` for people without just; a Commands
+  table of every recipe; a note on what the git hook does.
+- Install commands checked against each tool's docs: just's packages page lists
+  `brew install just` and `uv tool install rust-just`; prek's installation page
+  lists `uv tool install prek` and `brew install prek`. All five new links
+  returned HTTP 200. `uv run --locked just <recipe>` without just on `PATH` was
+  shown in `DEV-010`'s clean checkout.
+- The README table's recipes equal `just --summary` minus `default` (clean,
+  install, lint, lint-markdown, lint-python, lint-workflows, test), plus a
+  `just` row for listing.
+- `just lint-markdown` formatted the README table (Prettier) and passed
+  markdownlint; a scratch `uv build` passed `twine check --strict`;
+  `uv run --locked prek run --all-files`: every hook passed.
 
 ---
 
