@@ -1,7 +1,8 @@
 # BUILD SYSTEM CONFIGS #
 [build-system]
 build-backend = "setuptools.build_meta"
-requires = ["setuptools>=61"]
+# 77+ supports SPDX `license` expressions with `license-files`.
+requires = ["setuptools>=77"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -9,6 +10,65 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 include = ["pydelity*"]
 where = ["src"]
+
+# PROJECT METADATA #
+[project]
+authors = [{name = "IDinsight DSEM", email = "dsem@idinsight.org" }]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = []
+description = "Under development and not yet usable. PDF to structured JSON, faithfully."
+keywords = ["structured", "JSON", "PDF", "genai", "llm", "agents"]
+license = "MIT"
+license-files = ["LICENSE"]
+maintainers = [{name = "IDinsight DSEM", email = "dsem@idinsight.org" }]
+name = "pydelity"
+readme = "README.md"
+requires-python = ">=3.13"
+version = "0.0.1"
+
+[project.urls]
+Homepage = "https://github.com/IDinsight/pydelity"
+Issues = "https://github.com/IDinsight/pydelity/issues"
+Repository = "https://github.com/IDinsight/pydelity"
+
+# DEV ENVIRONMENT #
+# Dev tools live in a dependency group, so they never appear in published metadata.
+[dependency-groups]
+dev = [
+    "black==25.9.0",
+    "detect-secrets==1.5.0",
+    "interrogate==1.7.0",
+    "isort==6.1.0",
+    "mypy==1.18.2",
+    "mypy-extensions==1.1.0",
+    "pre-commit==4.3.0",
+    "pylint==3.3.8",
+    "pylint-pytest==1.1.8",
+    "pytest==8.2.0",
+    "pytest-asyncio==1.2.0",
+    "pytest-bdd==8.1.0",
+    "pytest-cov==7.0.0",
+    "pytest-mock==3.15.1",
+    "pytest-order==1.3.0",
+    "pytest-randomly==4.0.1",
+    "pytest-xdist==3.8.0",
+    "ruff==0.13.3",
+    "types-aiofiles==24.1.0.20250822",
+    "types-requests==2.32.4.20260107",
+]
+
+[tool.uv]
+# Reinstall the project when any packaged file changes, so new modules are picked up
+# by the strict editable install below.
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*" }]
+# Strict editable install: the environment sees only the files a wheel would contain,
+# instead of the whole `src/` directory, so packaging mistakes fail the tests.
+config-settings-package = { pydelity = { editable_mode = "strict" } }
+# One exact uv for everyone, so a lock written by one uv can be read by the others.
+required-version = "==0.13.8"
 
 # TOOLS #
 
@@ -37,7 +97,7 @@ badge-format = "svg"
 color = true
 exclude = ["*/__init__.py"]
 ext = []
-generate-badge = "../"  # Output file location
+generate-badge = "."  # Output file location (the repo root)
 ignore-magic = false
 ignore-init-method = false
 ignore-init-module = false
@@ -80,17 +140,14 @@ ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
 
 # pytest
+# Tests import `pydelity` as installed in the environment; nothing adds `src` to the path.
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 bdd_features_base_dir = "tests/features/"
 markers = ["costs-money"]
-pythonpath = [".", "src"]
 testpaths = ["tests"]
 
 # pytest coverage
-[tool.coverage.paths]
-pydelity = ["backend/src", "src"]
-
 [tool.coverage.report]
 exclude_lines = [
     'if __name__ == "__main__"',
@@ -114,60 +171,3 @@ target-version = "py313"
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
-
-# PROJECT METADATA #
-[project]
-authors = [{name = "IDinsight DSEM", email = "dsem@idinsight.org" }]
-classifiers = [
-    "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3.13",
-]
-description = "PDF to structured JSON, faithfully"
-keywords = ["structured", "JSON", "PDF", "genai", "llm", "agents"]
-maintainers = [{name = "IDinsight DSEM", email = "dsem@idinsight.org" }]
-name = "pydelity"
-readme = "README.md"
-requires-python = ">=3.13,<3.14"
-version = "0.0.0"
-dependencies = [
-    "aiofiles>=24.1.0",
-    "aiolimiter>=1.2.1",
-    "colored>=2.3.1",
-    "greenlet==3.2.3",
-    "langcodes>=3.5.1",
-    "loguru>=0.7.3",
-    "pillow>=12.1.1",
-    "platformdirs>=4.9.2",
-    "pydantic>=2.11.9",
-    "pydantic-ai>=1.63.0",
-    "pydantic-settings>=2.11.0",
-    "PyMuPDF>=1.26.7",
-    "pycountry>=26.2.16",
-    "PyYAML>=6.0.3",
-    "termcolor>=3.1.0",
-    "typer>=0.19.2"
-]
-
-[project.optional-dependencies]
-dev = [
-    "black==25.9.0",
-    "detect-secrets==1.5.0",
-    "interrogate==1.7.0",
-    "isort==6.1.0",
-    "mypy==1.18.2",
-    "mypy-extensions==1.1.0",
-    "pre-commit==4.3.0",
-    "pylint==3.3.8",
-    "pylint-pytest==1.1.8",
-    "pytest==8.2.0",
-    "pytest-asyncio==1.2.0",
-    "pytest-bdd==8.1.0",
-    "pytest-cov==7.0.0",
-    "pytest-mock==3.15.1",
-    "pytest-order==1.3.0",
-    "pytest-randomly==4.0.1",
-    "pytest-xdist==3.8.0",
-    "ruff==0.13.3",
-    "types-aiofiles==24.1.0.20250822",
-    "types-requests==2.32.4.20260107",
-]

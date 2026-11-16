@@ -12,8 +12,11 @@
 `.standards/docs/scope/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
 `Architecture`:
 `.standards/docs/specs/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
-`Development`: `NONE` `PromotionReason`: `NONE` `AuditTarget`: `NONE`
-`BlockedOn`: `NONE` `PendingVerificationCadence`: `NONE`
+`Development`:
+`.standards/docs/development/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
+`DEV-001 is done; continue with DEV-002 (build and pre-upload checks for the 0.0.1 placeholder)?`
+`PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
 

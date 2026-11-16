@@ -1,7 +1,7 @@
 #!make
 
 .DEFAULT_GOAL := help
-.PHONY: clean help lint lint-markdown
+.PHONY: clean help install lint lint-markdown test
 
 # Put it first so that "make" without argument is like "make help".
 help: ## Display available commands
@@ -34,6 +34,16 @@ clean: ## Remove caches, build output, and testing artifacts
 		node_modules/.vitest
 	@pnpm store prune
 	@echo "$(GREEN)Cleanup complete.$(RESET)"
+
+########## ENVIRONMENT ##########
+install: ## Create the dev environment from uv.lock (fails if the lock is out of date)
+	@echo "$(BLUE)Syncing the dev environment from uv.lock...$(RESET)"
+	@uv sync --locked
+	@echo "$(GREEN)Dev environment ready in .venv.$(RESET)"
+
+########## TESTS ##########
+test: ## Run the test suite
+	@uv run --locked pytest
 
 ########## LINTING ##########
 lint: lint-markdown ## Run all linters and formatters

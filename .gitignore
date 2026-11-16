@@ -33,6 +33,36 @@ vite-project/
 # folder.
 .idea/
 
+# Python bytecode and native extensions
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Python build and distribution output
+.eggs/
+*.egg
+*.egg-info/
+build/
+dist/
+MANIFEST
+wheels/
+
+# Python tool caches and reports
+.cache
+.coverage
+.coverage.*
+.dmypy.json
+.hypothesis/
+.mypy_cache/
+.nox/
+.pytest_cache/
+.ruff_cache/
+.tox/
+coverage.xml
+dmypy.json
+htmlcov/
+
 # Sphinx documentation
 docs/_build/
 
