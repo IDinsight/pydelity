@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `AUDITING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -24,8 +24,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
-`Rerun complete: design revised for AC-041 (Markdown tooling over all files with a whitespace guard for STANDARDS files); frame 1 closed.`
+`Kind`: `FORWARD` `From`: `AUDITING` `FailureType`: `NONE` `Reason`:
+`Initial greenfield audit complete: .standards/CONTEXT.md records the pre-implementation baseline.`
 
 ## Recovery
 
