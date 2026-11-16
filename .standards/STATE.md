@@ -15,7 +15,7 @@
 `Development`:
 `.standards/docs/development/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-014 is done; which step next: DEV-007 (env files) or DEV-008 (leftovers)?`
+`DEV-007 is done; continue with DEV-008 (scaffold leftovers)?`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

@@ -5,15 +5,14 @@ import sys
 
 from pathlib import Path
 
-# Folders that have paired .env.* / .template.env.* files. These paths are relative to
-# the location of the .pre-commit-config.yaml file.
+# Folders that have paired .env.* / .template.env.* files, relative to the repo root
+# (the hook runs from there).
 SECTIONS = [
     Path("."),
-    Path("backend"),
-    Path("frontend"),
 ]
 
-# Specify which file pairs to compare in each section.
+# Specify which file pairs to compare in each section. These are the files .envrc
+# loads: .env, then the one for PROJECT_ENV.
 FILE_PAIRS = [
     (".env", ".template.env"),
     (".env.local", ".template.env.local"),

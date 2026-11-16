@@ -500,7 +500,7 @@ Evidence (2026-11-16, uncommitted working tree on `cd6b470`, `PREK_HOME` and
 
 ### DEV-007 — Env templates, .envrc and the env-template check
 
-`Status`: `PENDING` `Depends On`: `DEV-006` `Acceptance`: `AC-042`
+`Status`: `DONE` `Depends On`: `DEV-006` `Acceptance`: `AC-042`
 
 **Goal**
 
@@ -523,6 +523,54 @@ No recipe or test needs an env file.
 `uv run --locked prek run env-template-sync --all-files` passes; the script run
 directly reports the expected pairs. Values in `.env*` files are never read or
 printed.
+
+Evidence (2026-11-16, uncommitted working tree; no value in a `.env*` file was
+read or printed, only variable names; probes used fake values in scratch
+folders):
+
+- `.template.env` keeps its eight variables (the user's choice); its header now
+  says to copy the file to `.env` rather than rename it. `.envrc` loads `.env`
+  then `.env.local` with `dotenv_if_exists`; `PROJECT_ENV` and the required
+  `.env.local` are gone. `scripts/check_env_template.py` checks only the repo
+  root, for the pairs `.env`/`.template.env` and `.env.local`/
+  `.template.env.local`.
+- `uv run --locked python scripts/check_env_template.py`: exit 0 (the user's
+  `.env` matches the template; the `.env.local` pair is skipped because there is
+  no `.template.env.local`). `prek run env-template-sync --all-files`: passed.
+- Mismatch probe: a scratch `.env` with one template variable and one extra
+  variable made the script list both differences and exit 1.
+- direnv 2.35.0 in a scratch folder (its data and config directories in the
+  session temp directory): with `.env` and `.env.local` present, a variable set
+  in both took the `.env.local` value; with neither present, direnv loaded
+  without an error. `bash -n .envrc` passed.
+- `uv run --locked prek run --all-files`: every hook passed. `git grep` outside
+  STANDARDS paths finds no `PROJECT_ENV`, `.env.development` or
+  `.env.production`.
+
+**Implementation Notes**
+
+- direnv refuses a changed `.envrc` until it is allowed again, so the user runs
+  `direnv allow` once in their checkout.
+
+Correction (2026-11-16): Developer's question about `.envrc` called its
+`PROJECT_ENV` switch a KGForEdGlobal leftover, which was an unchecked
+assumption; the user explained that it lets people pick a local, development or
+production env file. The switch and the development and production pairs in
+`scripts/check_env_template.py` are restored, with the user's approval of two
+changes: `export PROJECT_ENV="${PROJECT_ENV:-local}"` (so the shell can choose
+without editing `.envrc`) and a warning instead of `exit 1` when the selected
+file is missing. An invalid `PROJECT_ENV` still stops with an error. The
+simplified `.envrc` described above is superseded.
+
+Evidence for the correction (direnv 2.35.0 in a scratch folder with fake
+values): with no `PROJECT_ENV`, `.env` then `.env.local` loaded and `.env.local`
+won; with `PROJECT_ENV=production`, `.env.production` won; with `development`
+and no `.env.development`, the warning printed and `.env` still loaded; with
+`staging`, direnv stopped with the error (exit 1); with no env files, the
+warning printed and nothing failed. After `export PROJECT_ENV=production` and
+`direnv reload` in a shell, `PROJECT_ENV` stayed `production`. The env check
+(exit 0, three pairs skipped for missing files), `bash -n .envrc` and
+`uv run --locked prek run --all-files` (every hook) all passed.
 
 ---
 
@@ -976,6 +1024,11 @@ interrogate 100 %); `uv run --locked just test`: 1 passed.
     and so do `pyproject.toml` tables, keys and order-free lists.
   - Dependabot (`DEV-014`), as the user chose on 2026-11-16: monthly checks, one
     pull request per ecosystem, and `build(deps)` / `ci(deps)` commit messages.
+  - Env files (`DEV-007`), as the user chose on 2026-11-16: `.template.env`
+    keeps all eight variables, and `.envrc` keeps its `PROJECT_ENV` switch
+    (local, development, production), with two changes the user approved:
+    `PROJECT_ENV` defaults to `local` but can be set from the shell, and a
+    missing env file is a warning rather than an error.
   - Extra Ruff rule families (`DEV-004`), as the user chose on 2026-11-16: `B`,
     `UP`, `SIM`, `C4`, `RET`, `RUF`, `PT` and `S`, on top of the chosen `E`,
     `W`, `F`, `I`, `D` (format only), `C90`, `PL` and `ANN`.
