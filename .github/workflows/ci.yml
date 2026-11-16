@@ -1,0 +1,58 @@
+name: CI
+
+# Runs the same commands that are executed ocally: install, the hooks, every lint
+# recipe and the tests. Pull requests to main include Dependabot's.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request cancels the run still going for it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          # Kept by hand: one exact uv that meets `[tool.uv] required-version` in
+          # pyproject.toml. Dependabot does not update it.
+          version: "0.13.8"
+
+      # Python 3.13 comes from .python-version; uv installs it if the runner lacks it.
+      - name: Install the dev environment
+        run: uv run --locked just install
+
+      # Hooks run before the lint recipes, which write fixes, so unformatted files fail
+      # here instead of being fixed silently. The zizmor hook uses the token for its
+      # online audits.
+      - name: Run every git hook
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --locked prek run --all-files --show-diff-on-failure
+
+      - name: Run every lint recipe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --locked just lint
+
+      - name: Fail if the lint recipes changed any file
+        run: git diff --exit-code
+
+      - name: Run the tests
+        run: uv run --locked just test

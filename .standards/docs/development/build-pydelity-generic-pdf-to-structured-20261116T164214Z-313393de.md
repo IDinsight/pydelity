@@ -633,7 +633,7 @@ Evidence (2026-11-16, uncommitted working tree):
 
 ### DEV-009 — CI workflow
 
-`Status`: `PENDING` `Depends On`:
+`Status`: `DONE` `Depends On`:
 `DEV-004, DEV-005, DEV-006, DEV-007, DEV-008, DEV-013, DEV-014` `Acceptance`:
 `AC-042, AC-045`
 
@@ -663,6 +663,43 @@ The workflow passes zizmor.
 The zizmor recipe and a YAML check over the workflow, and a review against the
 CI contract. The workflow cannot run from this session; it stays unverified
 until the user pushes the branch.
+
+Evidence (2026-11-16, uncommitted working tree):
+
+- `.github/workflows/ci.yml`: on pull requests to `main` and pushes to `main`;
+  `permissions: contents: read`; a concurrency group per workflow and ref with
+  `cancel-in-progress`; one job, "Lint and test", on `ubuntu-latest` with
+  `timeout-minutes: 20`. Steps: `actions/checkout` v7.0.1 (same SHA as the
+  TruffleHog workflow) with `persist-credentials: false`; `astral-sh/setup-uv`
+  v10.3.3 pinned to commit `68559e99cc807c1eb7e9238fd43a15bba460eec2` (the
+  latest tag, a lightweight tag on that commit, from `git ls-remote`) with
+  `version: "0.13.8"` and a "Kept by hand" comment; then
+  `uv run --locked just install`,
+  `uv run --locked prek run --all-files --show-diff-on-failure` and
+  `uv run --locked just lint` (both with `GH_TOKEN: ${{ github.token }}` so
+  zizmor runs its online audits), `git diff --exit-code`, and
+  `uv run --locked just test`. Python 3.13 comes from `.python-version`.
+- `zizmor --persona=auditor .` (offline): no findings. actionlint 1.7.12 (run
+  once with `uvx --from actionlint-py`, not added to the repo) on both
+  workflows: exit 0. `uv run --locked prek run --all-files` in the repo: every
+  hook passed.
+- Rehearsal of the job's commands, in order, in a clean committed scratch copy
+  with no `.env` files and no `GH_TOKEN`: install, every hook, every lint
+  recipe, `git diff --exit-code` and the tests all exited 0. With an unformatted
+  module committed, the hook step failed (`ruff format`); with that module
+  checked out again, `just lint` reformatted it and `git diff --exit-code`
+  exited 1.
+- Not verified here: a run on GitHub (setup-uv, the managed Python download on
+  the runner, the token-backed zizmor audits), which needs the branch pushed.
+
+**Implementation Notes**
+
+- The hooks run before the lint recipes, and a `git diff --exit-code` step
+  follows the recipes, so neither a hook nor a recipe can fix a file silently in
+  CI.
+- `GH_TOKEN` is set only on the two steps that run zizmor, not job-wide.
+- No STANDARDS file is needed: the Markdown runner skips the STANDARDS check
+  where STANDARDS is not installed.
 
 ---
 

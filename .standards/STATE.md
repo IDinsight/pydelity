@@ -15,7 +15,7 @@
 `Development`:
 `.standards/docs/development/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-008 is done; continue with DEV-009 (CI workflow)?`
+`DEV-009 is done; continue with DEV-010 (clean-checkout run and the user's sign-off of the repo setup)?`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
