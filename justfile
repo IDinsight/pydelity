@@ -23,9 +23,10 @@ install:
 # Run every lint recipe
 lint: lint-markdown lint-python
 
-# Format Markdown with Prettier (to be replaced by the pinned Markdown tooling)
+# Format every Markdown file with Prettier, then lint it with markdownlint
 lint-markdown:
-    npx prettier --write --prose-wrap always --print-width 80 --ignore-path .gitignore --ignore-path .prettierignore "**/*.md" "!CHANGELOG.md"
+    uv run --locked prek exec prettier-markdown -- node scripts/format_markdown.mjs
+    uv run --locked prek run markdownlint-cli2 --all-files
 
 # Fix and format the Python code, then type-check it and check docstring coverage
 lint-python:

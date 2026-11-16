@@ -320,8 +320,7 @@ Evidence (2026-11-16, uncommitted working tree on `cd6b470`, `PREK_HOME` and
 
 ### DEV-005 — Markdown format runner, configs and linting
 
-`Status`: `PENDING` `Depends On`: `DEV-006` `Acceptance`:
-`AC-041, AC-042, AC-044`
+`Status`: `DONE` `Depends On`: `DEV-006` `Acceptance`: `AC-041, AC-042, AC-044`
 
 **Goal**
 
@@ -360,6 +359,67 @@ whitespace-only changes; `check.mjs` passes; a guard test in a scratch copy (a
 non-whitespace change to a STANDARDS table is warned and left byte-identical).
 Limitation: this agent sandbox cannot write under `.claude/skills/`; prettier
 `3.10.1` leaves those shipped files unchanged.
+
+Evidence (2026-11-16, uncommitted working tree, `PREK_HOME` and `UV_CACHE_DIR`
+in the session temp directory):
+
+- Pins: prettier 3.10.1 (`additional_dependencies` of the local
+  `prettier-markdown` hook) and markdownlint-cli2 `v0.24.1` (hook `rev`), both
+  the latest on npm on 2026-11-16, on Node 24.22.3 (the latest Node 24 LTS),
+  with "kept by hand" comments beside the Node and prettier pins. The empty
+  `.prettierignore` is deleted.
+- Format runner on the repo (197 Markdown files from `git ls-files`): 1 file
+  formatted (this plan), 0 STANDARDS files left unformatted; `check.mjs` passed.
+  Compared with a snapshot taken just before, this plan was the only changed
+  file and the change was whitespace only; every shipped STANDARDS file stayed
+  byte-identical.
+- Guard test in a scratch git copy: a STANDARDS file whose table Prettier would
+  pad (`|-|-|`) produced the warning and stayed byte-identical; a STANDARDS file
+  with one long line was rewrapped; a project file had `*` bullets turned into
+  `-`; with an invalid `WorkflowState` in `STATE.md` the runner exited 1 and the
+  prek hook failed. With a valid `STATE.md` the runner exited 0. Rewriting a
+  tracked file made the prek hook fail with "files were modified by this hook".
+- markdownlint, default rules first: 615 findings in 71 files (`MD013` 516,
+  `MD036` 77, `MD025` 14, `MD041` 7, `MD026` 1). Skipping code blocks and tables
+  left 5 `MD013` findings, all long code spans in `STATE.md`, this plan and the
+  brief's title. The final config turns off `MD013`, `MD025`, `MD036` and
+  `MD041` and narrows `MD026`, each with its reason, and sets `noInlineConfig`;
+  with inline comments honoured, shipped files re-enabled `MD013` and produced
+  34 findings. Final run: passed.
+- `uv run --locked just lint` (Markdown and Python) passed;
+  `uv run --locked prek run --all-files`: every hook passed; `just test`: 1
+  passed.
+
+**Implementation Notes**
+
+- The runner finds Prettier through the `prettier` command that prek's Node
+  environment puts on `PATH`, so the repo needs no `package.json`. The
+  `lint-markdown` recipe runs it with `prek exec`, which does not fail just
+  because files were rewritten; the hook does, as the design requires.
+- Both Markdown hooks take their file list from git rather than from prek, so
+  untracked new Markdown files are covered. prek detects rewrites only in
+  tracked files, so an untracked file is formatted without failing the hook.
+- Revised on 2026-11-16 at the user's request. They first asked for a
+  `.markdownlint.yaml` with `MD013: {tables: false}` and `MD025`, `MD026`,
+  `MD036` and `MD041` off. That file can hold only rules, so without
+  `noInlineConfig` and `globs` (prek passed the tracked files) markdownlint
+  reported 6 `MD013` findings: 3 in `.standards/STATE.md` and 2 in this plan
+  (values the STANDARDS formats keep in one long code span) and 1 in
+  `artifacts/design_brief.md` (a 98-character title). The user then chose one
+  `.markdownlint-cli2.yaml` again, as before, with their rules except `MD013`,
+  which stays off; `MD026` is now off rather than narrowed. The hook is back to
+  `pass_filenames: false`.
+- Also at the user's request: not every branch, `main` included, has STANDARDS
+  installed. The runner now runs `.standards/bin/check.mjs` only when it exists
+  and otherwise exits 0 without a message (at the user's request, so people who
+  do not know STANDARDS are not puzzled; it prints a line only when it runs the
+  check, and names STANDARDS files only when the guard left one unformatted).
+  Evidence: in the repo, `uv run --locked just lint-markdown` formatted this
+  plan (whitespace), ran the STANDARDS check (passed) and markdownlint (passed).
+  In a scratch git copy without `.standards/`, `.agents/`, `.claude/`,
+  `.codex/`, `AGENTS.md` and `CLAUDE.md`, the runner formatted a new `notes.md`
+  (`*` to `-`), printed that STANDARDS is not installed and exited 0, and
+  `prek run prettier-markdown markdownlint-cli2 --all-files` passed.
 
 ---
 
@@ -795,10 +855,10 @@ of the reordered lists; `uv lock --check`; Ruff, ty, interrogate and the test
 recipe still pass.
 
 Evidence (2026-11-16, uncommitted working tree): `tomllib` loads of the old and
-new files compare equal once `keywords`, the coverage `exclude_lines` and
-`omit` lists and interrogate's `ignore-regex` are compared as sorted lists. The
-18 tables run `build-system` to `tool.uv` in `LC_ALL=C` sort order. `uv lock
---check` passed; `uv run --locked just lint-python` passed (Ruff, ty,
+new files compare equal once `keywords`, the coverage `exclude_lines` and `omit`
+lists and interrogate's `ignore-regex` are compared as sorted lists. The 18
+tables run `build-system` to `tool.uv` in `LC_ALL=C` sort order.
+`uv lock --check` passed; `uv run --locked just lint-python` passed (Ruff, ty,
 interrogate 100 %); `uv run --locked just test`: 1 passed.
 
 ---

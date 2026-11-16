@@ -18,13 +18,31 @@ repos:
       - id: trailing-whitespace
         exclude: ^(\.standards/|\.agents/|\.claude/skills/|\.claude/settings\.json$|\.codex/hooks\.json$|AGENTS\.md$|CLAUDE\.md$)
 
-  # Markdown style checks
+  # Markdown: format every Markdown file with Prettier, then lint it. Both hooks
+  # take their file list from git (`pass_filenames: false`), so files not yet added
+  # are covered too.
+  - repo: local
+    hooks:
+      # The only hook allowed to write STANDARDS files, and only whitespace changes
+      # (see scripts/format_markdown.mjs). Where STANDARDS is installed, it runs the
+      # STANDARDS check afterwards.
+      - id: prettier-markdown
+        name: prettier (Markdown)
+        entry: node scripts/format_markdown.mjs
+        language: node
+        # Kept by hand: Dependabot does not update local hooks' Node or packages.
+        language_version: "24.22.3"
+        additional_dependencies: ["prettier@3.10.1"]
+        types: [markdown]
+        pass_filenames: false
+
   - repo: https://github.com/DavidAnson/markdownlint-cli2
-    rev: v0.23.2
+    rev: v0.24.1
     hooks:
       - id: markdownlint-cli2
-        language_version: "24.15.0"
-        exclude: ^CHANGELOG\.md$
+        # Kept by hand: Dependabot updates `rev` but not the Node version.
+        language_version: "24.22.3"
+        pass_filenames: false
 
   # Local hooks. They run the tools pinned in the `dev` dependency group of
   # pyproject.toml through `uv run --locked`, so hooks, just recipes and CI share
