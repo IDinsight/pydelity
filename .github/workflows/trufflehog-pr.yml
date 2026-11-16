@@ -7,14 +7,23 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request cancels the scan still running for it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   trufflehog:
+    name: TruffleHog secret scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout repo (full history so base/head comparison works)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0  # important for comparing against base branch history
+          # The scan reads the local clone only; don't leave the token in .git/config.
+          persist-credentials: false
 
       - name: TruffleHog OSS
         id: trufflehog

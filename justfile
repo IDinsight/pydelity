@@ -21,7 +21,7 @@ install:
     uv run --locked prek install
 
 # Run every lint recipe
-lint: lint-markdown lint-python
+lint: lint-markdown lint-python lint-workflows
 
 # Format every Markdown file with Prettier, then lint it with markdownlint
 lint-markdown:
@@ -34,6 +34,10 @@ lint-python:
     uv run --locked ruff format src tests
     uv run --locked ty check src tests
     uv run --locked interrogate src tests
+
+# Audit the GitHub Actions workflows, the hook config and the Dependabot config with zizmor
+lint-workflows:
+    uv run --locked zizmor --persona=auditor .
 
 # Run the test suite
 test:

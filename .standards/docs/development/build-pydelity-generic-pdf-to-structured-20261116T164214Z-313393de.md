@@ -759,7 +759,7 @@ session temp directory because the agent sandbox cannot write to `~/.cache`):
 
 ### DEV-013 — zizmor checks the workflows
 
-`Status`: `PENDING` `Depends On`: `DEV-006` `Acceptance`: `AC-045`
+`Status`: `DONE` `Depends On`: `DEV-006` `Acceptance`: `AC-045`
 
 **Goal**
 
@@ -790,6 +790,37 @@ has to be ignored in config.
 The zizmor recipe and `uv run --locked prek run zizmor --all-files` exit 0; the
 summary's suppressed count matches the written ignores. Limitation: the online
 audits need a token, so they first run in CI (`DEV-009`).
+
+Evidence (2026-11-16, uncommitted working tree, `PREK_HOME` and `UV_CACHE_DIR`
+in the session temp directory, no GitHub token, so zizmor ran offline):
+
+- Before the fix, `zizmor --persona=auditor .` (1.32.0) audited
+  `trufflehog-pr.yml` and `.pre-commit-config.yaml` and reported 3 findings, all
+  in the workflow: `artipacked` (checkout without `persist-credentials: false`),
+  `anonymous-definition` (job without a name) and `concurrency-limits` (no
+  concurrency setting); exit 13.
+- Fix in `trufflehog-pr.yml`: `persist-credentials: false` on checkout (the scan
+  reads only the local clone), job name "TruffleHog secret scan",
+  `timeout-minutes: 10`, and a workflow concurrency group on
+  `${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress: true`.
+  Actions stay pinned by SHA.
+- After: `uv run --locked just lint-workflows` printed "No findings to report";
+  no finding is suppressed and no ignore was needed, so there is no
+  `.github/zizmor.yml`. `uv run --locked prek run --all-files`: every hook
+  passed, `zizmor` included. `uv run --locked just lint` exited 0.
+- Not verified here: the online audits (`impostor-commit`,
+  `known-vulnerable-actions`, `ref-confusion`, `stale-action-refs`), which need
+  a token and first run in CI (`DEV-009`), and the workflow itself, which runs
+  only on GitHub.
+
+**Implementation Notes**
+
+- The job's check name on pull requests changes from `trufflehog` to "TruffleHog
+  secret scan". If branch protection requires the old name, the required check
+  has to be updated.
+- The zizmor hook runs when anything under `.github/` or the hook config
+  changes, and always audits the whole repo, so the Dependabot file from
+  `DEV-014` is covered without changes.
 
 ---
 

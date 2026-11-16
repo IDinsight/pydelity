@@ -96,3 +96,13 @@ repos:
         types: [python]
         files: ^(src|tests)/
         pass_filenames: false
+
+      # GitHub Actions: zizmor audits the workflows, any action definitions, this file
+      # and the Dependabot config. It runs offline unless a GitHub token is set (CI sets
+      # one), and with the strictest persona, so no finding is hidden.
+      - id: zizmor
+        name: zizmor
+        entry: uv run --locked zizmor --persona=auditor .
+        language: system
+        files: ^(\.github/|\.pre-commit-config\.yaml$)
+        pass_filenames: false
