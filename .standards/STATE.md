@@ -15,7 +15,7 @@
 `Development`:
 `.standards/docs/development/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-001 is done; continue with DEV-002 (build and pre-upload checks for the 0.0.1 placeholder)?`
+`DEV-003 is done (pydelity 0.0.1 is on PyPI). Start the planned user rework now (just, prek, Dependabot, zizmor, plus the Windows input for the next cycle), which routes to Scoper?`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

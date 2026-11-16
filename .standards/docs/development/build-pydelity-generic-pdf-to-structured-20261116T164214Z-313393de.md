@@ -104,7 +104,7 @@ because the agent sandbox cannot write to `~/.cache/uv` or the installed uv):
 
 ### DEV-002 — Build and pre-upload checks for the 0.0.1 placeholder
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`: `AC-040`
+`Status`: `DONE` `Depends On`: `DEV-001` `Acceptance`: `AC-040`
 
 **Goal**
 
@@ -130,11 +130,43 @@ command for the user is ready.
 `unzip -l`) against the allowlist; the wheel's `METADATA`; a fresh
 `uv venv --python 3.13` with the wheel installed and `import pydelity`.
 
+Evidence (2026-11-16, uncommitted working tree on `828e4d7`, uv 0.13.8 as in
+`DEV-001`):
+
+- `uv build`: `dist/pydelity-0.0.1.tar.gz` and
+  `dist/pydelity-0.0.1-py3-none-any.whl`, built by setuptools 84.2.1. SHA-256:
+  wheel `a870390e910f7b817546ff1ff63e3d31d2faa7933f7abf0ed3466f565266d2cf`,
+  sdist `ecefbe9527430477a0b935b2b0f36884d1883cdd961c98baefbea6fff23ebbbe`.
+- `uvx twine check --strict` on both files: `PASSED`.
+- Wheel: `pydelity/__init__.py`, `pydelity/py.typed` and `dist-info`
+  (`METADATA`, `WHEEL`, `RECORD`, `top_level.txt`, `licenses/LICENSE`). Tag
+  `py3-none-any`, `Root-Is-Purelib: true`.
+- sdist: `LICENSE`, `README.md`, `pyproject.toml`, `src/pydelity/__init__.py`,
+  `src/pydelity/py.typed`, plus setuptools' generated metadata (`PKG-INFO`,
+  `src/pydelity.egg-info/`, and a `setup.cfg` holding only its `[egg_info]`
+  build tags).
+- No path under `.standards`, `.agents`, `.claude`, `.codex`, `artifacts`,
+  `graveyard`, `.idea` or `.github`, and no `.env*` file, in either archive.
+- `METADATA`: version `0.0.1`; summary "Under development and not yet usable.
+  PDF to structured JSON, faithfully."; `License-Expression: MIT`; the two
+  classifiers; `Requires-Python: >=3.13`; Markdown long description; the three
+  GitHub project URLs; author and maintainer `IDinsight DSEM`. No
+  `Requires-Dist` and no `entry_points.txt`.
+- Fresh `uv venv --no-project --python 3.13` (3.13.9) with the wheel installed,
+  run outside the repo: `import pydelity` loads from `site-packages`, `py.typed`
+  is present, `importlib.metadata` reports version `0.0.1`, no requirements and
+  no entry points.
+
+**Implementation Notes**
+
+- `uv build` also writes `dist/.gitignore`, so the upload must name the two
+  archives explicitly rather than `dist/*`.
+
 ---
 
 ### DEV-003 — Placeholder published on PyPI and verified
 
-`Status`: `PENDING` `Depends On`: `DEV-002, DEV-011` `Acceptance`: `AC-040`
+`Status`: `DONE` `Depends On`: `DEV-002, DEV-011` `Acceptance`: `AC-040`
 
 **Goal**
 
@@ -157,6 +189,31 @@ a project-scoped one. Agents never see, type or store the token.
 
 PyPI JSON API for `pydelity` (version, summary, files); a fresh Python 3.13 venv
 with `pip install pydelity` and `import pydelity`, allowing for CDN lag.
+
+Evidence (2026-11-16):
+
+- The user upgraded their uv to 0.13.8 and ran, in their own terminal with the
+  token read through a hidden prompt,
+  `uv publish dist/pydelity-0.0.1.tar.gz dist/pydelity-0.0.1-py3-none-any.whl`.
+  uv reported both files hashed and uploaded to
+  `https://upload.pypi.org/legacy/` with no error.
+- PyPI JSON API: `pydelity` `0.0.1`, summary "Under development and not yet
+  usable. PDF to structured JSON, faithfully.", `License-Expression: MIT`,
+  `requires_python >=3.13`, no `requires_dist`, the two classifiers, the three
+  GitHub URLs, Markdown description opening "Under development and not yet
+  usable." The uploaded wheel and sdist SHA-256 values match the `DEV-002`
+  build. Upload times 2026-11-16T20:03:31Z (wheel) and 20:03:32Z (sdist).
+- `https://pypi.org/project/pydelity/` returned HTTP 200, and the simple index
+  lists both files.
+- Fresh `python3.13 -m venv` (3.13.9, pip 25.3), run outside the repo:
+  `pip install pydelity` installed `pydelity-0.0.1`; `import pydelity` loads
+  from `site-packages`, `py.typed` is present, no requirements. Limitation:
+  inside the agent sandbox pip's macOS trust-store check failed
+  (`OSStatus -26276`) while curl and uv reached PyPI normally, so the install
+  ran with `--use-deprecated=legacy-certs` (certifi's CA bundle). This is a
+  sandbox limit, not a PyPI fault.
+- The user was reminded to delete the account-wide token or replace it with a
+  `pydelity`-only token.
 
 ---
 
@@ -401,7 +458,7 @@ sign-off message.
 
 ### DEV-011 — PyPI account and upload token ready
 
-`Status`: `PENDING` `Depends On`: `NONE` `Acceptance`: `AC-040`
+`Status`: `DONE` `Depends On`: `NONE` `Acceptance`: `AC-040`
 
 **Goal**
 
@@ -433,6 +490,15 @@ token.
 
 The user confirms each item without sharing secrets; the user's public PyPI
 profile page loads.
+
+Evidence (2026-11-16): Developer gave the steps from PyPI's current docs
+(docs.pypi.org: managing your account, two-factor authentication, publishing).
+The user confirmed the account is ready, with username `tonyzhao6`, and handled
+every secret on their own side; none was shared in the conversation or written
+to the repo. `https://pypi.org/user/tonyzhao6/` returned HTTP 200, but PyPI
+served a browser challenge page to the script, so the page content was not read;
+the upload in `DEV-003` is the working proof of the account and token.
+`https://pypi.org/pypi/pydelity/json` still returned 404 (name free).
 
 ---
 
