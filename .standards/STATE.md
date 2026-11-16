@@ -1,11 +1,15 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `SCOPING` `CycleMode`: `UNSET` `PendingCycleMode`: `UNSET`
-`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
-`CompletionPolicy`: `NONE` `Id`: `UNSET` `Request`: `UNSET` `Scope`: `NONE`
+`CompletionPolicy`: `FULL_DELIVERABLE` `Id`:
+`build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de` `Request`:
+`Build pydelity, a standalone Python 3.13 library with a Typer CLI that turns (almost) any PDF into a faithful document.json with item-level provenance and optionally a per-PDF domain.json (steps 1-6: survey, page extraction, page-break verification, assembly, schema proposal, projection). It replaces KGForEdGlobal stages 1-3 and its document.json must stay usable by the KGForEdGlobal KG stage. Publishing to PyPI is a project goal. User rework 2026-11-16: this cycle is only the interactive repo setup (signed off by the user) plus a placeholder pydelity release on PyPI, published as early as possible so the user owns the name; the pipeline (steps 1-6) and a working PyPI release move to the next cycle. Full request, design directions, evidence E1-E23 and open questions: artifacts/design_brief.md.`
+`Scope`:
+`.standards/docs/scope/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
 `Architecture`: `NONE` `Development`: `NONE` `PromotionReason`: `NONE`
 `AuditTarget`: `NONE` `BlockedOn`: `NONE` `PendingVerificationCadence`: `NONE`
 
@@ -19,8 +23,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `INITIAL` `From`: `NONE` `FailureType`: `NONE` `Reason`:
-`Initial greenfield workflow state; cycle mode not yet selected.`
+`Kind`: `RESUME` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
+`Scope replanned: cycle split to repo setup plus PyPI placeholder (AC-001, AC-002, AC-040); no downstream work to rerun.`
 
 ## Recovery
 
