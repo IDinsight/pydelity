@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -27,18 +27,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
-`Scope replanned: just and prek replace Make and pre-commit (AC-001 retired for AC-042; new AC-043), plus Dependabot (AC-044) and zizmor (AC-045); the design must cover them.`
+`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Rerun complete: design revised for AC-042 to AC-045 (just, prek, Dependabot, zizmor; uv required-version becomes a lower bound); frame 1 closed.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `DEVELOPING` `Owner`: `SCOPING` `FailureType`: `SCOPING` `Reason`:
-`User rework: replace Make with just and pre-commit with prek, and add Dependabot and zizmor; AC-001 names make and pre-commit.`
-`ResumeAt`: `DEVELOPING` `RerunThrough`: `ARCHITECTING`
+`Active`: `false`
 
 ## Outstanding Obligations
 
