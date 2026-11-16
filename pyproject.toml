@@ -160,5 +160,6 @@ cache-keys = [{ file = "pyproject.toml" }, { file = "src/pydelity/**/*" }]
 # instead of the whole `src/` directory, so packaging mistakes fail the tests.
 config-settings-package = { pydelity = { editable_mode = "strict" } }
 # A lower bound, not an exact pin: Dependabot's uv updater fails on any uv the bound
-# excludes, so it must stay at or below the uv Dependabot runs.
+# excludes, so it must stay at or below the uv Dependabot runs. Kept by hand:
+# Dependabot has no updater for it.
 required-version = ">=0.8.1"

@@ -826,8 +826,7 @@ in the session temp directory, no GitHub token, so zizmor ran offline):
 
 ### DEV-014 — Dependabot keeps the pins current
 
-`Status`: `PENDING` `Depends On`: `DEV-005, DEV-013` `Acceptance`:
-`AC-044, AC-045`
+`Status`: `DONE` `Depends On`: `DEV-005, DEV-013` `Acceptance`: `AC-044, AC-045`
 
 **Goal**
 
@@ -856,6 +855,44 @@ and `.pre-commit-config.yaml`.
 The zizmor recipe; a YAML check; validation against the published Dependabot
 configuration schema. GitHub itself validates the file only once the branch is
 pushed, so that part stays unverified until then.
+
+Evidence (2026-11-16, uncommitted working tree):
+
+- GitHub's Dependabot options reference (fetched 2026-11-16) lists
+  `github-actions`, `pre-commit` and `uv` as ecosystems, says `cooldown`
+  `default-days` works for all three, and marks `enable-beta-ecosystems` as not
+  in use, so no beta flag is needed.
+- `.github/dependabot.yml`: `version: 2`; `github-actions`, `pre-commit` and
+  `uv` updaters for `/`, each monthly, `cooldown.default-days: 7`, one group
+  with `patterns: ["*"]`, and commit prefix `ci(deps)` (actions) or
+  `build(deps)` (the other two); no `insecure-external-code-execution`.
+- `uvx check-jsonschema --builtin-schema vendor.dependabot` (0.39.0): "ok --
+  validation done".
+- `uv run --locked zizmor --persona=auditor .` audited `.github/dependabot.yml`,
+  the workflow and the hook config: no findings. A scratch copy with
+  `default-days: 3` got three `dependabot-cooldown` warnings, so the audit does
+  cover the file.
+- Pin inventory: dev-group pins and `uv.lock` (uv updater); the
+  `pre-commit-hooks` and `markdownlint-cli2` hook revs (pre-commit updater); the
+  `actions/checkout` and `trufflehog` SHAs (github-actions updater). Kept by
+  hand, each with a comment beside it: `required-version` in `pyproject.toml`
+  (comment added here), Node `language_version` on both Markdown hooks and
+  prettier's `additional_dependencies` (comments from `DEV-005`); CI's uv comes
+  in `DEV-009`.
+- `uv lock --check` passed; `uv run --locked prek run --all-files`: every hook
+  passed on the second run (the first rewrapped this plan).
+- Not verified here: GitHub's own validation of the file, which runs only once
+  the branch is pushed.
+
+**Implementation Notes**
+
+- Within each updater, `package-ecosystem` comes first and the other keys are
+  alphabetical; the updaters are in alphabetical order of ecosystem.
+- `.python-version` (`3.13`) is a design decision (CI tests 3.13), not a version
+  to keep current, so it has no updater or comment.
+- If Dependabot's uv updater proposes raising `setuptools>=77` in
+  `[build-system]`, add an `ignore` with a comment rather than accepting it
+  (design risk).
 
 ---
 
@@ -937,6 +974,8 @@ interrogate 100 %); `uv run --locked just test`: 1 passed.
   - Ordering, as the user asked on 2026-11-16: `justfile` recipes stay in
     alphabetical order (with `default` first, since just runs the first recipe),
     and so do `pyproject.toml` tables, keys and order-free lists.
+  - Dependabot (`DEV-014`), as the user chose on 2026-11-16: monthly checks, one
+    pull request per ecosystem, and `build(deps)` / `ci(deps)` commit messages.
   - Extra Ruff rule families (`DEV-004`), as the user chose on 2026-11-16: `B`,
     `UP`, `SIM`, `C4`, `RET`, `RUF`, `PT` and `S`, on top of the chosen `E`,
     `W`, `F`, `I`, `D` (format only), `C90`, `PL` and `ANN`.
