@@ -227,7 +227,7 @@ Evidence (2026-11-16):
 
 ### DEV-004 — Python lint, format and type toolchain
 
-`Status`: `PENDING` `Depends On`: `DEV-006` `Acceptance`: `AC-042`
+`Status`: `DONE` `Depends On`: `DEV-006` `Acceptance`: `AC-042`
 
 **Goal**
 
@@ -273,6 +273,48 @@ Ruff rule sets are settled with the user in this step.
 The Python lint recipes and
 `uv run --locked prek run <python hook ids> --all-files` pass on the current
 tree; `just test` still passes.
+
+Evidence (2026-11-16, uncommitted working tree on `cd6b470`, `PREK_HOME` and
+`UV_CACHE_DIR` in the session temp directory):
+
+- `uv lock`: 25 packages. Removed black, isort, mypy, mypy-extensions, pylint,
+  pylint-pytest, pytest-asyncio, pytest-bdd, pytest-mock, pytest-order,
+  pytest-randomly, pytest-xdist and both `types-*` stubs (with their
+  dependencies); Ruff 0.13.3 to 0.17.5; added ty 0.0.104. `.pylintrc` deleted;
+  the black, isort and mypy settings and the pytest-asyncio and pytest-bdd
+  options are gone.
+- Ruff selects `ANN`, `B`, `C4`, `C90`, `D`, `E`, `F`, `I`, `PL`, `PT`, `RET`,
+  `RUF`, `S`, `SIM`, `UP` and `W`, ignores `D100` to `D107` and `D202`, uses the
+  NumPy docstring convention, McCabe 10, the five import headings, and lets
+  tests use `assert` and literal values (`S101`, `PLR2004`).
+- `uv run --locked ruff check src tests`: all checks passed (after the `D202`
+  ignore). `ruff format --check`: 6 files already formatted.
+  `ty check src tests`: all checks passed. `interrogate src tests`: 100 % (after
+  `tests/conftest.py` got a module docstring).
+- `uv run --locked prek run --all-files`: `ruff check`, `ruff format`, ty,
+  interrogate and every generic hook passed; only markdownlint-cli2 failed,
+  which `DEV-005` settles. The interrogate hook left the badge unchanged.
+- `uv run --locked just lint-python` passed; `uv run --locked just test`: 1
+  passed.
+- A scratch module written to break the rules got 15 findings across `I`, `F`,
+  `ANN`, `B006`, `D400`, `D403`, `S101`, `S602`, `S607`, `PLW1510`, `SIM103` and
+  `RET505`, and `ruff check --fix` added the `# Standard Library` import
+  heading.
+- `git grep` outside STANDARDS paths finds no `black`, `isort`, `mypy`, `pylint`
+  or `cloc`.
+
+**Implementation Notes**
+
+- `D202` (no blank line after a function docstring) is ignored because the
+  repo's own Python (`scripts/check_env_template.py`, the smoke test) puts a
+  blank line between docstring and body, and Ruff's formatter keeps it.
+- The committed `interrogate_badge.svg` said 0.0 %; it now says 100 %.
+- `lint-python` writes fixes (`ruff check --fix`, `ruff format`), as the old
+  Makefile's `lint` did. CI (`DEV-009`) must therefore not let a lint recipe
+  hide unformatted code: run `prek run --all-files` before the lint recipes, or
+  fail when they leave a `git diff`.
+- `tests/conftest.py` was empty; it now holds only a module docstring so
+  interrogate passes. Tester may replace it.
 
 ---
 
@@ -323,8 +365,7 @@ Limitation: this agent sandbox cannot write under `.claude/skills/`; prettier
 
 ### DEV-006 — Hook configuration for prek
 
-`Status`: `DONE` `Depends On`: `DEV-012` `Acceptance`:
-`AC-042, AC-043, AC-041`
+`Status`: `DONE` `Depends On`: `DEV-012` `Acceptance`: `AC-042, AC-043, AC-041`
 
 **Goal**
 
@@ -389,11 +430,11 @@ Evidence (2026-11-16, uncommitted working tree on `cd6b470`, `PREK_HOME` and
   YAML anchor, so every reader of the file (prek, Dependabot, zizmor) sees it
   plainly.
 - Correction to `DEV-001` found here: the `cache-keys` glob `src/**/*` also
-  matched `src/pydelity.egg-info/`, which every build rewrites, so each
-  `uv run` rebuilt the project (and needed the network for `setuptools`). The
-  glob is now `src/pydelity/**/*`. Three `uv run` calls in a row built once; a
-  new module was still picked up and a deleted one dropped; `uv lock --check`
-  passed; the uv bound script passed again with 0.8.1 and 0.13.7.
+  matched `src/pydelity.egg-info/`, which every build rewrites, so each `uv run`
+  rebuilt the project (and needed the network for `setuptools`). The glob is now
+  `src/pydelity/**/*`. Three `uv run` calls in a row built once; a new module
+  was still picked up and a deleted one dropped; `uv lock --check` passed; the
+  uv bound script passed again with 0.8.1 and 0.13.7.
 
 ---
 
@@ -727,6 +768,41 @@ pushed, so that part stays unverified until then.
 
 ---
 
+### DEV-015 — pyproject.toml in alphabetical order
+
+`Status`: `DONE` `Depends On`: `DEV-004` `Acceptance`: `AC-002, AC-042`
+
+**Goal**
+
+Order `pyproject.toml` alphabetically, as the user asked on 2026-11-16, without
+changing any setting.
+
+**Affected Area**
+
+`pyproject.toml` only.
+
+**Expected Outcome**
+
+Tables appear in alphabetical order of their full names, keys are alphabetical
+within each table, and lists whose order has no meaning (keywords, coverage
+patterns, interrogate patterns) are alphabetical. Each table's comment moves
+with it; the old group banners go. Every setting keeps its value.
+
+**Self-Check**
+
+Load the old and new files with `tomllib` and compare them, ignoring the order
+of the reordered lists; `uv lock --check`; Ruff, ty, interrogate and the test
+recipe still pass.
+
+Evidence (2026-11-16, uncommitted working tree): `tomllib` loads of the old and
+new files compare equal once `keywords`, the coverage `exclude_lines` and
+`omit` lists and interrogate's `ignore-regex` are compared as sorted lists. The
+18 tables run `build-system` to `tool.uv` in `LC_ALL=C` sort order. `uv lock
+--check` passed; `uv run --locked just lint-python` passed (Ruff, ty,
+interrogate 100 %); `uv run --locked just test`: 1 passed.
+
+---
+
 ## Plan Notes
 
 - **Approval.** The user approved the first version of this plan on 2026-11-16
@@ -767,6 +843,12 @@ pushed, so that part stays unverified until then.
     the Typer CLI.
   - Git hook (`DEV-012`), as the user chose on 2026-11-16: `just install` also
     runs `prek install`, so the hooks run before every commit.
+  - Ordering, as the user asked on 2026-11-16: `justfile` recipes stay in
+    alphabetical order (with `default` first, since just runs the first recipe),
+    and so do `pyproject.toml` tables, keys and order-free lists.
+  - Extra Ruff rule families (`DEV-004`), as the user chose on 2026-11-16: `B`,
+    `UP`, `SIM`, `C4`, `RET`, `RUF`, `PT` and `S`, on top of the chosen `E`,
+    `W`, `F`, `I`, `D` (format only), `C90`, `PL` and `ANN`.
 - **Smoke test.** The design's Build Plan step 1 put one smoke test in `DEV-001`
   so the test command has something to run. It is scaffold, not formal
   verification; Tester owns formal tests and may revise it.

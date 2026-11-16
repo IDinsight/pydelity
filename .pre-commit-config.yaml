@@ -45,46 +45,36 @@ repos:
         language: system
         pass_filenames: false
 
-      # Python
-      - id: black
-        name: black
-        entry: uv run --locked black
-        language: system
-        types: [python]
-        files: ^(src|tests)/
-
-      - id: isort
-        name: isort
-        entry: uv run --locked isort
-        language: system
-        types: [python]
-        files: ^(src|tests)/
-
-      - id: ruff
-        name: ruff
+      # Python. Ruff fixes before it formats, as Ruff recommends.
+      - id: ruff-check
+        name: ruff check
         entry: uv run --locked ruff check --fix --exit-non-zero-on-fix
         language: system
         types: [python]
         files: ^(src|tests)/
 
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --locked ruff format
+        language: system
+        types: [python]
+        files: ^(src|tests)/
+
+      # ty and interrogate check the whole of src/ and tests/ on any Python change:
+      # ty needs the full import graph, and interrogate's badge must show the full
+      # coverage, not that of the changed files only.
+      - id: ty
+        name: ty
+        entry: uv run --locked ty check src tests
+        language: system
+        types: [python]
+        files: ^(src|tests)/
+        pass_filenames: false
+
       - id: interrogate
         name: interrogate
-        entry: uv run --locked interrogate -v
+        entry: uv run --locked interrogate src tests
         language: system
         types: [python]
         files: ^(src|tests)/
-        exclude: (^|/)__init__\.py$
-
-      - id: mypy
-        name: mypy
-        entry: uv run --locked mypy --explicit-package-bases --ignore-missing-imports --show-error-codes
-        language: system
-        types: [python]
-        files: ^(src|tests)/
-
-      - id: pylint
-        name: pylint
-        entry: uv run --locked pylint --rcfile=.pylintrc
-        language: system
-        types: [python]
-        files: ^(src|tests)/
+        pass_filenames: false
