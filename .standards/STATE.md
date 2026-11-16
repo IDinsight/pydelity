@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `AUDITING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -24,18 +24,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
-`Scope replanned: Markdown lint and format cover STANDARDS files (new AC-041); architecture decision 9 must be revised.`
+`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Rerun complete: design revised for AC-041 (Markdown tooling over all files with a whitespace guard for STANDARDS files); frame 1 closed.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `AUDITING` `Owner`: `SCOPING` `FailureType`: `SCOPING`
-`Reason`: `User rework: Markdown linting and formatting must cover all Markdown files, including STANDARDS files; the scope says STANDARDS files stay unchanged.`
-`ResumeAt`: `AUDITING` `RerunThrough`: `ARCHITECTING`
+`Active`: `false`
 
 ## Outstanding Obligations
 
