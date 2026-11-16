@@ -70,8 +70,8 @@ PyPI: READMEs, `pyproject.toml`, Makefiles, env templates and `.envrc`,
 - `AC-002`: The user has signed off the repo setup before any pipeline code is
   written.
 - `AC-041`: The Markdown lint and format checks cover every Markdown file in the
-  repo, including those under `.standards/`, `.agents/` and `.claude/skills`
-  and `AGENTS.md` and `CLAUDE.md`. Any change they make to a STANDARDS file is
+  repo, including those under `.standards/`, `.agents/` and `.claude/skills` and
+  `AGENTS.md` and `CLAUDE.md`. Any change they make to a STANDARDS file is
   whitespace or line wrapping only, and `node .standards/bin/check.mjs` still
   passes afterwards. Other formatters, linters and hooks leave STANDARDS files
   unchanged.

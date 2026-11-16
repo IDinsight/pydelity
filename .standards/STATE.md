@@ -11,8 +11,9 @@
 `Scope`:
 `.standards/docs/scope/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
 `Architecture`:
-`.standards/docs/specs/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md` `Development`: `NONE` `PromotionReason`: `NONE`
-`AuditTarget`: `NONE` `BlockedOn`: `NONE` `PendingVerificationCadence`: `NONE`
+`.standards/docs/specs/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
+`Development`: `NONE` `PromotionReason`: `NONE` `AuditTarget`: `NONE`
+`BlockedOn`: `NONE` `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
 

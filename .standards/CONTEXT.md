@@ -66,11 +66,11 @@
   (`__pycache__/`, `dist/`, `build/`, `*.egg-info/`, `.pytest_cache/`,
   `.mypy_cache/`, `.ruff_cache/`, `.coverage` and similar).
 - `cicd/requirements/` — the two hashed requirement files and nothing else.
-- Repo root — `Makefile` (`help`, `clean`, `lint`, `lint-markdown`),
-  `README.md` (title and the tagline "PDF to structured JSON, faithfully"),
-  `LICENSE` (MIT), `.gitignore`, `.pre-commit-config.yaml`, `.secrets.baseline`,
-  `.template.env`, `.envrc`, empty `.prettierignore`, `interrogate_badge.svg`
-  and a tracked `.DS_Store` (which `.gitignore` also lists).
+- Repo root — `Makefile` (`help`, `clean`, `lint`, `lint-markdown`), `README.md`
+  (title and the tagline "PDF to structured JSON, faithfully"), `LICENSE` (MIT),
+  `.gitignore`, `.pre-commit-config.yaml`, `.secrets.baseline`, `.template.env`,
+  `.envrc`, empty `.prettierignore`, `interrogate_badge.svg` and a tracked
+  `.DS_Store` (which `.gitignore` also lists).
 - `scripts/check_env_template.py` — checks that each `.env*` file and its
   `.template.env*` partner declare the same variable names, in sections `.`,
   `backend` and `frontend`. `frontend/` does not exist; missing pairs are
@@ -181,8 +181,8 @@ The targets as they stand. Several fail or have side effects:
 
 ## External Systems and Data
 
-- PyPI and TestPyPI: the `pydelity` name is unregistered (404 on 2026-11-16).
-  No `.pypirc`, PyPI token reference or publishing configuration exists in the
+- PyPI and TestPyPI: the `pydelity` name is unregistered (404 on 2026-11-16). No
+  `.pypirc`, PyPI token reference or publishing configuration exists in the
   repository.
 - GitHub `IDinsight/pydelity`: Actions runs only TruffleHog on pull requests to
   `main`, with `--only-verified` and a separate step that fails the job when the
@@ -199,9 +199,9 @@ The targets as they stand. Several fail or have side effects:
 - `make test` selects nothing today, and no CI job runs lint or tests.
 - `node .standards/bin/check.mjs` passes.
 - Prettier and markdownlint behaviour on STANDARDS files was measured during
-  Architecture (prettier 3.10.1 leaves shipped files unchanged; markdownlint-cli2
-  0.24.1 reports rule violations in shipped files). The design holds those
-  results; this audit did not re-run them.
+  Architecture (prettier 3.10.1 leaves shipped files unchanged;
+  markdownlint-cli2 0.24.1 reports rule violations in shipped files). The design
+  holds those results; this audit did not re-run them.
 
 ## Relevant Existing Behavior
 
@@ -251,6 +251,6 @@ The targets as they stand. Several fail or have side effects:
   404 on 2026-11-16.
 - `uv --version`, `node --version`, `python3.13 --version`, `make --version`,
   `pre-commit --version` — local tool versions.
-- `git -C /Users/tzz/Projects/private/idi/KGForEdGlobal log -1` — reference
-  repo branch and HEAD.
+- `git -C /Users/tzz/Projects/private/idi/KGForEdGlobal log -1` — reference repo
+  branch and HEAD.
 - `node .standards/bin/check.mjs` — passes.
