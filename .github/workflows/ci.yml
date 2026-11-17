@@ -1,6 +1,6 @@
 name: CI
 
-# Runs the same commands that are executed ocally: install, the hooks, every lint
+# Runs the same commands that are executed locally: install, the hooks, every lint
 # recipe and the tests. Pull requests to main include Dependabot's.
 on:
   pull_request:

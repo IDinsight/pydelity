@@ -7,8 +7,8 @@ Cycle: build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de
 
 `Cycle`: `build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de`
 `Mode`: `STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`IN_PROGRESS` `Verification Cadence`: `AFTER_IMPLEMENTATION`
-`Current Increment`: `NONE`
+`COMPLETE` `Verification Cadence`: `AFTER_IMPLEMENTATION` `Current Increment`:
+`NONE`
 
 ## Implementation Contract
 
@@ -705,7 +705,7 @@ Evidence (2026-11-16, uncommitted working tree):
 
 ### DEV-010 — Clean-checkout run and user sign-off of the repo setup
 
-`Status`: `IN_PROGRESS` `Depends On`:
+`Status`: `DONE` `Depends On`:
 `DEV-003, DEV-009, DEV-016, DEV-017, DEV-018, DEV-019` `Acceptance`:
 `AC-002, AC-042, AC-043, AC-044, AC-045, AC-041`
 
@@ -751,7 +751,14 @@ Evidence (2026-11-16):
   workflow runs on it, since CI runs on pull requests to `main` and pushes to
   `main`. GitHub reads `.github/dependabot.yml` only on the default branch, so
   neither the CI run nor GitHub's check of the Dependabot file has happened.
-- Waiting for the user's sign-off of the repo setup (`AC-002`).
+- Signed off: on 2026-11-16 the user wrote "I sign off" for the repo setup as it
+  stands at commit `4d0eafb`: `DEV-001` to `DEV-019`, the GitHub settings in the
+  Plan Notes, and the limits above (CI and GitHub's Dependabot check not yet
+  run). No pipeline code exists.
+- Rerun on the signed-off commit: a fresh clone at `4d0eafb`, under the same
+  conditions (no `node` or `python3.13` on `PATH`, no `Makefile`, no `.env*`
+  files), passed `just install`, `prek run --all-files`, `just lint`,
+  `git diff --exit-code` and `just test` in order, and `check.mjs`.
 
 ---
 
@@ -1373,6 +1380,37 @@ passed.
   `styles/python.md`; `styles/github-actions.md` for `DEV-009`, `DEV-013` and
   `DEV-014`.
 - **Project references loaded:** `NONE`.
+
+### Handoff to Tester
+
+Assessed content: commit `4d0eafb` on `tz6/port-over` (pushed; the working tree
+changes after it are this plan and `STATE.md`). Every step's evidence and limits
+are under its `DEV-NNN`. Acceptance claims:
+
+- `AC-040`: `pydelity` 0.0.1 is on PyPI under the user's account and installs in
+  a fresh Python 3.13 venv (`DEV-001`, `DEV-002`, `DEV-011`, `DEV-003`).
+- `AC-041`: Prettier with the STANDARDS whitespace guard and `check.mjs`, and
+  markdownlint, over every Markdown file; other writing hooks skip STANDARDS
+  paths (`DEV-005`, `DEV-006`, `DEV-017`).
+- `AC-042`: on a clean checkout, `just install`, every lint recipe, `just test`
+  and `prek run --all-files` succeed (`DEV-010`, rerun at `4d0eafb`; built by
+  `DEV-001`, `DEV-004`, `DEV-006` to `DEV-009`, `DEV-012` and `DEV-015` to
+  `DEV-019`).
+- `AC-043`: no `Makefile`, `pre-commit` not in the dev group, and no `make` or
+  `pre-commit` command in READMEs, workflows, scripts, recipes or hook config
+  (`DEV-012`, `DEV-006`).
+- `AC-044`: `.github/dependabot.yml` with `uv`, `pre-commit` and
+  `github-actions` updaters, 7-day cooldown; hand-kept pins commented
+  (`DEV-014`, `DEV-005`, `DEV-009`).
+- `AC-045`: zizmor (`--persona=auditor`) in `just lint` and a prek hook, and in
+  CI with `GH_TOKEN`; no findings and nothing suppressed (`DEV-013`, `DEV-009`).
+- `AC-002`: the user signed off on 2026-11-16 (`DEV-010`).
+
+Not yet observed: a CI run on GitHub (needs a pull request to `main`), zizmor's
+online audits, GitHub's validation of `dependabot.yml` (read only on the default
+branch), and the admin-only GitHub settings. Developer's runs used sandbox
+workarounds (`UV_CACHE_DIR`, `PREK_HOME`, a scratch uv 0.13.8, pip with
+`--use-deprecated=legacy-certs` once); none of them is part of the repo.
 
 ### Suspended Assignment 1
 

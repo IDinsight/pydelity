@@ -1,7 +1,8 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
-`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `REVIEWING_IMPLEMENTATION` `CycleMode`: `STANDARD`
+`PendingCycleMode`: `UNSET` `PendingCycleRequest`: `UNSET`
+`PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -14,8 +15,7 @@
 `.standards/docs/specs/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
 `Development`:
 `.standards/docs/development/build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-010: does the user sign off the repo setup (AC-002) before any pipeline code is written?`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
@@ -28,8 +28,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
-`Rerun complete: design revised for AC-042 to AC-045 (just, prek, Dependabot, zizmor; uv required-version becomes a lower bound); frame 1 closed.`
+`Kind`: `FORWARD` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
+`Full verification complete: every current AC (AC-040 to AC-045, AC-002) verified; implementation review requested.`
 
 ## Recovery
 
