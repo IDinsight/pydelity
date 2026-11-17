@@ -89,6 +89,10 @@ PyPI and learn to use it from an official, versioned docs site.
   Progression logic.
 - Automatic splitting or a chunked survey for PDFs a provider rejects as too
   large.
+- A second model that verifies or corrects the survey's profile (a
+  producer-verifier pass like KGForEdGlobal's page extraction). The survey's
+  checks are Python checks against the measured facts; a verifier may come with
+  a later step such as page extraction.
 - Shipping or maintaining per-model PDF input limits, or checking a PDF against
   such limits before the model call.
 - A default spending limit.
@@ -146,8 +150,9 @@ so that no step needs hand-written per-document rules.
 
 ### 2. Run the survey from the CLI or from Python
 
-**Intent:** Let a user run the survey with nothing but a PDF path, and let code
-call it without the CLI.
+**Intent:** Let a user run the survey with nothing but a PDF path, and let
+synchronous or async code measure a PDF, run the survey and read its results
+back without the CLI.
 
 **Done when:**
 
@@ -164,6 +169,23 @@ call it without the CLI.
   the caller asks for logs.
 - `AC-011`: The survey runs with an Anthropic model or an OpenAI model, chosen
   by setting.
+- `AC-041`: How many times pydelity retries a provider request that failed for a
+  temporary reason (such as a rate limit, a timeout or a server error) is a
+  setting, and no request is retried more often than that. A model request that
+  still fails after those retries stops the run with the provider's error: the
+  CLI shows it and exits non-zero, and the Python API raises an error that
+  carries it.
+- `AC-042`: From Python, `measure(pdf, ...)` measures a PDF, saves the facts
+  file as in `AC-040` and returns the measured facts, with no model call and no
+  API key.
+- `AC-043`: From Python, `load(output_dir)` reads a finished output folder back
+  as Python objects (the facts file, `pdf_survey.json`, `run.json` and the cost
+  ledger), with no model call and no API key.
+- `AC-044`: Each Python API function that measures a PDF, estimates cost or runs
+  the survey has an async version named with an `a` prefix (such as `ameasure`,
+  `aestimate`, `asurvey` and `arun`). It takes the same arguments, gives the
+  same results and errors, and can be awaited from code that already runs an
+  event loop.
 
 **Depends on:** 1.
 
@@ -227,10 +249,11 @@ calls, on every platform and Python version the release supports.
 
 **Done when:**
 
-- `AC-021`: Automated tests cover the survey, configuration, the CLI and Python
-  API, the spend controls, the handling of a PDF the provider rejects, resume
-  and the review output, with both providers' responses mocked and no network
-  calls to model providers.
+- `AC-021`: Automated tests cover the survey, configuration, the CLI and the
+  Python API (including its async functions), provider retries, the spend
+  controls, the handling of a PDF the provider rejects, resume and the review
+  output, with both providers' responses mocked and no network calls to model
+  providers.
 - `AC-022`: CI runs the tests on Python 3.13 and Python 3.14, and "Lint and
   test" and "TruffleHog secret scan" still gate merges to `main`.
 - `AC-023`: On Windows, the built wheel installs with pip, and the `pydelity`
@@ -341,4 +364,6 @@ mocked tests cannot show.
 - The user makes the one-time settings the repo cannot: a PyPI Trusted Publisher
   for `pydelity`, and GitHub Pages set to deploy from GitHub Actions.
 - Architect picks the default model for the survey, the final `kind` and `role`
-  lists that labels map to, and how the survey's checks are carried out.
+  lists that labels map to, how the survey's Python checks work, the default
+  number of provider retries, and whether `load`, which only reads files, also
+  gets an async version.

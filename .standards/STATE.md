@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `SCOPING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
-`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -27,8 +27,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `USER_REWORK` `From`: `DEVELOPING` `FailureType`: `SCOPING` `Reason`:
-`User rework: add a configurable provider retry count, measure(pdf, ...) and load(output_dir) to the Python API, and async versions of the API functions named arun, asurvey, aestimate and so on; the survey keeps Python checks only, with no model verifier.`
+`Kind`: `FORWARD` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
+`Scope revised for the user rework: AC-041 adds the provider retry setting, AC-042 to AC-044 add measure(), load() and the async functions, AC-021 covers them in tests, and a non-goal excludes a survey verifier. Architecture reruns before Developer resumes.`
 
 ## Recovery
 
@@ -38,7 +38,7 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 `From`: `DEVELOPING` `Owner`: `SCOPING` `FailureType`: `SCOPING` `Reason`:
 `User rework: add a configurable provider retry count, measure(pdf, ...) and load(output_dir) to the Python API, and async versions of the API functions named arun, asurvey, aestimate and so on; the survey keeps Python checks only, with no model verifier.`
-`ResumeAt`: `DEVELOPING` `RerunThrough`: `NONE`
+`ResumeAt`: `DEVELOPING` `RerunThrough`: `ARCHITECTING`
 
 ## Outstanding Obligations
 
