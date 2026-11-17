@@ -14,7 +14,7 @@ inherit, and builds step 1 (survey) on them.
 
 - Scope:
   `.standards/docs/scope/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
-  (AC-001 to AC-039; AC-012, AC-013 and AC-016 are retired). Project context:
+  (AC-001 to AC-040; AC-012, AC-013 and AC-016 are retired). Project context:
   `.standards/CONTEXT.md`. Design inputs: `artifacts/design_brief.md` (step 1
   design points, cross-cutting directions, known source defects) and
   `artifacts/next_cycle_inputs.md`.
@@ -40,6 +40,11 @@ inherit, and builds step 1 (survey) on them.
   user decides: the CLI asks (`--yes` continues), and Python callers pass a
   boolean argument. The design applies the same reasoning to all per-model data
   (decision 3).
+- User rework recorded 2026-11-17 during development (scope AC-040): the
+  measured facts and their summary go in their own permanent output file,
+  written before any API key check, cost question or model call, and the summary
+  is logged; `pdf_survey.json` still holds the facts (AC-001). The design names
+  the file `pdf_facts.json`, after `pdf_survey.json`.
 - Test PDFs are real public-domain documents the user approves, not generated
   ones (user decision recorded in the development plan, 2026-11-17).
 - No project references exist under `.standards/project-references/`; none is
@@ -164,11 +169,12 @@ inherit, and builds step 1 (survey) on them.
    genai-prices' runtime price updates stay off, so pydelity makes no network
    calls other than to the model providers.
 7. **Output folder is the unit of resume and spend.** One folder per PDF run
-   holds `pdf_survey.json`, `run.json`, `cost.jsonl`, `uploads.json`,
-   `report.html` and `report/`. Every JSON and HTML file is written atomically
-   (temp file in the same folder, flush, `fsync`, `os.replace`) and validated on
-   load. Each step output stores a fingerprint of its inputs; a valid output
-   with a matching fingerprint is reused, anything else is regenerated.
+   holds `pdf_facts.json`, `pdf_survey.json`, `run.json`, `cost.jsonl`,
+   `uploads.json`, `report.html` and `report/`. Every JSON and HTML file is
+   written atomically (temp file in the same folder, flush, `fsync`,
+   `os.replace`) and validated on load. Each step output stores a fingerprint of
+   its inputs; a valid output with a matching fingerprint is reused, anything
+   else is regenerated.
 8. **Profile vocabulary.** Item `kind`: `text`, `list`, `table`, `figure`,
    `field`, `formula`, `code`. Item `role`: `heading`, `body`, `caption`,
    `footnote`, `artifact`, `navigation`, `aside`. A value is in these lists only
@@ -203,6 +209,17 @@ inherit, and builds step 1 (survey) on them.
     question; no stops the run in a resumable state (`BudgetExceededError`)
     before anything is sent. The CLI asks at most once: when the plan-time check
     trips, its confirmation question is also the `max_cost` question.
+12. **The survey saves its measured facts first** (AC-040). The survey writes
+    `pdf_facts.json` (facts plus a plain-text summary) as soon as the probe
+    finishes, and logs the summary, before the API key check, the estimate, the
+    CLI's question and any upload or model call. So a run that is declined,
+    stopped at `max_cost`, rejected by the provider or missing its API key still
+    leaves the facts on disk. The facts file has its own fingerprint and is
+    reused like any step output; the survey fingerprint includes it, and
+    `pdf_survey.json` keeps a copy of the facts it used (AC-001). The run asks
+    the CLI's questions through callables it is given, after the facts are
+    saved: a confirmation callable (the CLI's prompt or `--yes`; the Python API
+    passes none and never asks) and the over-`max_cost` decision (decision 11).
 
 ### Reuse from KGForEdGlobal
 
@@ -225,9 +242,12 @@ and adapt, without changing KGForEdGlobal:
 
 ## Acceptance Coverage
 
-- `AC-001`: The survey probe and the `facts` section of `pdf_survey.json` under
-  **Interfaces and Contracts**; measurement rules under **Technical Acceptance
+- `AC-001`: The survey probe, the `facts` contract under `pdf_facts.json` and
+  its copy in `pdf_survey.json`; measurement rules under **Technical Acceptance
   Criteria**.
+- `AC-040`: `pdf_facts.json` and its summary, written and logged before the key
+  check, estimate, questions and model calls (decision 12); facts reuse by
+  fingerprint.
 - `AC-002`: Model-facing proposal schema and the stored `profile` section, the
   `kind`/`role` enums (decision 8), Python-owned `other` label.
 - `AC-003`: Checks C1–C7, the output-validator retry rule (decision 5), review
@@ -256,7 +276,7 @@ and adapt, without changing KGForEdGlobal:
   ledger: plan-time and per-request checks, the `max_cost_exceeded` warning, the
   CLI question and `--yes`, the Python `allow_over_max_cost` argument and
   `BudgetExceededError`; a stop leaves resumable state.
-- `AC-017`: Survey fingerprint and reuse rule; `overwrite`.
+- `AC-017`: Facts and survey fingerprints and the reuse rule; `overwrite`.
 - `AC-018`: Atomic writes, temp-file cleanup, validate-on-load, interrupt
   handling.
 - `AC-019`: Review issue contract in `run.json`; CLI end-of-run summary.
@@ -306,7 +326,8 @@ may use the errors component; nothing uses the entry points):
 - **Run orchestration** — output folder, `run.json`, step sequencing, review
   list, warnings, interrupt handling, calling the report.
 - **Survey step** — facts schemas and the `kind`/`role` enums, proposal and
-  profile schemas, `PdfSurvey`; the PyMuPDF probe; the generic prompt and
+  profile schemas, `PdfSurvey`; the PyMuPDF probe, `PROBE_VERSION`, the facts
+  summary and `pdf_facts.json` (write and reuse); the generic prompt and
   `PROMPT_VERSION`; checks C1–C7; the agent, output validator, merge,
   fingerprint and reuse.
 - **Report** — `report.html`, page images and their manifest.
@@ -378,16 +399,19 @@ script, the Astro site under `docs/`, and CI, docs and release workflows under
 
 - `pydelity [PDF] [--config/-c FILE] [--instructions TEXT] [--language TAG]... [--output-dir DIR] [--model MODEL] [--max-cost USD] [--overwrite] [--yes/-y] [--verbose/-v | --quiet/-q] [--version]`.
   Console script `pydelity`, pointing at the CLI module's entry function.
-- Flow: resolve and validate config → open the PDF → plan (which steps run or
-  are reused) → if a model call is planned: print the estimate, spend so far in
-  the folder and `max_cost`; when the plan-time `max_cost` check trips, log the
-  `max_cost_exceeded` warning first → confirm (`--yes` proceeds; an interactive
-  stdin prompts, default No, and a yes also allows going over `max_cost` for
-  this run; a non-interactive stdin stops with a message to pass `--yes`) → run;
-  if a per-request `max_cost` check trips during the run, log the warning and
-  ask again (default No; `--yes` continues without asking) → print the summary
-  (status, cost this run by step, folder total, review issue count and the first
-  issues with step, page and check, output paths, report path).
+- Flow: resolve and validate config → open the PDF → prepare the output folder →
+  measure or reuse the facts, write `pdf_facts.json` and log its summary → plan
+  (which steps run or are reused) → if a model call is planned: check the API
+  key; print the estimate, spend so far in the folder and `max_cost`; when the
+  plan-time `max_cost` check trips, log the `max_cost_exceeded` warning first →
+  confirm (`--yes` proceeds; an interactive stdin prompts, default No, and a yes
+  also allows going over `max_cost` for this run; a non-interactive stdin stops
+  with a message to pass `--yes`) → model calls; if a per-request `max_cost`
+  check trips, log the warning and ask again (default No; `--yes` continues
+  without asking) → print the summary (status, cost this run by step, folder
+  total, review issue count and the first issues with step, page and check,
+  output paths, report path). Every step after "prepare the output folder" runs
+  inside the run, which calls back into the CLI for its questions (decision 12).
 - A run that ends on `ProviderError` prints the provider's message as given,
   prefixed by the provider and model, plus the PDF's name, pages and size when
   the failed call carried the PDF.
@@ -406,8 +430,8 @@ script, the Astro site under `docs/`, and CI, docs and release workflows under
   report. `config` is a path, a `Config` or a mapping; `settings` uses the
   top-level setting names (`advanced` as a mapping).
 - `survey(pdf=None, *, config=None, allow_over_max_cost=False, **settings) -> PdfSurvey`
-  — step 1 only: writes `pdf_survey.json` and ledger lines, not `run.json` or
-  the report.
+  — step 1 only: writes `pdf_facts.json`, `pdf_survey.json` and ledger lines,
+  not `run.json` or the report.
 - `allow_over_max_cost` is a function argument, not a setting: it is not in
   `Config`, config files or the fingerprint. `True` lets the call continue past
   `max_cost` after the warning; `False` makes a tripped `max_cost` check raise
@@ -454,7 +478,7 @@ script, the Astro site under `docs/`, and CI, docs and release workflows under
   context window, unreadable). The run ends `failed`; nothing is retried with a
   smaller PDF.
 
-### `pdf_survey.json`
+### `pdf_facts.json`
 
 All pydelity JSON outputs carry `schema_version` as a `"MAJOR.MINOR"` string
 (this cycle `"1.0"`; additive changes bump the minor, breaking changes the
@@ -462,13 +486,25 @@ major) and `pydelity_version`. All bounding boxes in stored outputs are PDF
 points in the displayed (rotation-applied) page space, origin top-left,
 `[x0, y0, x1, y1]`. Page indexes are 0-based.
 
-- `fingerprint` — `"sha256:<hex>"` of the canonical JSON (sorted keys, no
-  whitespace) of: PDF SHA-256, resolved `model`, `instructions`, `languages`,
-  `advanced.survey` values (`max_retries`, `effort`, `max_output_tokens`),
-  `PROMPT_VERSION`, survey `schema_version`. Excludes `max_cost`,
-  `allow_over_max_cost`, `overwrite`, `output_dir` and prices.
-- `inputs` — `pdf_name`, `pdf_sha256`, `pdf_bytes`, `page_count`, `model`,
-  `instructions`, `languages`, survey settings, `prompt_version`.
+The survey's measured facts and their summary, saved right after measuring and
+before any API key check, cost question or model call (AC-040). It is a
+permanent output: pydelity never deletes it, and only a new measurement replaces
+it (atomically).
+
+- `fingerprint` — `"sha256:<hex>"` of the canonical JSON of: PDF SHA-256,
+  `PROBE_VERSION`, facts `schema_version`. `PROBE_VERSION` is a named constant
+  bumped whenever a measurement rule, a measurement constant or the summary
+  format changes, so an upgraded pydelity measures again.
+- `probe_version`, `measured_at`, `pdf` (`name`, `sha256`, `bytes`,
+  `page_count`).
+- `summary[]` — the facts summary as plain-text lines, built deterministically
+  from `facts`: page count; pages with no text and with garbled text; inline
+  direction and vertical writing; pages whose measured orientation is not 0, as
+  ranges; measured page-numbering ranges; repeated lines (count and the most
+  frequent); bookmarks; form fields (count, AcroForm, XFA); structure-tag
+  quality; unreadable facts. The same lines are logged at INFO, form the facts
+  part of the survey prompt, and head the report's facts section. Developer sets
+  the wording.
 - `facts` (measured, no model):
   - `pages[]`: `index`, `width_pt`, `height_pt`, `rotation_attribute`, `text`
     (`chars`, `control_chars`, `replacement_chars`, `private_use_chars`,
@@ -499,6 +535,20 @@ points in the displayed (rotation-applied) page space, origin top-left,
     `repeated_lines_truncated`.
   - `page_numbering[]`: measured ranges `first_page_index`, `last_page_index`,
     `style`, `offset` (printed − page index), `pages_measured`.
+
+### `pdf_survey.json`
+
+- `fingerprint` — `"sha256:<hex>"` of the canonical JSON (sorted keys, no
+  whitespace) of: PDF SHA-256, the `pdf_facts.json` fingerprint, resolved
+  `model`, `instructions`, `languages`, `advanced.survey` values (`max_retries`,
+  `effort`, `max_output_tokens`), `PROMPT_VERSION`, survey `schema_version`.
+  Excludes `max_cost`, `allow_over_max_cost`, `overwrite`, `output_dir` and
+  prices.
+- `inputs` — `pdf_name`, `pdf_sha256`, `pdf_bytes`, `page_count`,
+  `facts_fingerprint`, `model`, `instructions`, `languages`, survey settings,
+  `prompt_version`.
+- `facts` — a copy of the `facts` object of the `pdf_facts.json` this survey
+  used (AC-001), so `pdf_survey.json` stands alone.
 - `proposal` (model output that is not profile): `regions[]` (`page_index`,
   `bbox`, `label`, `note`), `artifacts[]` (`id`, `description`, `position`,
   `repeated_line_ids`), `non_artifact_lines[]` (`repeated_line_id`, `reason`),
@@ -562,11 +612,12 @@ points in the displayed (rotation-applied) page space, origin top-left,
   suffix), `status` (`running` | `completed` | `failed` | `stopped` |
   `interrupted`), `started_at`, `ended_at`, `pdf` (`path`, `sha256`,
   `page_count`, `bytes`), `settings` (resolved, no secrets), `steps[]` (`name`,
-  `status`: `completed` | `reused` | `failed` | `stopped` | `skipped`, `output`,
-  `requests`, `cost_usd`, `pdf_transport` (`upload` | `request` | null when no
-  PDF was sent), `started_at`, `ended_at`, `error`), `cost` (`run_usd`,
-  `by_step`, `output_folder_usd`, `unpriced_requests`), `review[]`,
-  `warnings[]`, `error`.
+  `status`: `completed` | `reused` | `failed` | `stopped` | `skipped`, `outputs`
+  (the files the step wrote or reused, by name; the survey lists
+  `pdf_facts.json` as soon as it exists, then `pdf_survey.json`), `requests`,
+  `cost_usd`, `pdf_transport` (`upload` | `request` | null when no PDF was
+  sent), `started_at`, `ended_at`, `error`), `cost` (`run_usd`, `by_step`,
+  `output_folder_usd`, `unpriced_requests`), `review[]`, `warnings[]`, `error`.
 - Warning item: `code`, `step` (or null), `message`, `details` (object). Codes
   this cycle: `unpriced_model`, `max_cost_exceeded`, `other_pdf_in_folder`,
   `damaged_output`, `upload_fallback`, `probe_unavailable`. The same message
@@ -640,11 +691,12 @@ points in the displayed (rotation-applied) page space, origin top-left,
   about 1000 px wide), rendered by PyMuPDF; images are re-rendered only when
   missing or when `report/manifest.json`'s PDF SHA-256 differs.
 - Content: run header (PDF, status, model), cost (this run by step, folder
-  total), review list, profile, facts summary (bookmarks, form fields, structure
-  quality, repeated lines with their artifact mapping), then one card per page:
-  image with region and form-field boxes as CSS overlays positioned in percent,
-  page findings (text quality, orientation, direction, printed number, profile
-  rotation, repeated lines, issues on that page).
+  total), review list, profile, facts (the `pdf_facts.json` summary lines, then
+  bookmarks, form fields, structure quality, repeated lines with their artifact
+  mapping), then one card per page: image with region and form-field boxes as
+  CSS overlays positioned in percent, page findings (text quality, orientation,
+  direction, printed number, profile rotation, repeated lines, issues on that
+  page).
 - Static HTML: no JavaScript requirement, no external URLs, every inserted
   string HTML-escaped. Written at the end of every run that got past input
   validation, whatever its status, with the data available.
@@ -677,8 +729,8 @@ points in the displayed (rotation-applied) page space, origin top-left,
   `/pydelity/`, each release at `/pydelity/v/<version>/`; `versions.json` and a
   version selector.
 - Generated reference pages in `docs/src/content/docs/reference/`
-  (configuration, CLI, Python API, `pdf_survey.json`, `run.json`, `cost.jsonl`,
-  `uploads.json`, survey checks), produced by
+  (configuration, CLI, Python API, `pdf_facts.json`, `pdf_survey.json`,
+  `run.json`, `cost.jsonl`, `uploads.json`, survey checks), produced by
   `scripts/generate_reference_docs.py` from the `Config`, Typer command, public
   API and output Pydantic models, each marked as generated. Prose pages are
   Documenter's.
@@ -736,27 +788,35 @@ points in the displayed (rotation-applied) page space, origin top-left,
 3. Prepare the output folder: create it, remove stale `*.tmp-*` files, warn if
    an existing `run.json` names a different PDF SHA-256, write `run.json`
    (`running`).
-4. Plan the survey: load `pdf_survey.json` if present; invalid JSON or schema →
-   warn and treat as absent; matching fingerprint and no `overwrite` → reuse.
-5. If the survey runs: check the provider key; estimate; the plan-time
+4. Facts (decision 12): load `pdf_facts.json` if present; invalid JSON or schema
+   → `damaged_output` warning and treat as absent; matching fingerprint and no
+   `overwrite` → reuse; otherwise run the probe, build the summary and write
+   `pdf_facts.json` atomically. Log the summary at INFO either way and add a
+   `probe_unavailable` warning per `probe_errors` item. Nothing before this
+   point needs an API key or contacts a provider.
+5. Plan the survey: load `pdf_survey.json` if present; invalid JSON or schema →
+   warn and treat as absent; matching fingerprint (which includes the facts
+   fingerprint) and no `overwrite` → reuse.
+6. If the survey runs: check the provider key; estimate; the plan-time
    `max_cost` check and its decision (decision 11); CLI confirmation (Python
-   skips it); probe facts; reuse the PDF's upload from `uploads.json` if it has
-   at least an hour left, otherwise upload it and record it; build the agent
-   through `build_model`; run it; each request passes the per-request `max_cost`
-   check and is written to the ledger; the output validator runs C1–C7 and
-   retries or accepts as in decision 5; Python adds `other`, merges user
-   languages, stores `user_instructions`, converts region boxes; write
+   skips it); reuse the PDF's upload from `uploads.json` if it has at least an
+   hour left, otherwise upload it and record it; build the agent through
+   `build_model`; run it; each request passes the per-request `max_cost` check
+   and is written to the ledger; the output validator runs C1–C7 and retries or
+   accepts as in decision 5; Python adds `other`, merges user languages, stores
+   `user_instructions`, converts region boxes, copies the facts in; write
    `pdf_survey.json` atomically. If the provider answers that the recorded file
    no longer exists, upload again once, replace the record and retry the
    request. When the upload path fails (decision 4), send the PDF inside the
    request instead. A provider rejection of the PDF on any path raises
    `ProviderError`.
-6. Assemble `run.json` (steps, cost from the ledger, review list, warnings),
+7. Assemble `run.json` (steps, cost from the ledger, review list, warnings),
    write the report, print the CLI summary.
-7. Any exception after step 3 records `failed`, `stopped` or `interrupted` in
+8. Any exception after step 3 records `failed`, `stopped` or `interrupted` in
    `run.json` and still writes the report before re-raising. A stopped, failed
    or interrupted survey writes no `pdf_survey.json`; the next run redoes it,
    with the earlier spend already in the ledger and counted against `max_cost`.
+   `pdf_facts.json`, once written, stays and is reused by that next run.
 
 ## Technical Acceptance Criteria
 
@@ -850,12 +910,21 @@ points in the displayed (rotation-applied) page space, origin top-left,
 - `AC-038`, `AC-039`: With `max_cost` set and an unpriced model, the plan-time
   check trips (`projected_usd` null); without `max_cost`, no check runs and no
   question is asked.
-- `AC-017`: A rerun with identical fingerprint inputs sends no request; changing
-  any fingerprint input or setting `overwrite` sends requests.
+- `AC-017`: A rerun with identical fingerprint inputs sends no request and
+  measures nothing; changing any fingerprint input or setting `overwrite` sends
+  requests; a changed `PROBE_VERSION` measures again and reruns the survey.
+- `AC-040`: `pdf_facts.json` exists, is valid and holds the facts and summary
+  after a run with no API key, a declined or non-interactive confirmation, a
+  `max_cost` no and a provider error, in both the CLI and the Python API. It is
+  written before the API key check, the estimate output and any question, upload
+  or request, and its summary lines are logged at INFO. A completed survey's
+  `pdf_survey.json` `facts` equals that file's `facts`, and its
+  `inputs.facts_fingerprint` equals that file's `fingerprint`.
 - `AC-018`: No output file exists in a partial state at any point; a corrupt or
-  schema-invalid `pdf_survey.json` is regenerated; stale temp files are removed;
-  an `uploads.json` record is written only after its upload succeeded, and a
-  damaged `uploads.json` is treated as empty (the PDF is uploaded again).
+  schema-invalid `pdf_facts.json` or `pdf_survey.json` is regenerated; stale
+  temp files are removed; an `uploads.json` record is written only after its
+  upload succeeded, and a damaged `uploads.json` is treated as empty (the PDF is
+  uploaded again).
 - `AC-019`: Review issues carry step, check and page (or null); the CLI summary
   shows their count and entries.
 - `AC-020`: The report opens from disk with no network access and shows every
@@ -913,9 +982,9 @@ Developer proposes its name and place and waits for the user's sign-off.
    provider profiles. Must land together so the package imports and the strict
    editable install still passes the existing smoke tests.
 2. **PDF and probe** — `CANDIDATE` modules for opening PDFs, the facts schemas
-   and enums, and the probe; test PDF fixtures (real public-domain documents the
-   user approves, each committed one under the 500 KB hook limit, including a
-   tagged PDF).
+   and enums, the probe, the facts summary and `pdf_facts.json`; test PDF
+   fixtures (real public-domain documents the user approves, each committed one
+   under the 500 KB hook limit, including a tagged PDF).
 3. **Cost and model layer** (parallel with 2) — `CANDIDATE` modules for the
    ledger, pricing, estimate and `max_cost` guard; `build_model`, provider
    settings and `LedgerModel`; Files API upload, reuse and the `uploads.json`
@@ -1008,6 +1077,10 @@ Developer proposes its name and place and waits for the user's sign-off.
 - Deleting uploads when the step ends: less stored data at the provider, but
   every rerun uploads again and later steps cannot reuse the file. The user
   chose to keep uploads until their expiry.
+- Facts only inside `pdf_survey.json` (the earlier design): one file fewer, but
+  the facts are lost whenever the survey does not finish; the user chose a
+  separate file. Dropping `facts` from `pdf_survey.json` instead of copying them
+  would contradict AC-001.
 - A shipped per-model catalog of PDF limits with a pre-call check (the earlier
   design): clearer errors before any upload, but the user ruled it out as not
   maintainable; providers enforce their own limits (AC-037).
