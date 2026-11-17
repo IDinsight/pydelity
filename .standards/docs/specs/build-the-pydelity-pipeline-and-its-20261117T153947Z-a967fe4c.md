@@ -14,7 +14,7 @@ inherit, and builds step 1 (survey) on them.
 
 - Scope:
   `.standards/docs/scope/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
-  (AC-001 to AC-040; AC-012, AC-013 and AC-016 are retired). Project context:
+  (AC-001 to AC-044; AC-012, AC-013 and AC-016 are retired). Project context:
   `.standards/CONTEXT.md`. Design inputs: `artifacts/design_brief.md` (step 1
   design points, cross-cutting directions, known source defects) and
   `artifacts/next_cycle_inputs.md`.
@@ -45,6 +45,12 @@ inherit, and builds step 1 (survey) on them.
   written before any API key check, cost question or model call, and the summary
   is logged; `pdf_survey.json` still holds the facts (AC-001). The design names
   the file `pdf_facts.json`, after `pdf_survey.json`.
+- User rework recorded 2026-11-17 during development (scope AC-041 to AC-044):
+  the provider retry count is a setting (today both SDKs default to 2); the
+  Python API adds `measure` and `load` and async versions named with an `a`
+  prefix; the survey keeps Python checks only, with no verifier model. The scope
+  leaves to Architect the default retry count, how the checks work and whether
+  `load` gets an async version (decisions 5, 13 and 14).
 - Test PDFs are real public-domain documents the user approves, not generated
   ones (user decision recorded in the development plan, 2026-11-17).
 - No project references exist under `.standards/project-references/`; none is
@@ -53,12 +59,12 @@ inherit, and builds step 1 (survey) on them.
 ## Decision
 
 1. **Library first, thin CLI.** All behaviour lives in the `pydelity` package
-   behind a small public Python API (`run`, `survey`, `estimate`, `Config`,
-   result models, exceptions). The Typer CLI only parses options, shows the
-   estimate, asks for confirmation, calls the API and prints a summary.
-   Importing pydelity reads no environment, builds no settings and emits no log
-   output: `pydelity/__init__.py` calls `loguru.logger.disable("pydelity")` and
-   the CLI enables it.
+   behind a small public Python API (`measure`, `estimate`, `survey`, `run`,
+   their async versions, `load`, `Config`, result models, exceptions). The Typer
+   CLI only parses options, shows the estimate, asks for confirmation, calls the
+   API and prints a summary. Importing pydelity reads no environment, builds no
+   settings and emits no log output: `pydelity/__init__.py` calls
+   `loguru.logger.disable("pydelity")` and the CLI enables it.
 2. **Stack.** Runtime dependencies (minimum versions, written by `uv add`):
    `pydantic`, `pydantic-settings[yaml]`, `pydantic-ai-slim[anthropic,openai]`
    (the slim distribution, so installs pull only the two supported providers; it
@@ -111,19 +117,20 @@ inherit, and builds step 1 (survey) on them.
    Fallback: when the upload path fails, the step sends the PDF inside the
    request instead, as PydanticAI `BinaryContent(media_type="application/pdf")`,
    for the rest of that step run. The upload path has failed when the upload
-   call fails after the provider SDK's own retries (connection error, timeout,
-   rate limit, server error, or any other error response except the two below),
-   or when a re-upload after "file not found" fails. Two upload errors stop the
-   run with `ProviderError` instead, because the in-request call would fail the
-   same way: an authentication failure, and a rejection as too large (HTTP 413;
-   neither supported provider accepts a larger PDF inside a request than as an
-   upload). Errors from the model request itself never trigger the fallback. The
-   fallback is recorded as a warning in `run.json` (with the upload error) and
-   the step's `pdf_transport` becomes `request`; nothing is written to
-   `uploads.json`. pydelity does not check the PDF against any size limit before
-   the fallback: if the provider rejects the in-request call too, the run stops
-   with `ProviderError` carrying that rejection, and its message also gives the
-   earlier upload error. Prompt caching applies the same way on both paths.
+   call fails after the provider retries (decision 13; connection error,
+   timeout, rate limit, server error, or any other error response except the two
+   below), or when a re-upload after "file not found" fails. Two upload errors
+   stop the run with `ProviderError` instead, because the in-request call would
+   fail the same way: an authentication failure, and a rejection as too large
+   (HTTP 413; neither supported provider accepts a larger PDF inside a request
+   than as an upload). Errors from the model request itself never trigger the
+   fallback. The fallback is recorded as a warning in `run.json` (with the
+   upload error) and the step's `pdf_transport` becomes `request`; nothing is
+   written to `uploads.json`. pydelity does not check the PDF against any size
+   limit before the fallback: if the provider rejects the in-request call too,
+   the run stops with `ProviderError` carrying that rejection, and its message
+   also gives the earlier upload error. Prompt caching applies the same way on
+   both paths.
 
    Uploads are kept, not deleted. Each upload sets the provider's expiry from
    `advanced.uploads.expiry_hours`, which defaults to the provider's maximum
@@ -153,9 +160,12 @@ inherit, and builds step 1 (survey) on them.
    retries remain, a failed check raises `ModelRetry` with a message naming each
    failure and the measured values. On the final allowed attempt
    (`RunContext.last_attempt`), the validator accepts the answer and records
-   each still-failing check as a review issue. `advanced.survey.max_retries`
+   each still-failing check as a review issue. `advanced.survey.check_retries`
    (default 2) sets `output_retries`. An answer that never parses into the
-   proposal schema exhausts PydanticAI's retries and fails the survey.
+   proposal schema exhausts PydanticAI's retries and fails the survey. These
+   checks are the survey's only checks: no second model reviews or corrects the
+   answer (scope non-goal). Check retries are new model requests and are
+   separate from provider retries (decision 13).
 6. **Cost ledger by wrapping the model.** `LedgerModel`, a PydanticAI
    `WrapperModel`, wraps every model pydelity builds. Before each request it
    asks the `max_cost` guard (decision 11) whether the request may go ahead;
@@ -220,6 +230,36 @@ inherit, and builds step 1 (survey) on them.
     the CLI's questions through callables it is given, after the facts are
     saved: a confirmation callable (the CLI's prompt or `--yes`; the Python API
     passes none and never asks) and the over-`max_cost` decision (decision 11).
+13. **Provider retries are one setting** (AC-041). `advanced.provider_retries`
+    (integer 0–10, default 2, the SDKs' own default) is how many times a request
+    to the provider is retried after a temporary failure. `build_model` builds
+    the SDK client itself (`AsyncAnthropic` or `AsyncOpenAI` with `max_retries`
+    and the request timeout) and passes it to PydanticAI's provider
+    (`anthropic_client` / `openai_client`), so the same count governs model
+    requests and Files API uploads. The SDKs decide what is temporary
+    (connection errors, timeouts, HTTP 408, 409, 429 and 5xx, and their
+    `x-should-retry` header) and wait as the provider's `retry-after` headers
+    say. pydelity adds no retry layer of its own and does not enable
+    PydanticAI's optional HTTP retries, so no request is sent more than
+    `1 + provider_retries` times. A model request that still fails raises
+    `ProviderError`. Two re-sends are not provider retries, because the request
+    changes: the one re-send after a new upload replaces a file the provider no
+    longer has, and the in-request fallback after the upload path fails (each
+    gets its own provider retries).
+14. **Async core, sync wrappers** (AC-042 to AC-044). Each measuring, estimating
+    or running function is written once as a coroutine: `ameasure`, `aestimate`,
+    `asurvey`, `arun`. The sync functions `measure`, `estimate`, `survey`, `run`
+    take the same arguments and call the coroutine: with `asyncio.run` when the
+    calling thread has no running event loop, otherwise on a worker thread with
+    its own loop, blocking until it finishes. A worker thread's warnings are
+    recorded and issued again in the calling thread, so both forms give the same
+    results, errors and warnings. The coroutines never call `asyncio.run` and do
+    no long blocking work on the event loop: opening and hashing the PDF, the
+    probe, and rendering report images run in `asyncio.to_thread`; small JSON
+    reads and writes run inline. Warnings are issued from the coroutine, never
+    from a worker thread. `load` stays sync only: it reads a few local files,
+    and code inside an event loop can call it directly or through
+    `asyncio.to_thread`.
 
 ### Reuse from KGForEdGlobal
 
@@ -265,6 +305,11 @@ and adapt, without changing KGForEdGlobal:
   invalid setting.
 - `AC-010`: Public API; import-time rules (decision 1).
 - `AC-011`: Model factory and provider settings (decision 3).
+- `AC-041`: `advanced.provider_retries` and the SDK clients built with it
+  (decision 13); `ProviderError` after the retries.
+- `AC-042`: `measure` / `ameasure` and the `PdfFacts` result.
+- `AC-043`: `load`, `RunResult` and `OutputError`.
+- `AC-044`: The async functions and the sync wrappers (decision 14).
 - `AC-014`: `LedgerModel`, `cost.jsonl`, per-step and total cost in `run.json`
   and the CLI summary.
 - `AC-015`: `estimate()`, CLI confirmation flow, `--yes`, non-interactive stop;
@@ -282,7 +327,8 @@ and adapt, without changing KGForEdGlobal:
 - `AC-019`: Review issue contract in `run.json`; CLI end-of-run summary.
 - `AC-020`: `report.html` and `report/pages/` contract.
 - `AC-021`: Test seams: provider base URLs, the test environment guard, the
-  shared mock provider server and canned responses.
+  shared mock provider server and canned responses, including temporary failures
+  for provider retries.
 - `AC-022`: CI job layout with the "Lint and test" gate job.
 - `AC-023`, `AC-024`: `just build`, wheel smoke script and the cross-platform
   wheel job; `twine check --strict`.
@@ -322,7 +368,8 @@ may use the errors component; nothing uses the entry points):
 - **Entry points** — package root (public API re-exports, `__version__` from
   `importlib.metadata`, `logger.disable("pydelity")`, no file, network or
   environment access at import); `python -m pydelity`; the Typer CLI (single
-  root command); the synchronous API functions `run`, `survey`, `estimate`.
+  root command); the API functions (`measure`, `estimate`, `survey`, `run`,
+  their async versions, `load`).
 - **Run orchestration** — output folder, `run.json`, step sequencing, review
   list, warnings, interrupt handling, calling the report.
 - **Survey step** — facts schemas and the `kind`/`role` enums, proposal and
@@ -338,12 +385,14 @@ may use the errors component; nothing uses the entry points):
   (PydanticAI's cost calculation plus `advanced.models` overrides), the
   estimate, the `max_cost` guard.
 - **Models** — provider profiles (PDF transports, upload purpose, upload expiry
-  range, PDF tokens-per-page estimate, effort mapping); `build_model`, provider
-  settings and `LedgerModel`; Files API upload, reuse and the `uploads.json`
-  record; the in-request fallback; turning provider errors into `ProviderError`.
+  range, PDF tokens-per-page estimate, effort mapping); the SDK clients with the
+  retry count and timeout; `build_model`, provider settings and `LedgerModel`;
+  Files API upload, reuse and the `uploads.json` record; the in-request
+  fallback; turning provider errors into `ProviderError`.
 - **General utilities** — atomic write, validated load and temp cleanup (UTF-8
   for every text read and write); opening a PDF (SHA-256, page count, size,
-  `PdfError`); canonical-JSON fingerprints.
+  `PdfError`); canonical-JSON fingerprints; running a coroutine from sync code
+  (decision 14).
 - **Errors** — `PydelityError` and subclasses, `PydelityWarning`.
 
 Shared components (configuration, costs, models, utilities) never use run
@@ -371,8 +420,10 @@ script, the Astro site under `docs/`, and CI, docs and release workflows under
   - `model` (`<provider>:<model-id>`; default `anthropic:claude-opus-5-5`).
   - `max_cost` (positive decimal USD or null; no default).
   - `overwrite` (bool; default false).
-- `advanced.survey`: `max_retries` (0–5, default 2), `effort` (`low` | `medium`
-  | `high`, default `high`), `max_output_tokens` (default 32000),
+- `advanced.provider_retries`: integer 0–10, default 2 (decision 13). It is not
+  part of any fingerprint.
+- `advanced.survey`: `check_retries` (0–5, default 2), `effort` (`low` |
+  `medium` | `high`, default `high`), `max_output_tokens` (default 32000),
   `request_timeout_seconds` (default 900).
 - `advanced.uploads.expiry_hours`: integer hours or null (default null, meaning
   the provider's maximum). It must lie within the selected provider's allowed
@@ -391,7 +442,7 @@ script, the Astro site under `docs/`, and CI, docs and release workflows under
   honoured (the test seam). `.template.env` is reduced to the two keys pydelity
   reads.
 - Errors: `ConfigError` lists every invalid setting by dotted path
-  (`advanced.survey.max_retries`) with the reason, collected in one pass
+  (`advanced.survey.check_retries`) with the reason, collected in one pass
   (Pydantic errors plus file, path and key checks), raised before any model
   call.
 
@@ -425,27 +476,55 @@ script, the Astro site under `docs/`, and CI, docs and release workflows under
 
 ### Python API
 
-- `run(pdf=None, *, config=None, allow_over_max_cost=False, **settings) -> RunResult`
-  — the whole pipeline (this cycle: the survey), writes `run.json` and the
-  report. `config` is a path, a `Config` or a mapping; `settings` uses the
-  top-level setting names (`advanced` as a mapping).
+- In every function below that takes them, `config` is a path, a `Config` or a
+  mapping, and `settings` uses the top-level setting names (`advanced` as a
+  mapping). Every function validates the whole configuration the same way, so an
+  invalid setting raises `ConfigError` even where the function does not use it.
+- `measure(pdf=None, *, config=None, **settings) -> PdfFacts` — prepares the
+  output folder, then measures or reuses the facts and writes `pdf_facts.json`
+  as in step 4 of **Data and Control Flow**, and returns them. Uses only `pdf`,
+  `output_dir` and `overwrite`; no API key, no model call, no `run.json`, no
+  report.
+- `estimate(pdf=None, *, config=None, **settings) -> CostEstimate` — no model
+  call, nothing written.
 - `survey(pdf=None, *, config=None, allow_over_max_cost=False, **settings) -> PdfSurvey`
   — step 1 only: writes `pdf_facts.json`, `pdf_survey.json` and ledger lines,
   not `run.json` or the report.
+- `run(pdf=None, *, config=None, allow_over_max_cost=False, **settings) -> RunResult`
+  — the whole pipeline (this cycle: the survey), writes `run.json` and the
+  report.
+- `ameasure`, `aestimate`, `asurvey`, `arun` — the same functions as coroutines,
+  with the same arguments, results, errors and warnings (decision 14).
+  Cancelling `asurvey` or `arun` is handled like Ctrl+C: `arun` records
+  `interrupted` in `run.json`, every written file stays valid, and
+  `CancelledError` propagates. Calls on different output folders may run
+  concurrently, in one event loop or in several threads.
+- `load(output_dir) -> RunResult` — reads an output folder back, with no model
+  call, no API key and nothing written. Each part is `None` (or an empty ledger)
+  when its file is absent, so a folder that only `measure` or `survey` wrote
+  also loads. It raises `OutputError` when the folder does not exist, holds none
+  of `pdf_facts.json`, `pdf_survey.json`, `run.json` and `cost.jsonl`, or holds
+  one that is not valid JSON, fails its schema or has a different
+  `schema_version` major version. Output models ignore fields they do not know,
+  so a `1.x` file written by a newer pydelity loads. A damaged trailing
+  `cost.jsonl` line is skipped with a `damaged_output` warning, as everywhere.
+- Result models: `PdfFacts` (the contents of `pdf_facts.json`), `PdfSurvey` (of
+  `pdf_survey.json`), `CostEstimate`, and `RunResult`: `output_dir`, `record`
+  (`RunRecord`, the contents of `run.json`, or `None`), `facts` (`PdfFacts` or
+  `None`), `survey` (`PdfSurvey` or `None`), `ledger` (the `cost.jsonl` entries
+  in order). `run` returns a `RunResult` with every part set, as `load` would
+  read it from the folder afterwards.
 - `allow_over_max_cost` is a function argument, not a setting: it is not in
   `Config`, config files or the fingerprint. `True` lets the call continue past
   `max_cost` after the warning; `False` makes a tripped `max_cost` check raise
   `BudgetExceededError` (decision 11).
-- `estimate(pdf=None, *, config=None, **settings) -> CostEstimate` — no model
-  call, nothing written.
 - Never prompts. Problems raise `ConfigError`, `PdfError`, `MissingApiKeyError`,
-  `BudgetExceededError`, `ProviderError`, `SurveyError` (all `PydelityError`).
-  `SurveyError` covers a survey answer that never parses after the retries and a
-  model refusal. User-facing warnings (each `run.json` warning code) use
-  `warnings.warn` with `PydelityWarning`, are logged through loguru at WARNING,
-  and are recorded in `run.json`.
-- Synchronous functions must also work when an event loop is already running
-  (Jupyter), for example by running the coroutine on a worker thread.
+  `BudgetExceededError`, `ProviderError`, `SurveyError`, `OutputError` (all
+  `PydelityError`). `SurveyError` covers a survey answer that never parses after
+  the check retries and a model refusal. User-facing warnings (each `run.json`
+  warning code) use `warnings.warn` with `PydelityWarning`, are logged through
+  loguru at WARNING, and are recorded in `run.json` when the function writes
+  one.
 
 ### Providers and models
 
@@ -465,18 +544,21 @@ script, the Astro site under `docs/`, and CI, docs and release workflows under
   input and `reasoning_effort` (Developer picks the current OpenAI model
   recommended for document input; Documenter names both).
 - Provider errors (AC-037): any provider error that ends a run raises
-  `ProviderError`: a model request that fails after the SDK's retries, an upload
-  error that stops the run (decision 4), or an in-request fallback that the
-  provider rejects. It carries `provider`, `model`, `status_code` (null for a
-  connection error or timeout), `provider_message` (the provider's own message
-  from its error body when present, otherwise the exception's text, never
-  reworded) and `upload_error` (the earlier upload error after a fallback, else
-  null), with the SDK or PydanticAI exception as `__cause__`. Its message starts
-  with the provider and model and then `provider_message`, and adds the PDF's
-  name, pages and size when the failed call carried the PDF. A rejected PDF is
-  one such error, whatever the reason (too large, too many pages, over the
-  context window, unreadable). The run ends `failed`; nothing is retried with a
-  smaller PDF.
+  `ProviderError`: a model request that fails after the provider retries
+  (decision 13), an upload error that stops the run (decision 4), or an
+  in-request fallback that the provider rejects. It carries `provider`, `model`,
+  `status_code` (null for a connection error or timeout), `provider_message`
+  (the provider's own message from its error body when present, otherwise the
+  exception's text, never reworded), `upload_error` (the earlier upload error
+  after a fallback, else null) and `temporary` (true when the failure is of a
+  kind the SDK retries: connection error, timeout, HTTP 408, 409, 429 or 5xx),
+  with the SDK or PydanticAI exception as `__cause__`. Its message starts with
+  the provider and model and then `provider_message`, adds the PDF's name, pages
+  and size when the failed call carried the PDF, and, when `temporary`, says the
+  request failed after `advanced.provider_retries` retries (naming the count and
+  the setting). A rejected PDF is one such error, whatever the reason (too
+  large, too many pages, over the context window, unreadable). The run ends
+  `failed`; nothing is retried with a smaller PDF.
 
 ### `pdf_facts.json`
 
@@ -540,9 +622,10 @@ it (atomically).
 
 - `fingerprint` — `"sha256:<hex>"` of the canonical JSON (sorted keys, no
   whitespace) of: PDF SHA-256, the `pdf_facts.json` fingerprint, resolved
-  `model`, `instructions`, `languages`, `advanced.survey` values (`max_retries`,
-  `effort`, `max_output_tokens`), `PROMPT_VERSION`, survey `schema_version`.
-  Excludes `max_cost`, `allow_over_max_cost`, `overwrite`, `output_dir` and
+  `model`, `instructions`, `languages`, `advanced.survey` values
+  (`check_retries`, `effort`, `max_output_tokens`), `PROMPT_VERSION`, survey
+  `schema_version`. Excludes `max_cost`, `allow_over_max_cost`, `overwrite`,
+  `output_dir`, `advanced.provider_retries`, `request_timeout_seconds` and
   prices.
 - `inputs` — `pdf_name`, `pdf_sha256`, `pdf_bytes`, `page_count`,
   `facts_fingerprint`, `model`, `instructions`, `languages`, survey settings,
@@ -631,8 +714,9 @@ it (atomically).
 - Review issue: `step`, `check`, `page_index` (null when none applies),
   `message`, `details` (object). The run's review list holds the issues of every
   step output used by the run, reused ones included.
-- Written at start (`running`) and at the end; on Ctrl+C the pipeline catches
-  `KeyboardInterrupt`, writes `interrupted`, and re-raises.
+- Written at start (`running`) and at the end; on Ctrl+C or when `arun` is
+  cancelled, the pipeline catches `KeyboardInterrupt` or `CancelledError`,
+  writes `interrupted`, and re-raises.
 
 ### `cost.jsonl`
 
@@ -666,7 +750,7 @@ it (atomically).
   `warnings`.
 - Input tokens per request ≈ `page_count` × the provider's PDF tokens-per-page
   figure + prompt characters ÷ 4. Expected = one request with a typical output
-  (a named constant). Maximum = `(1 + max_retries)` requests, each with
+  (a named constant). Maximum = `(1 + check_retries)` requests, each with
   `max_output_tokens` of output and the previous answer added to the input.
   Constants are named and documented in the reference.
 - `max_cost` guard (decision 11), shared by every step: the plan-time check uses
@@ -708,8 +792,10 @@ it (atomically).
   provider responses, including both providers' Files API upload, the "file not
   found" answer that triggers a re-upload, upload failures that trigger the
   in-request fallback, an upload rejected as too large (413), and error
-  responses that reject the PDF on the request. No production code path exists
-  only for tests.
+  responses that reject the PDF on the request, and temporary failures (429 and
+  5xx with a short `retry-after-ms` header, which both SDKs honour, so retry
+  tests do not wait) on the model request and on the upload. No production code
+  path exists only for tests.
 - An autouse test fixture removes real provider keys, sets dummy ones, and
   points both base URLs at an unused loopback port unless a test supplies the
   mock server, so no test can reach a provider. Tests marked `costs-money` stay
@@ -785,9 +871,10 @@ it (atomically).
 2. Open the PDF (PyMuPDF): SHA-256, page count, size; a password-protected,
    empty or unopenable PDF raises `PdfError` naming the file and the reason. No
    size or page check follows.
-3. Prepare the output folder: create it, remove stale `*.tmp-*` files, warn if
-   an existing `run.json` names a different PDF SHA-256, write `run.json`
-   (`running`).
+3. Prepare the output folder: create it, remove stale `*.tmp-*` files, warn
+   (`other_pdf_in_folder`) if an existing `run.json` or `pdf_facts.json` names a
+   different PDF SHA-256; `run` also writes `run.json` (`running`). `measure`
+   stops after step 4.
 4. Facts (decision 12): load `pdf_facts.json` if present; invalid JSON or schema
    → `damaged_output` warning and treat as absent; matching fingerprint and no
    `overwrite` → reuse; otherwise run the probe, build the summary and write
@@ -812,11 +899,12 @@ it (atomically).
    `ProviderError`.
 7. Assemble `run.json` (steps, cost from the ledger, review list, warnings),
    write the report, print the CLI summary.
-8. Any exception after step 3 records `failed`, `stopped` or `interrupted` in
-   `run.json` and still writes the report before re-raising. A stopped, failed
-   or interrupted survey writes no `pdf_survey.json`; the next run redoes it,
-   with the earlier spend already in the ledger and counted against `max_cost`.
-   `pdf_facts.json`, once written, stays and is reused by that next run.
+8. Any exception after step 3, cancellation included, records `failed`,
+   `stopped` or `interrupted` in `run.json` and still writes the report before
+   re-raising. A stopped, failed or interrupted survey writes no
+   `pdf_survey.json`; the next run redoes it, with the earlier spend already in
+   the ledger and counted against `max_cost`. `pdf_facts.json`, once written,
+   stays and is reused by that next run.
 
 ## Technical Acceptance Criteria
 
@@ -875,6 +963,27 @@ it (atomically).
   placeholders.
 - `AC-007`, `AC-010`: `import pydelity` performs no file, network or environment
   reads and produces no output on stdout, stderr or loguru sinks.
+- `AC-041`: With the mock provider answering a model request with temporary
+  failures, the request is sent exactly `1 + advanced.provider_retries` times
+  (for 0 and for a value above 2), then the CLI exits 1 printing the provider's
+  message and the Python API raises `ProviderError` with `temporary` true; with
+  fewer failures than that, the survey completes. A non-temporary error (such
+  as 400) is sent once. Uploads follow the same count before the fallback.
+  Retries never add ledger lines.
+- `AC-042`: `measure` with no API key in the environment and the mock provider
+  unreachable writes a valid `pdf_facts.json` and returns a `PdfFacts` equal to
+  its contents; a second call with the same inputs measures nothing and returns
+  the same result.
+- `AC-043`: `load` on the folder of a completed run returns a `RunResult` equal
+  to the one `run` returned, with no API key and no network; on a folder that
+  only `measure` wrote it returns the facts and `None` elsewhere; on a missing
+  folder or a corrupt file it raises `OutputError` naming the file.
+- `AC-044`: Each async function, awaited inside a running event loop, gives the
+  same result, errors and `PydelityWarning`s as its sync form; each sync
+  function also works when called from a thread whose event loop is running. Two
+  `asurvey` calls on different folders run concurrently in one loop. The event
+  loop stays responsive while `ameasure` measures. Cancelling `arun` leaves
+  `run.json` `interrupted` and every file valid.
 - `AC-009`: Every invalid setting in a single input is reported in one error; no
   model request happens.
 - `AC-011`: Both providers pass the same survey flow with their canned responses
@@ -936,7 +1045,8 @@ it (atomically).
   fallback after an upload failure, the stops on an authentication failure and
   on a 413 upload, a provider rejecting the PDF on the request and on the
   fallback, and every `max_cost` answer (CLI yes, no, `--yes` and
-  non-interactive; Python with and without `allow_over_max_cost`) are exercised.
+  non-interactive; Python with and without `allow_over_max_cost`) are exercised,
+  as are provider retries and every public function in its sync and async form.
 - `AC-011`, `AC-018`: A survey whose upload fails for a reason other than
   authentication or 413 completes through the in-request path when the provider
   accepts the in-request PDF, with a warning and `pdf_transport: "request"` in
@@ -978,23 +1088,26 @@ Developer proposes its name and place and waits for the user's sign-off.
 1. **Package foundation** — `MODIFY pyproject.toml`, `uv.lock` (dependencies,
    `twine`, console script, metadata), `src/pydelity/__init__.py`,
    `.template.env`; `CANDIDATE` modules for errors, `python -m pydelity`,
-   configuration, general utilities (atomic files, fingerprints) and the
-   provider profiles. Must land together so the package imports and the strict
-   editable install still passes the existing smoke tests.
+   configuration, general utilities (atomic files, fingerprints, running a
+   coroutine from sync code) and the provider profiles. Must land together so
+   the package imports and the strict editable install still passes the existing
+   smoke tests.
 2. **PDF and probe** — `CANDIDATE` modules for opening PDFs, the facts schemas
    and enums, the probe, the facts summary and `pdf_facts.json`; test PDF
    fixtures (real public-domain documents the user approves, each committed one
    under the 500 KB hook limit, including a tagged PDF).
 3. **Cost and model layer** (parallel with 2) — `CANDIDATE` modules for the
-   ledger, pricing, estimate and `max_cost` guard; `build_model`, provider
-   settings and `LedgerModel`; Files API upload, reuse and the `uploads.json`
-   record; the in-request fallback; `ProviderError` mapping.
+   ledger, pricing, estimate and `max_cost` guard; the SDK clients with the
+   retry count, `build_model`, provider settings and `LedgerModel`; Files API
+   upload, reuse and the `uploads.json` record; the in-request fallback;
+   `ProviderError` mapping.
 4. **Survey step** — `CANDIDATE` modules for the prompt, checks, proposal and
    profile schemas, and the step (agent, validator, fingerprint, reuse). Depends
    on 2 and 3.
 5. **Run, report, API, CLI** — `CANDIDATE` modules for run orchestration, the
-   report, the API functions and the CLI; canned provider responses for tests.
-   Critical path: 1 → 2 → 4 → 5.
+   report, the API functions (async functions, their sync wrappers, `measure`
+   and `load`) and the CLI; canned provider responses for tests. Critical path:
+   1 → 2 → 4 → 5.
 6. **CI and release** — `MODIFY .github/workflows/ci.yml`,
    `.github/dependabot.yml`, `justfile`, `.gitignore`; `CANDIDATE` release
    workflow and wheel smoke-test script; establish the AC-036 evidence. Depends
@@ -1042,6 +1155,12 @@ Developer proposes its name and place and waits for the user's sign-off.
   timeout (the Anthropic SDK refuses long non-streaming requests otherwise). If
   Developer switches to streaming, `LedgerModel` must wrap the streaming request
   path too.
+- A request that times out on pydelity's side may still finish, and be billed,
+  at the provider. pydelity sees no usage for it, so it has no ledger line; with
+  provider retries, each timed-out attempt can add such unseen cost.
+- A sync call from inside a running event loop blocks that loop's thread until
+  the worker thread finishes (as any sync call would); async callers should use
+  the `a` functions.
 - Claude Opus 5.5 can stop with `refusal`; the survey reports it as a failure.
   Server-side refusal fallbacks are not enabled in this cycle (they change the
   billed model mid-request).
@@ -1094,6 +1213,20 @@ Developer proposes its name and place and waits for the user's sign-off.
 - Checks outside PydanticAI in a hand-written retry loop: more code, and the
   output validator already gives retries with conversation history and a
   last-attempt signal.
+- A second model that verifies the survey answer: excluded by the scope; the
+  Python checks compare the answer with measured facts.
+- Separate retry counts for uploads and model requests, or per step: more
+  settings for little gain; one count covers every request to the provider.
+  Retrying in pydelity (or with PydanticAI's optional retry transport) instead
+  of the SDKs: duplicates the SDKs' handling of `retry-after` and risks retrying
+  more often than the setting allows.
+- A sync core with async functions that run it in a worker thread: simpler, but
+  PydanticAI is async already, and an async core lets later steps send requests
+  concurrently in one loop.
+- An async `load` (`aload`): it would only wrap a few small file reads.
+- Reusing `advanced.survey.max_retries` as the name for check retries: two
+  settings called retries for different things invite mistakes, so the survey's
+  is `check_retries`.
 - Required checks for each new CI job: needs a ruleset change the repo cannot
   make; the gate job keeps the existing required check name.
 - npm instead of pnpm for the docs: departs from IDinsight/standards and

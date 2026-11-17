@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -27,18 +27,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
-`Scope revised for the user rework: AC-041 adds the provider retry setting, AC-042 to AC-044 add measure(), load() and the async functions, AC-021 covers them in tests, and a non-goal excludes a survey verifier. Architecture reruns before Developer resumes.`
+`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Design rerun for AC-041 to AC-044: advanced.provider_retries (default 2) on SDK clients pydelity builds; measure, load and async a-functions over an async core; check retries renamed check_retries. Developer reconciles its unapproved plan.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `DEVELOPING` `Owner`: `SCOPING` `FailureType`: `SCOPING` `Reason`:
-`User rework: add a configurable provider retry count, measure(pdf, ...) and load(output_dir) to the Python API, and async versions of the API functions named arun, asurvey, aestimate and so on; the survey keeps Python checks only, with no model verifier.`
-`ResumeAt`: `DEVELOPING` `RerunThrough`: `ARCHITECTING`
+`Active`: `false`
 
 ## Outstanding Obligations
 
