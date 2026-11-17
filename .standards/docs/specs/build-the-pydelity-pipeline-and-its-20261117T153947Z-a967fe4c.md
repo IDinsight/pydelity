@@ -447,6 +447,15 @@ points in the displayed (rotation-applied) page space, origin top-left,
   - `structure`: `tagged`, `marked`, `element_count`, `type_counts` (after
     RoleMap), `pages_with_tagged_content`, `quality` (`none` | `poor` |
     `partial` | `good`), `truncated`.
+  - Unreadable facts: when reading bookmarks, the form or the structure tree
+    raises on a malformed PDF, that fact is `null` (`bookmarks`, both
+    `form_fields` and `form`, or `structure`), never an empty value, so `null`
+    means "could not be read" and `[]` means "the PDF has none". Each such case
+    adds one `probe_errors[]` item: `fact` (`bookmarks` | `form` | `structure`),
+    `message` (the error, without file contents). `probe_errors` is `[]` when
+    every fact was read. The survey continues; the facts summary sent to the
+    model says the fact is unavailable, no check depends on these facts, and
+    each item becomes a `probe_unavailable` warning in `run.json`.
   - `repeated_lines[]`: `id` (`R1`, `R2`, …), `text` (a representative
     original), `normalized`, `pages`, `band` (`top` | `bottom` | `middle`);
     `repeated_lines_truncated`.
@@ -455,14 +464,18 @@ points in the displayed (rotation-applied) page space, origin top-left,
 - `proposal` (model output that is not profile): `regions[]` (`page_index`,
   `bbox`, `label`, `note`), `artifacts[]` (`id`, `description`, `position`,
   `repeated_line_ids`), `non_artifact_lines[]` (`repeated_line_id`, `reason`),
-  `notes[]`.
+  `notes[]`. `position` is where the artifact sits on the displayed page: `top`
+  | `bottom` | `left` | `right` | `middle` (`middle` covers watermarks and
+  stamps over the content). It is informational; no check uses it.
 - `profile` (what steps 2–3 depend on and fingerprint):
   - `labels[]`: `name`, `role`, `kinds`, `description`. Always contains `other`
     (role `body`, all kinds), which Python adds and owns; a model-made `other`
     is replaced.
   - `languages[]` — user languages first, then model languages not already
     present (case-insensitive).
-  - `writing_direction`: `default` (`ltr` | `rtl` | `ttb`) and `ranges[]`.
+  - `writing_direction`: `default` (`ltr` | `rtl` | `ttb`) and `ranges[]`, each
+    `first_page_index`, `last_page_index` (inclusive), `direction` (`ltr` |
+    `rtl` | `ttb`); pages no range covers use `default`.
   - `rotation[]`: `first_page_index`, `last_page_index`, `degrees` (0 | 90 | 180
     | 270, clockwise rotation that makes the displayed page's content upright);
     uncovered pages are 0.
@@ -470,8 +483,18 @@ points in the displayed (rotation-applied) page space, origin top-left,
     | `roman` | `other` | `none`), `offset` (int or null).
   - `continuation_notes[]` (strings), `start_markers[]` (`text`, `description`),
     `user_instructions` (string or null).
-- `checks[]`: `name`, `passed`, `attempts`, `failures` (on the accepted answer).
-  `issues[]`: review issues from this step.
+- `checks[]`: one item per check C1–C7, in that order: `name` (the check name),
+  `passed` (true when `failures` is empty), `attempts` (model answers checked, 1
+  plus the retries used), `failures[]` (on the accepted answer). Each failure
+  item: `page_index` (int, or null when no single page applies), `message`
+  (names the check, what was proposed and what was measured), `details` (object
+  with the proposed and measured values, such as
+  `{"proposed": 0, "measured": 90}`). A failure that concerns several pages is
+  one item per page, so a wrong rotation range over 30 pages gives 30 items.
+- `issues[]`: review issues from this step, one per failure item of the accepted
+  answer: the failure's `page_index`, `message` and `details` plus `step`
+  (`"survey"`) and `check` (the check name), the same shape as `run.json`
+  `review[]`.
 - Model-facing proposal schema: a separate Pydantic model using only strings,
   integers, booleans, enums, arrays and objects (no pattern, length or numeric
   bounds) so it fits both providers' structured-output subsets; bounds are
@@ -506,6 +529,12 @@ points in the displayed (rotation-applied) page space, origin top-left,
   PDF was sent), `started_at`, `ended_at`, `error`), `cost` (`run_usd`,
   `by_step`, `output_folder_usd`, `unpriced_requests`), `review[]`,
   `warnings[]`, `error`.
+- Warning item: `code`, `step` (or null), `message`, `details` (object). Codes
+  this cycle: `unknown_model_limits`, `unpriced_model`, `context_window`,
+  `other_pdf_in_folder`, `damaged_output`, `upload_fallback`,
+  `probe_unavailable`. The same message goes to `PydelityWarning` in Python and
+  to the CLI. The CLI summary groups review issues by check and shows a count
+  per check before listing them.
 - Review issue: `step`, `check`, `page_index` (null when none applies),
   `message`, `details` (object). The run's review list holds the issues of every
   step output used by the run, reused ones included.
@@ -709,8 +738,10 @@ points in the displayed (rotation-applied) page space, origin top-left,
     Sect, Div, Span, NonStruct, Art) or few elements; `partial` when content
     types exist but tagged pages cover less than 90% of pages with text; `good`
     otherwise.
-  - Probe failures in bookmarks, forms or structure on malformed PDFs record
-    that fact as unavailable and never fail the run.
+  - Probe failures in bookmarks, forms or structure on malformed PDFs set that
+    fact to `null`, add a `probe_errors[]` item and a `probe_unavailable`
+    warning, and never fail the run; a PDF that simply has none of them records
+    `[]` (or a `structure` with `tagged: false`).
 - `AC-002`: The stored profile always has `other`; every label maps to exactly
   one role and a non-empty kind list from the enums.
 - `AC-003`: Each failing check produces a `ModelRetry` message naming the check,

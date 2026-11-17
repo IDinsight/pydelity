@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -27,19 +27,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FAILURE` `From`: `DEVELOPING` `FailureType`: `ARCHITECTURE` `Reason`:
-`Design leaves pdf_survey.json fields open: how an unreadable probe fact (bookmarks, forms, structure) is recorded, writing_direction.ranges[] item fields, the artifacts[].position value set, and checks[].failures item shape.`
+`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Design now defines unreadable probe facts, writing_direction ranges, artifact positions, check failure items and run.json warnings; Developer reconciles its unapproved plan on resume.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `DEVELOPING` `Owner`: `ARCHITECTING` `FailureType`: `ARCHITECTURE`
-`Reason`:
-`Design leaves pdf_survey.json fields open: how an unreadable probe fact (bookmarks, forms, structure) is recorded, writing_direction.ranges[] item fields, the artifacts[].position value set, and checks[].failures item shape.`
-`ResumeAt`: `DEVELOPING` `RerunThrough`: `NONE`
+`Active`: `false`
 
 ## Outstanding Obligations
 
