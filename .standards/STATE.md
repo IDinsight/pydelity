@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -27,18 +27,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
-`Scope revised for the user rework: AC-012, AC-013 and AC-016 retired; AC-037 (provider-rejected PDF), AC-038 (CLI max_cost) and AC-039 (Python max_cost) added. Architecture reruns before Developer resumes.`
+`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Design rerun for the rework: no per-model data or pre-call PDF check, ProviderError carries the provider's message, and max_cost warns then asks (CLI) or follows allow_over_max_cost (Python). Developer reconciles its unapproved plan.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `DEVELOPING` `Owner`: `SCOPING` `FailureType`: `SCOPING` `Reason`:
-`User rework: drop shipped per-model PDF input limits (send the PDF and report the provider's error) and make max_cost warn and let the user continue (the CLI asks; library callers pass a continue flag) instead of stopping.`
-`ResumeAt`: `DEVELOPING` `RerunThrough`: `ARCHITECTING`
+`Active`: `false`
 
 ## Outstanding Obligations
 
