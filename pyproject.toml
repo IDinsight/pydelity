@@ -1,0 +1,173 @@
+# Tables, keys and order-free lists are kept in alphabetical order.
+
+[build-system]
+build-backend = "setuptools.build_meta"
+# 77+ supports SPDX `license` expressions with `license-files`.
+requires = ["setuptools>=77"]
+
+# Dev tools live in a dependency group, so they never appear in published metadata.
+[dependency-groups]
+dev = [
+    "detect-secrets==1.5.0",
+    "interrogate==1.7.0",
+    "prek==0.5.11",
+    "pytest==9.2.0",
+    "pytest-cov==7.1.0",
+    "pytest-randomly==5.1.0",
+    "ruff==0.17.5",
+    "rust-just==1.59.0",
+    "ty==0.0.104",
+    "zizmor==1.32.0",
+]
+
+[project]
+authors = [{name = "IDinsight DSEM", email = "dsem@idinsight.org" }]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = []
+description = "Under development and not yet usable. PDF to structured JSON, faithfully."
+keywords = ["agents", "genai", "JSON", "llm", "PDF", "structured"]
+license = "MIT"
+license-files = ["LICENSE"]
+maintainers = [{name = "IDinsight DSEM", email = "dsem@idinsight.org" }]
+name = "pydelity"
+readme = "README.md"
+requires-python = ">=3.13"
+# Bumped by release-please's release pull requests, with uv.lock; not edited by hand.
+version = "0.0.1"
+
+[project.urls]
+Homepage = "https://github.com/IDinsight/pydelity"
+Issues = "https://github.com/IDinsight/pydelity/issues"
+Repository = "https://github.com/IDinsight/pydelity"
+
+# pytest coverage
+[tool.coverage.report]
+exclude_lines = [
+    "def cli",
+    "if TYPE_CHECKING:",
+    'if __name__ == "__main__"',
+    "if __name__ == '__main__'",
+    "pragma: no cover",
+]
+omit = ["./src/pydelity/__init__.py"]
+
+[tool.coverage.run]
+branch = true
+concurrency = ["thread"]
+omit = ["*/__init__.py", "*/tests/*"]
+source = ["pydelity"]
+
+# interrogate: docstring coverage. Ruff's missing-docstring rules are off, so this is the
+# one check that every module, class and function (private and nested ones included)
+# has a docstring.
+[tool.interrogate]
+badge-format = "svg"
+color = true
+exclude = ["*/__init__.py"]
+ext = []
+fail-under = 100
+generate-badge = "."  # Output file location (the repo root)
+ignore-init-method = false
+ignore-init-module = false
+ignore-magic = false
+ignore-module = false
+ignore-nested-classes = false
+ignore-nested-functions = false
+ignore-overloaded-functions = false
+ignore-private = false
+ignore-property-decorators = false
+ignore-regex = ["^mock_.*", "__init__.py*"]
+ignore-semiprivate = false
+ignore-setters = false
+omit-covered-files = false
+quiet = false
+verbose = 0  # Possible values: 0 (minimal output), 1 (-v), 2 (-vv)
+whitelist-regex = []
+
+# pytest
+# Tests import `pydelity` as installed in the environment; nothing adds `src` to the path.
+# pytest-randomly runs them in a random order and prints the seed; rerun that order with
+# `uv run pytest --randomly-seed=<seed>`.
+[tool.pytest.ini_options]
+# Fail on an unknown marker or setting instead of ignoring it.
+addopts = ["--strict-config", "--strict-markers"]
+markers = ["costs-money: calls a paid model provider API"]
+testpaths = ["tests"]
+# A test marked xfail that passes fails the run, so stale xfail marks get noticed.
+xfail_strict = true
+
+# ruff: formatting (in place of black), import sorting (in place of isort) and linting
+# (in place of pylint, plus flake8-style rule families).
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+ignore = [
+    # interrogate checks that docstrings exist (see above); Ruff checks only their format.
+    "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",
+    # House style keeps a blank line between a function's docstring and its body.
+    "D202",
+]
+select = [
+    "ANN",  # type hints in function signatures
+    "B",    # likely bugs (flake8-bugbear)
+    "C4",   # comprehensions
+    "C90",  # McCabe complexity
+    "D",    # docstring format (NumPy convention, below)
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # import sorting
+    "PL",   # pylint rules
+    "PT",   # pytest style
+    "RET",  # return statements
+    "RUF",  # Ruff's own rules
+    "S",    # security (flake8-bandit)
+    "SIM",  # simplifications
+    "UP",   # current Python syntax (pyupgrade)
+    "W",    # pycodestyle warnings
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pydelity"]
+lines-between-types = 1
+
+[tool.ruff.lint.isort.import-heading]
+first-party = "Package Library"
+future = "Future Library"
+local-folder = "Local Folder"
+standard-library = "Standard Library"
+third-party = "Third Party Library"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use bare `assert` and literal expected values.
+"tests/**" = ["PLR2004", "S101"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+include = ["pydelity*"]
+where = ["src"]
+
+[tool.uv]
+# Reinstall the project when any packaged file changes, so new modules are picked up
+# by the strict editable install below. Only the package folder is watched: the build
+# writes `src/pydelity.egg-info/`, and watching that would rebuild on every `uv run`.
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/pydelity/**/*" }]
+# Strict editable install: the environment sees only the files a wheel would contain,
+# instead of the whole `src/` directory, so packaging mistakes fail the tests.
+config-settings-package = { pydelity = { editable_mode = "strict" } }
+# A lower bound, not an exact pin: Dependabot's uv updater fails on any uv the bound
+# excludes, so it must stay at or below the uv Dependabot runs. Kept by hand:
+# Dependabot has no updater for it.
+required-version = ">=0.8.1"

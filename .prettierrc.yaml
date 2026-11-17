@@ -1,0 +1,5 @@
+# Prettier settings for Markdown, the only thing Prettier formats in this repo.
+# Wrap prose at 80 columns: the format STANDARDS ships its files in, so shipped files
+# stay byte-identical and upgrades cause no churn.
+printWidth: 80
+proseWrap: always

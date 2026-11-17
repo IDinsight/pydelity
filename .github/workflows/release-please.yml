@@ -1,0 +1,41 @@
+name: Release Please
+
+# Keeps a release pull request open with the next version and its CHANGELOG.md entry,
+# worked out from the Conventional Commit messages that reach main. Merging it bumps
+# the version in pyproject.toml and uv.lock, tags vX.Y.Z and creates the GitHub
+# release. It does not publish to PyPI.
+#
+# Settings are in release-please-config.json; .release-please-manifest.json holds the
+# version of the latest release.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The job token is not used: release-please works through the token below.
+permissions: {}
+
+# Runs queue up instead of cancelling each other, since a cancelled run could leave
+# the release pull request half updated.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The token below is a secret of this environment, which only main can use.
+    environment: release-please
+    steps:
+      - name: Run Release Please
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          # A fine-grained personal access token for this repo with read and write
+          # access to contents, issues (for labels) and pull requests. Pull requests
+          # and releases made with the job token start no workflows, so CI would
+          # never run on the release pull request.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN_PYDELITY }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

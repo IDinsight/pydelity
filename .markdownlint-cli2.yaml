@@ -1,0 +1,47 @@
+# markdownlint-cli2 settings: one config for every Markdown file, STANDARDS files
+# included when STANDARDS is installed. Each setting that differs from the defaults
+# says why. Shipped STANDARDS files cannot be edited here, so a rule they break is
+# settled in this file.
+
+# Lint every Markdown file git tracks or would track. The hook passes no file names
+# (`pass_filenames: false`), so files not yet added to git are linted too.
+gitignore: true
+globs:
+  - "**/*.md"
+
+# release-please writes CHANGELOG.md with blank lines markdownlint rejects, and
+# would undo any fix at the next release.
+ignores:
+  - CHANGELOG.md
+
+# Ignore inline `markdownlint-disable` and `-enable` comments, so this file alone
+# decides what is checked. Shipped STANDARDS files carry such comments, which would
+# otherwise switch line length back on.
+noInlineConfig: true
+
+# Never rewrite files; formatting is Prettier's job.
+fix: false
+
+config:
+  default: true
+
+  # Line length: Prettier already wraps prose at 80 columns. What it cannot wrap
+  # (long code spans in STANDARDS records such as STATE.md, headings, URLs, tables
+  # and code) cannot be shortened without changing the content.
+  MD013: false
+
+  # Single top-level heading: STANDARDS skill templates show the record's own
+  # top-level heading below the template's title.
+  MD025: false
+
+  # Trailing punctuation in headings: allowed, as in the shipped
+  # `# S.T.A.N.D.A.R.D.S.` heading.
+  MD026: false
+
+  # Emphasis used as a heading: STANDARDS records and templates use bold lines as
+  # field labels (for example **Goal** and **Self-Check** in development plans).
+  MD036: false
+
+  # First line is a top-level heading: files that start with a managed block or are
+  # fragments (CLAUDE.md, AGENTS.md, user styles, the pull request template) do not.
+  MD041: false
