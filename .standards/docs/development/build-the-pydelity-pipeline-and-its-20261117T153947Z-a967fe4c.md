@@ -6,9 +6,8 @@ Cycle: build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c
 # Development Plan
 
 `Cycle`: `build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c` `Mode`:
-`STEPWISE` `User Style`: `tony` `User Style Locked`: `false` `Status`:
-`PROPOSED` `Verification Cadence`: `AFTER_IMPLEMENTATION` `Current Increment`:
-`NONE`
+`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`: `APPROVED`
+`Verification Cadence`: `AFTER_IMPLEMENTATION` `Current Increment`: `NONE`
 
 ## Implementation Contract
 
@@ -23,7 +22,7 @@ Cycle: build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c
 
 ### DEV-001 — Package foundation and a first `pydelity` command
 
-`Status`: `PENDING` `Depends On`: `NONE` `Acceptance`: `AC-010, AC-018`
+`Status`: `PENDING` `Depends On`: `NONE` `Acceptance`: `AC-010, AC-018, AC-044`
 
 **Goal**
 
@@ -38,21 +37,25 @@ pydantic-ai-slim[anthropic,openai], loguru, typer, pymupdf; twine exact in the
 dev group), `.template.env` (only `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`),
 `src/pydelity/__init__.py`, `[project.scripts]` in `pyproject.toml`; candidates
 for the errors, the utilities (atomic files, fingerprints, PDF opening), the
-Typer CLI, `python -m pydelity` and a first `run()` the CLI calls.
+Typer CLI, `python -m pydelity`, the helper that runs a coroutine from sync
+code, and a first `arun()` with its sync `run()` that the CLI calls.
 
 **Expected Outcome**
 
 `import pydelity` exposes `__version__`, disables loguru for `pydelity` and
 reads no file, network or environment. `PydelityError` with `ConfigError`,
-`PdfError`, `MissingApiKeyError`, `BudgetExceededError`, `ProviderError` and
-`SurveyError`, plus `PydelityWarning`. Utilities: atomic UTF-8 write (temp file
-in the same folder, flush, `fsync`, `os.replace`), validated load into a
-Pydantic model that reports damage instead of raising, stale `*.tmp-*` cleanup,
-canonical-JSON `sha256:` fingerprints, and opening a PDF (full SHA-256 ported
-from KGForEdGlobal `utils/pdf.py`, page count, bytes; `PdfError` for
-password-protected, empty or unopenable files). A first `run()` opens the PDF
-and logs each stage through loguru; the CLI enables logging at INFO and calls
-it.
+`PdfError`, `MissingApiKeyError`, `BudgetExceededError`, `ProviderError`,
+`SurveyError` and `OutputError`, plus `PydelityWarning`. Utilities: atomic UTF-8
+write (temp file in the same folder, flush, `fsync`, `os.replace`), validated
+load into a Pydantic model that reports damage instead of raising, stale
+`*.tmp-*` cleanup, canonical-JSON `sha256:` fingerprints, and opening a PDF
+(full SHA-256 ported from KGForEdGlobal `utils/pdf.py`, page count, bytes;
+`PdfError` for password-protected, empty or unopenable files), and a helper that
+runs a coroutine from sync code (`asyncio.run` without a running loop, otherwise
+a worker thread with its own loop, re-issuing its warnings in the caller's
+thread). A first `arun()`, with `run()` calling it through that helper, opens
+the PDF off the event loop and logs each stage through loguru; the CLI enables
+logging at INFO and calls `run()`.
 
 From the command line: `pydelity <pdf>` opens the PDF, logs its name, page
 count, size and SHA-256, then `Run finished`; a missing, password-protected or
@@ -152,7 +155,7 @@ release data.
 ### DEV-004 — Configuration
 
 `Status`: `PENDING` `Depends On`: `DEV-003` `Acceptance`:
-`AC-004, AC-007, AC-008, AC-009`
+`AC-004, AC-007, AC-008, AC-009, AC-041`
 
 **Goal**
 
@@ -166,13 +169,14 @@ Candidates `src/pydelity/config/{schemas,loading}.py`.
 **Expected Outcome**
 
 `Config` (`pdf`, `instructions`, `languages`, `output_dir`, `model`, `max_cost`,
-`overwrite`, `advanced`) and `AdvancedConfig` (`survey`, `uploads`, and `models`
-holding prices only) with `extra="forbid"` and the design's defaults and bounds;
-BCP-47 syntax validation; `.json`, `.yaml` and `.yml` loading with relative
-paths resolved against the config file's folder; precedence keywords or CLI over
-file over defaults, with the CLI `PDF` winning; `expiry_hours` checked against
-the selected provider's range; one `ConfigError` listing every invalid setting
-by dotted path. `ProviderEnv` (pydantic-settings, environment only, no `.env`,
+`overwrite`, `advanced`) and `AdvancedConfig` (`provider_retries` 0–10, default
+2; `survey` with `check_retries`; `uploads`; and `models` holding prices only)
+with `extra="forbid"` and the design's defaults and bounds; BCP-47 syntax
+validation; `.json`, `.yaml` and `.yml` loading with relative paths resolved
+against the config file's folder; precedence keywords or CLI over file over
+defaults, with the CLI `PDF` winning; `expiry_hours` checked against the
+selected provider's range; one `ConfigError` listing every invalid setting by
+dotted path. `ProviderEnv` (pydantic-settings, environment only, no `.env`,
 `SecretStr`) built per run, and `MissingApiKeyError` for the selected provider's
 empty key.
 
@@ -213,14 +217,15 @@ quality with a node cap. Every threshold is a named constant; no word lists or
 document-type terms. A bookmarks, form or structure read that raises sets that
 fact to `null` (never an empty value) and adds a `probe_errors[]` item (`fact`,
 `message` without file contents); the run continues. A PDF that simply has none
-records `[]`, or a `structure` with `tagged: false`. `pdf_facts.json` holds
-`fingerprint` (PDF SHA-256, `PROBE_VERSION`, facts `schema_version`),
-`probe_version`, `measured_at`, `pdf`, `facts` and `summary[]` (plain-text lines
-built deterministically from the facts). It is written atomically into the
-output folder right after measuring, before any API key check, estimate or
-question; a valid file with a matching fingerprint is reused unless `overwrite`,
-and a damaged one is measured again with a `damaged_output` warning. The summary
-lines are logged at INFO.
+records `[]`, or a `structure` with `tagged: false`. The probe runs off the
+event loop (`asyncio.to_thread`). `pdf_facts.json` holds `fingerprint` (PDF
+SHA-256, `PROBE_VERSION`, facts `schema_version`), `probe_version`,
+`measured_at`, `pdf`, `facts` and `summary[]` (plain-text lines built
+deterministically from the facts). It is written atomically into the output
+folder right after measuring, before any API key check, estimate or question; a
+valid file with a matching fingerprint is reused unless `overwrite`, and a
+damaged one is measured again with a `damaged_output` warning. The summary lines
+are logged at INFO.
 
 From the command line: the run logs the summary lines (pages without text or
 with garbled text, writing direction, rotated pages, page numbering, repeated
@@ -284,7 +289,7 @@ already in the folder; `just lint`.
 ### DEV-008 — Model factory and LedgerModel
 
 `Status`: `PENDING` `Depends On`: `DEV-003, DEV-004, DEV-007` `Acceptance`:
-`AC-011, AC-014, AC-037, AC-038, AC-039`
+`AC-011, AC-014, AC-037, AC-038, AC-039, AC-041`
 
 **Goal**
 
@@ -297,16 +302,21 @@ Candidates `src/pydelity/models/{factory,ledger_model}.py`.
 
 **Expected Outcome**
 
-`build_model` returns the Anthropic or OpenAI Responses model with the API key
-from `ProviderEnv`, the request timeout, max output tokens, the effort mapping
-(Anthropic adaptive thinking with effort; OpenAI reasoning effort) and the
-provider's output mode (`NativeOutput` or `PromptedOutput`, never forced
-`tool_choice`, chosen from the model's PydanticAI profile), wrapped in
-`LedgerModel`, a PydanticAI `WrapperModel` that runs the per-request `max_cost`
-check before each request and appends a ledger line after each response. A model
-request that fails after the SDK's retries raises `ProviderError` with the
-provider's own message unchanged and the original exception as its cause. Ported
-from KGForEdGlobal `model_registry.py` without its hand-kept model set.
+`build_model` builds the SDK client itself (`AsyncAnthropic` or `AsyncOpenAI`
+with `max_retries` from `advanced.provider_retries` and the request timeout) and
+passes it to PydanticAI's provider, so one retry count governs model requests
+and uploads, with no retry layer of pydelity's own. It returns the Anthropic or
+OpenAI Responses model with the API key from `ProviderEnv`, max output tokens,
+the effort mapping (Anthropic adaptive thinking with effort; OpenAI reasoning
+effort) and the provider's output mode (`NativeOutput` or `PromptedOutput`,
+never forced `tool_choice`, chosen from the model's PydanticAI profile), wrapped
+in `LedgerModel`, a PydanticAI `WrapperModel` that runs the per-request
+`max_cost` check before each request and appends a ledger line after each
+response. A model request that fails after the provider retries raises
+`ProviderError` with the provider's own message unchanged, `temporary` set for
+failures of a kind the SDK retries (with the message naming the retry count and
+setting), and the original exception as its cause. Ported from KGForEdGlobal
+`model_registry.py` without its hand-kept model set.
 
 From the command line: after the facts are saved, the run checks the selected
 provider's API key and logs `Model ready` with the model, effort and output
@@ -317,12 +327,15 @@ mode, or stops with the missing-key error. No model call happens yet.
 Small real agent runs with each provider, checking the provider settings sent,
 ledger lines and prices against the provider's reported usage, the per-request
 `max_cost` question (a `max_cost` below one request), and `ProviderError` from a
-real rejection (a model ID the provider does not have); `just lint`.
+real rejection (a model ID the provider does not have); attempt counts for
+`provider_retries` 0 and 3 by fault injection in the scratchpad (an unreachable
+address or a local stub answering 503), since a provider cannot be made to fail
+on demand; `just lint`.
 
 ### DEV-009 — PDF uploads, reuse and in-request fallback
 
 `Status`: `PENDING` `Depends On`: `DEV-008` `Acceptance`:
-`AC-011, AC-018, AC-021, AC-037`
+`AC-011, AC-018, AC-021, AC-037, AC-041`
 
 **Goal**
 
@@ -340,13 +353,13 @@ expiry from `advanced.uploads.expiry_hours` or the provider maximum;
 `uploads.json` written atomically after a successful upload, one record per
 provider and PDF SHA-256; reuse while at least one hour remains; one re-upload
 after "file not found"; a damaged `uploads.json` treated as empty. When the
-upload path fails (after the SDK's own retries), the step switches to
-`BinaryContent` for the rest of the step run, records an `upload_fallback`
-warning and `pdf_transport: request`, and writes no upload record. Two upload
-errors stop the run with `ProviderError` instead: an authentication failure and
-a rejection as too large (413). Nothing checks the PDF's size first; a provider
-rejection of the in-request call raises `ProviderError` that also gives the
-earlier upload error.
+upload path fails (after the provider retries, through the same SDK client), the
+step switches to `BinaryContent` for the rest of the step run, records an
+`upload_fallback` warning and `pdf_transport: request`, and writes no upload
+record. Two upload errors stop the run with `ProviderError` instead: an
+authentication failure and a rejection as too large (413). Nothing checks the
+PDF's size first; a provider rejection of the in-request call raises
+`ProviderError` that also gives the earlier upload error.
 
 From the command line: after confirmation, the run uploads the PDF and logs the
 provider's file id and expiry, or `Reusing upload` on a rerun; `uploads.json`
@@ -425,15 +438,16 @@ The fingerprint from the design's inputs, including the `pdf_facts.json`
 fingerprint; reuse of a valid, matching `pdf_survey.json` unless `overwrite`,
 and regeneration of a damaged one; the agent built through `build_model` with
 the uploaded file, a cache breakpoint after the PDF and facts summary, and an
-output validator that raises `ModelRetry` while retries remain and, on the last
-attempt, accepts and records still-failing checks as review issues.
-`pdf_survey.json` copies the facts it used and records
-`inputs.facts_fingerprint`. It uses PydanticAI's retry count and last-attempt
-flag in place of KGForEdGlobal's hand-kept attempt counter, and drops its
-raw-attempt files and `ExtractionUsageTracker` (the ledger replaces it). Python
-adds `other`, merges languages, stores `user_instructions`, converts region
-boxes to points and writes `pdf_survey.json` atomically. A refusal or an answer
-that never parses raises `SurveyError`.
+output validator that raises `ModelRetry` while check retries
+(`advanced.survey.check_retries`) remain and, on the last attempt, accepts and
+records still-failing checks as review issues. `pdf_survey.json` copies the
+facts it used and records `inputs.facts_fingerprint`. It uses PydanticAI's retry
+count and last-attempt flag in place of KGForEdGlobal's hand-kept attempt
+counter, and drops its raw-attempt files and `ExtractionUsageTracker` (the
+ledger replaces it). Python adds `other`, merges languages, stores
+`user_instructions`, converts region boxes to points and writes
+`pdf_survey.json` atomically. A refusal or an answer that never parses raises
+`SurveyError`.
 
 From the command line: the run makes the real survey call and logs
 `Survey finished` with the labels, languages, rotation, review-issue count and
@@ -464,15 +478,16 @@ Candidates `src/pydelity/pipeline/{schemas,runner}.py`.
 **Expected Outcome**
 
 Settings resolved and validated, the PDF opened (no size or page check), the
-folder prepared (stale temp files removed; a warning when `run.json` names
-another PDF); `run.json` written at start and end with steps (each listing the
-`outputs` it wrote or reused, `pdf_facts.json` as soon as it exists), cost
-(`run_usd`, `by_step`, `output_folder_usd`, `unpriced_requests`), the review
-list (reused outputs' issues included), warnings and error; `failed`, `stopped`
-and `interrupted` recorded before re-raising, with `KeyboardInterrupt` caught
-and re-raised. Warnings are items (`code`, `step`, `message`, `details`) with
-this cycle's codes (`unpriced_model`, `max_cost_exceeded`,
-`other_pdf_in_folder`, `damaged_output`, `upload_fallback`,
+folder prepared (stale temp files removed; an `other_pdf_in_folder` warning when
+`run.json` or `pdf_facts.json` names another PDF); `run.json` written at start
+and end with steps (each listing the `outputs` it wrote or reused,
+`pdf_facts.json` as soon as it exists), cost (`run_usd`, `by_step`,
+`output_folder_usd`, `unpriced_requests`), the review list (reused outputs'
+issues included), warnings and error; `failed`, `stopped` and `interrupted`
+recorded before re-raising, with `KeyboardInterrupt` and a cancelled `arun`
+(`CancelledError`) caught and re-raised. Warnings are items (`code`, `step`,
+`message`, `details`) with this cycle's codes (`unpriced_model`,
+`max_cost_exceeded`, `other_pdf_in_folder`, `damaged_output`, `upload_fallback`,
 `probe_unavailable`), and each also goes to `PydelityWarning` and the log. A
 `ProviderError` or a `max_cost` no ends the run `failed` or `stopped`, with
 every written file valid. A planning hook gives the CLI the estimate before any
@@ -503,11 +518,11 @@ Candidates `src/pydelity/report/{html,images}.py`.
 
 `report.html` and `report/pages/<NNNN>.<jpg|png>` (about 1000 px wide,
 re-rendered only when missing or when `report/manifest.json`'s PDF SHA-256
-differs): run header, cost, review list, profile, facts (the `pdf_facts.json`
-summary lines first), and one card per page with region and form-field boxes as
-percent-positioned CSS overlays and the page's findings. Static, no JavaScript,
-no external URLs, every inserted string escaped; written at the end of every run
-that got past input validation.
+differs, rendered off the event loop): run header, cost, review list, profile,
+facts (the `pdf_facts.json` summary lines first), and one card per page with
+region and form-field boxes as percent-positioned CSS overlays and the page's
+findings. Static, no JavaScript, no external URLs, every inserted string
+escaped; written at the end of every run that got past input validation.
 
 From the command line: the run logs `Report written` with the path of
 `report.html`, which opens in a browser.
@@ -524,35 +539,45 @@ Loads the Developer HTML and CSS styles.
 ### DEV-014 — Python API
 
 `Status`: `PENDING` `Depends On`: `DEV-012, DEV-013` `Acceptance`:
-`AC-010, AC-015, AC-039, AC-040`
+`AC-010, AC-015, AC-039, AC-040, AC-042, AC-043, AC-044`
 
 **Goal**
 
-Expose `run`, `survey` and `estimate` and the public types from the package
-root.
+Let synchronous or async code measure a PDF, estimate, run the survey and read
+the results back without the CLI.
 
 **Affected Area**
 
-Candidate `src/pydelity/api.py`; `src/pydelity/__init__.py`.
+Candidates for the API module and the package root.
 
 **Expected Outcome**
 
-Synchronous `run`, `survey` and `estimate` taking `pdf`, `config` (a path, a
-`Config` or a mapping) and setting keywords; `run` and `survey` also take
-`allow_over_max_cost` (default `False`), which answers the `max_cost` decision.
-`survey` writes `pdf_facts.json` and `pdf_survey.json`. They never prompt or
-read stdin, and they work inside a running event loop (on a worker thread). The
-root re-exports them with `Config`, the result models, `CostEstimate`, the
-errors and `PydelityWarning`; import stays free of side effects.
+The coroutines `ameasure`, `aestimate`, `asurvey` and `arun` hold the logic;
+`measure`, `estimate`, `survey` and `run` take the same arguments (`pdf`,
+`config` as a path, `Config` or mapping, setting keywords; `run` and `survey`
+also `allow_over_max_cost`) and call them through the DEV-001 helper, so both
+forms give the same results, errors and warnings, including inside Jupyter.
+`measure` prepares the output folder and writes or reuses `pdf_facts.json`,
+returning `PdfFacts`, with no API key or model call. `survey` writes
+`pdf_facts.json` and `pdf_survey.json` and returns `PdfSurvey`. `run` returns a
+`RunResult` (`output_dir`, `record`, `facts`, `survey`, `ledger`).
+`load(output_dir)`, sync only, reads a folder back into a `RunResult` with
+missing parts as `None` and raises `OutputError` for a missing folder or a
+corrupt file. Cancelling `asurvey` or `arun` is handled like Ctrl+C. Every
+function validates the whole configuration, never prompts or reads stdin. The
+root re-exports all of them with `Config`, the result models, `CostEstimate`,
+the errors and `PydelityWarning`; import stays free of side effects.
 
-From Python: `pydelity.run(...)`, `pydelity.survey(...)` and
-`pydelity.estimate(...)` work, in a script or in Jupyter; the command line is
+From Python: every function works, sync and async, in a script or in Jupyter,
+and `pydelity.load("<output folder>")` reads a run back; the command line is
 unchanged.
 
 **Self-Check**
 
-Real calls of all three, including from inside `asyncio.run`; import with an
-empty environment prints nothing; `just lint`.
+Real calls of every function in both forms, including from inside a running
+event loop and two `asurvey` calls on different folders at once; `measure` and
+`load` with no API key; cancelling `arun`; import with an empty environment
+prints nothing; `just lint`.
 
 ### DEV-015 — CLI
 
@@ -603,10 +628,12 @@ A loopback HTTP server, reached through `ANTHROPIC_BASE_URL` and
 `OPENAI_BASE_URL`, that answers Anthropic Messages and Files API calls and
 OpenAI Responses and Files API calls with canned bodies: a structured survey
 answer the caller supplies, usage figures, upload success, "file not found",
-upload failures (server error, authentication failure, 413 too large), a request
-that rejects the PDF, and a request log the caller can inspect. The canned
-bodies follow the response shapes recorded from the real development runs (usage
-figures and ids only, never keys). No production code path exists only for it.
+upload failures (server error, authentication failure, 413 too large), temporary
+failures (429 and 5xx with a short `retry-after-ms`) on model requests and
+uploads, a request that rejects the PDF, and a request log the caller can
+inspect. The canned bodies follow the response shapes recorded from the real
+development runs (usage figures and ids only, never keys). No production code
+path exists only for it.
 
 From the command line: with `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` pointed at
 the stand-in, `pydelity <pdf> --yes` completes with no keys and no spend.
@@ -799,7 +826,7 @@ constants; regenerating after Markdown formatting is byte-identical, so CI's
   src/pydelity/
     __init__.py         public API re-exports, __version__, logger.disable
     __main__.py         python -m pydelity
-    api.py              run, survey, estimate
+    api.py              measure, estimate, survey, run, their a-versions, load
     cli.py              Typer CLI
     errors.py           PydelityError and subclasses, PydelityWarning
     config/             schemas.py (Config, AdvancedConfig, ProviderEnv), loading.py
@@ -851,6 +878,11 @@ constants; regenerating after Markdown formatting is byte-identical, so CI's
   (`agents.py`, `llm.py`, `prompts.py`, `validators.py`, `schemas.py`), with
   validators holding the checks Pydantic cannot express (user direction,
   2026-11-17). File names are still approved at each step.
+- The survey has no model verifier: its checks are the Python checks only (user
+  decision, 2026-11-17; scope non-goal).
+- Approved by the user on 2026-11-17 (scope `a938118`, design `2e96832`); user
+  style `tony` is locked. Implementation continues in a new session, starting
+  with DEV-001's file and folder list for the user's review.
 - Project references loaded: `NONE` (`.standards/project-references/` does not
   exist).
 
@@ -910,3 +942,12 @@ step was added, removed or reordered.
 `Purpose`: `DEVELOPMENT` `Target`: `NONE` `Assessed Inputs`:
 `scope 93d74b8 and design a78c078; this unapproved plan draft` `Next Action`:
 `Reconcile DEV-004, DEV-005, DEV-008, DEV-014, DEV-015 and DEV-021 (and any other step the new settings and functions touch) with the reworked scope and design, then present the plan for approval.`
+
+Restored on the `RESUME` from `ARCHITECTING` (scope `a938118`, design `2e96832`)
+and reconciled: DEV-001 adds `OutputError`, the coroutine helper and an
+async-first `arun`; DEV-004 adds `advanced.provider_retries` and renames check
+retries; DEV-008 and DEV-009 build the SDK clients with the retry count and set
+`ProviderError.temporary`; DEV-014 is rewritten for `measure`, `load` and the
+`a` functions; DEV-005, DEV-012 and DEV-013 move blocking work off the event
+loop and handle cancellation; DEV-006 adds temporary failures. No step was
+added, removed or reordered.
