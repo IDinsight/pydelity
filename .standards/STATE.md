@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -10,8 +10,10 @@
 `Build step 1 (survey) of the pydelity pipeline, with the cross-cutting run features it needs, an official Astro docs site, and publish it as pydelity's first working PyPI release. pydelity is a standalone Python 3.13 library with a Typer CLI that will turn (almost) any PDF into a faithful document.json with item-level provenance and, optionally, a per-PDF domain.json, through steps 1-6: survey, page extraction, page-break verification, assembly, schema proposal and projection. It replaces KGForEdGlobal stages 1-3, and its document.json must stay usable by the KGForEdGlobal KG stage. This cycle builds only step 1; steps 2-6 come in later cycles. User decisions made while scoping this cycle (2026-11-17): the cycle ships every cross-cutting run feature that applies to the survey (CLI, optional JSON or YAML config and Python API, PDF input-limit check, cost ledger with estimate-and-confirm, --yes and max_cost, resume, Anthropic and OpenAI models, mocked tests, Windows install and use, review list in run.json with a CLI summary) plus an HTML report for the survey; CI also tests on Python 3.14; the survey-only release, version 0.1.0 (tag v0.1.0), goes to PyPI from release-please's GitHub release with Trusted Publishing once this cycle is signed off; the docs site uses Astro with Starlight like https://github.com/IDinsight/standards, built and link-checked on pull requests and published to GitHub Pages as versioned docs once a release tag exists; Windows contributor recipes stay out of this cycle. People must be able to install and use pydelity on Windows. Inputs: artifacts/design_brief.md holds the full request, design directions, step design points, known source defects to design out, evidence E1-E23 and the KG consumer contract; its 'First work item: repo setup' section is done (just and prek replaced Make and pre-commit) and its open questions are answered in the next input. artifacts/next_cycle_inputs.md holds what the earlier repo-setup cycle left for this one: the user's answers to the brief's open questions; the pipeline constraints, non-goals, assumptions and outcomes scoped before the split, whose old AC numbers (AC-003 to AC-039) are retired so this cycle numbers its own; the setup's risks and follow-up (runtime dependencies, the Typer CLI and its console script, a PyPI release workflow with Trusted Publishing that zizmor also checks, whether to yank the 0.0.1 placeholder, Windows recipes that do not assume a POSIX shell, adding Python 3.14 to CI); and loose ends from the setup. The repo setup on main stays as it is unless this work needs a change: just, prek, Dependabot, zizmor, the Markdown rules that cover STANDARDS files, one pinned version per tool, and CI ('Lint and test' and 'TruffleHog secret scan' are required checks on main). Releases: release-please (.github/workflows/release-please.yml) versions and tags releases and writes CHANGELOG.md from the Conventional Commit messages on main but does not publish to PyPI; the PyPI workflow should publish from its GitHub releases; a feat: commit on main opens the 0.1.0 release pull request, which should be merged only once this cycle is signed off. User decisions added 2026-11-17 after the first scope: when this cycle's work is merged into main, release-please opens a release pull request whose version is 0.1.0, and accepting it publishes v0.1.0 to PyPI; and pydelity ports over and reuses what it can from KGForEdGlobal, writing new or updated code for pydelity where that code does not fit, without changing KGForEdGlobal. KGForEdGlobal (/Users/tzz/Projects/private/idi/KGForEdGlobal) is otherwise read-only reference material.`
 `Scope`:
 `.standards/docs/scope/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
-`Architecture`: `NONE` `Development`: `NONE` `PromotionReason`: `NONE`
-`AuditTarget`: `NONE` `BlockedOn`: `NONE` `PendingVerificationCadence`: `NONE`
+`Architecture`:
+`.standards/docs/specs/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
+`Development`: `NONE` `PromotionReason`: `NONE` `AuditTarget`: `NONE`
+`BlockedOn`: `NONE` `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
 
@@ -23,8 +25,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `RESUME` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
-`Scope revised: KGForEdGlobal reuse constraint and release version 0.1.0 (AC-036 added); no architecture existed, so no rerun.`
+`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Design revised for the user rework (in-request PDF fallback when the upload path fails); no development work existed, so no rerun.`
 
 ## Recovery
 
