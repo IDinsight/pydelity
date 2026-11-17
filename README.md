@@ -19,11 +19,13 @@ Source code: <https://github.com/IDinsight/pydelity>
 - [just](https://just.systems/man/en/packages.html) 1.35.0 or later, for example
   with `uv tool install rust-just` or `brew install just`
 
-Everything else, including [prek](https://prek.j178.dev/) (which runs the git
-hooks), Ruff, ty, interrogate, pytest and zizmor, is pinned in `pyproject.toml`
-and installed into `.venv` by `just install`. You don't need to install any of
-them yourself; run one directly with `uv run`, for example
-`uv run prek run --all-files`.
+Everything else is pinned in the repo, so you don't need to install it yourself.
+[prek](https://prek.j178.dev/) (which runs the git hooks), Ruff, ty,
+interrogate, pytest and zizmor are pinned in `pyproject.toml` and installed into
+`.venv` by `just install`; run one directly with `uv run`, for example
+`uv run prek run --all-files`. Prettier and markdownlint, and the Node.js they
+run on, are pinned in `.pre-commit-config.yaml`; prek sets them up the first
+time a git hook or `just lint-markdown` needs them.
 
 If you'd rather have `prek` on your `PATH` too, install it with
 `uv tool install prek` or `brew install prek` (see
