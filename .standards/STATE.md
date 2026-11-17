@@ -14,7 +14,8 @@
 `.standards/docs/specs/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
 `Development`:
 `.standards/docs/development/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
+`User go-ahead for DEV-002 with the revised locations: every test PDF committed under tests/fixtures/pdfs/ (each under 500 KB), with SOURCES.md beside them.`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

@@ -21,3 +21,8 @@
 8. Private function/method/class/variable names should begin with an underscore
    to distinguish against their public counterparts. Preserve framework-required
    names and established public interfaces.
+9. Place private functions, classes, methods and global variables (names that
+   begin with an underscore) before public ones in each module, keeping
+   alphabetical order within each group. Exceptions are allowed when ordering
+   would break execution or make the code difficult to understand, including
+   dependencies, Pydantic validators, and type definitions.

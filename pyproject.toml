@@ -16,7 +16,8 @@ dev = [
     "pytest-randomly==5.1.0",
     "ruff==0.17.5",
     "rust-just==1.59.0",
-    "ty==0.0.104",
+    "twine==7.0.0",
+    "ty==0.0.105",
     "zizmor==1.32.0",
 ]
 
@@ -26,7 +27,17 @@ classifiers = [
     "Development Status :: 1 - Planning",
     "Programming Language :: Python :: 3.13",
 ]
-dependencies = []
+# Runtime dependencies are minimum versions. PyMuPDF 2.x fixes page-label and hang bugs
+# that 1.x keeps, but requires onnxruntime, numpy and more, and has no wheels for Intel
+# Macs, Windows ARM, 32-bit Windows or musl Linux.
+dependencies = [
+    "loguru>=0.8.0",
+    "pydantic>=2.14.3",
+    "pydantic-ai-slim[anthropic,openai]>=2.69.0",
+    "pydantic-settings[yaml]>=2.16.3",
+    "pymupdf>=2.1",
+    "typer>=0.29.1",
+]
 description = "Under development and not yet usable. PDF to structured JSON, faithfully."
 keywords = ["agents", "genai", "JSON", "llm", "PDF", "structured"]
 license = "MIT"
@@ -37,6 +48,9 @@ readme = "README.md"
 requires-python = ">=3.13"
 # Bumped by release-please's release pull requests, with uv.lock; not edited by hand.
 version = "0.0.1"
+
+[project.scripts]
+pydelity = "pydelity.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/IDinsight/pydelity"

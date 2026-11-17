@@ -6,8 +6,9 @@ Cycle: build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c
 # Development Plan
 
 `Cycle`: `build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c` `Mode`:
-`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`: `APPROVED`
-`Verification Cadence`: `AFTER_IMPLEMENTATION` `Current Increment`: `NONE`
+`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
+`IN_PROGRESS` `Verification Cadence`: `AFTER_IMPLEMENTATION`
+`Current Increment`: `NONE`
 
 ## Implementation Contract
 
@@ -22,7 +23,7 @@ Cycle: build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c
 
 ### DEV-001 — Package foundation and a first `pydelity` command
 
-`Status`: `PENDING` `Depends On`: `NONE` `Acceptance`: `AC-010, AC-018, AC-044`
+`Status`: `DONE` `Depends On`: `NONE` `Acceptance`: `AC-010, AC-018, AC-044`
 
 **Goal**
 
@@ -67,6 +68,89 @@ version; `python -m pydelity <pdf>` does the same.
 `just lint`; `just test` (existing smoke tests); a scratchpad script exercising
 atomic write and load and fingerprints; `pydelity` on a PDF and on a broken
 file; `import pydelity` with an empty environment prints nothing.
+
+Evidence, 2026-11-17, repo root, on `0f1c417` plus the uncommitted DEV-001
+changes (macOS arm64, Python 3.13.9). First run on PyMuPDF 1.28.2. After the
+user switched to PyMuPDF 2.1 the same day, every check below was rerun on 2.1
+with the same results.
+
+- `just lint`: Prettier, the STANDARDS check, markdownlint, Ruff check and
+  format, ty, interrogate (100%) and zizmor all passed. It ran outside the
+  sandbox because prek writes to `~/.cache/prek`.
+- `just test`: 2 passed. The 5 warnings are PyMuPDF's SWIG `DeprecationWarning`s
+  (`builtin type SwigPyObject has no __module__ attribute`) at import, which
+  pytest shows.
+- Scratchpad `dev001_utils_check.py`: 30 of 30 checks passed. Atomic write
+  produces UTF-8 with LF only and permissions from the umask (0644), leaves no
+  temp file, and keeps the old content and removes the temp file when `fsync`
+  fails. Load returns the model; neither for an absent file; and damage for
+  invalid JSON, a wrong schema or non-UTF-8 bytes, with none of the file's text
+  in the message. Cleanup removes only `<name>.tmp-<16 hex>` files in that
+  folder (not other `.tmp-` names or subfolders). Fingerprints ignore key order
+  and reject NaN and non-JSON values. `run_coroutine` runs in the calling thread
+  without a loop and on the `pydelity` worker thread with a loop. On the worker
+  thread, results, errors and `PydelityWarning`s arrive in the caller's thread
+  (warnings attributed to the caller's file). A real SIGINT cancels the
+  coroutine (it sees `CancelledError`) and raises `KeyboardInterrupt` within 0.6
+  s in all three cases: no loop, a sync call inside `asyncio.run`, and a plain
+  loop as in Jupyter. A cancellation requested before the call does not cancel
+  the work.
+- `pydelity` on KGForEdGlobal's
+  `data/funda_wande/caps_english_hl_grade_3_fs.pdf` (read only) logged
+  `142 pages, 2,007,018 bytes`, SHA-256 `c939a3a9…b878d24d` (equal to
+  `shasum -a 256`), then `Run finished`, and exited 0. `python -m pydelity` gave
+  the same result with exit 0. `--version` printed `pydelity 0.0.1` (exit 0).
+  Scratchpad copies exited 2 with the file and reason logged: a missing file
+  (`no such file`), a folder (`not a file`), an empty file
+  (`the file is empty`), a truncated copy (`the PDF has no pages`), a text file
+  named `.pdf` (`cannot be opened as a PDF`) and an AES-256 copy with a user
+  password (`password-protected`). A missing argument exited 2 with Typer's
+  error.
+- `env -i` `.venv/bin/python -c "import pydelity"` printed only the script's own
+  output (nothing on stderr). With `-W default`, PyMuPDF's SWIG
+  `DeprecationWarning`s appear. They are PyMuPDF's, not pydelity output, and are
+  hidden by Python's default filters. On 2.1 the import (about 0.4 s cold) does
+  not load onnxruntime or numpy, and runs in the sandbox showed no network
+  access.
+- `scripts/check_env_template.py` reports the six `LLM_*` names still in the
+  user's local `.env`. The user is removing them (2026-11-17).
+
+**Implementation Notes**
+
+- Files approved by the user (2026-11-17):
+  `src/pydelity/{__main__,api,cli,errors}.py` and
+  `src/pydelity/utils/{__init__,coroutines,files,fingerprints,pdf}.py`.
+- Versions: each runtime dependency's minimum is its latest stable release on
+  2026-11-17 (user request): loguru 0.8.0, pydantic 2.14.3, pydantic-ai-slim
+  2.69.0, pydantic-settings 2.16.3, typer 0.29.1. Dev group: `twine==7.0.0`, and
+  `ty` bumped to 0.0.105. PyMuPDF is `>=2.1` by user decision (2026-11-17). The
+  user first chose `>=1.28.2,<2`, then switched once it came to light that only
+  2.x fixes page-label bugs (#5214 garbled UTF-16 or `/` prefixes, #5140
+  `IndexError` before the first label), a 1.28 hang in `get_text` and
+  `get_pixmap` (#5082), the `get_pixmap` hang on heavily tagged pages (#5125)
+  and form-field problems (#5101, radio groups), and that 1.x gets no further
+  releases. Costs accepted: 2.x requires onnxruntime, numpy, networkx and more
+  (wheels of about 89 MB plus about 28 MB), and has no wheels for Intel Macs,
+  Windows ARM, 32-bit Windows or musl Linux. Documenter should say which
+  platforms are supported. CI's `ubuntu-latest`, `windows-latest` and
+  `macos-latest` (arm64) all have wheels.
+- pydelity warnings go through `pydelity.utils.coroutines.warn`, which records
+  them on a worker thread (a `ContextVar` set there) and issues them as
+  `PydelityWarning` otherwise. This avoids `warnings.catch_warnings`, which is
+  process-global and unsafe with concurrent sync calls from several threads.
+- Within a running loop, `run_coroutine` also cancels the coroutine when the
+  calling task gets a new cancellation request. That is how the first Ctrl+C
+  arrives under `asyncio.run`, while the waiting thread blocks the loop.
+- Conventions from the user's review (2026-11-17), for every later step: modules
+  put private globals, classes and functions before public ones (alphabetical
+  within each group); shipped code, config and docstrings use American English
+  and never mention the development process (decision dates, DEV or AC IDs,
+  KGForEdGlobal). DEV-001 was reordered and reworded to match, and `just lint`,
+  `just test`, the scratchpad check (30 of 30) and the CLI runs passed again
+  afterwards.
+- `arun`/`run` take only `pdf` and return `None` for now. DEV-014 gives them the
+  designed signature and `RunResult`. The CLI requires `PDF` until DEV-004 and
+  DEV-015 add `--config`.
 
 ### DEV-002 — Real public-domain PDF set
 
