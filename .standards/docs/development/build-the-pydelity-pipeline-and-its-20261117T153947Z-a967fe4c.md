@@ -186,18 +186,20 @@ bad setting.
 Scratchpad script with valid and invalid JSON and YAML files, several errors at
 once, precedence cases and a missing key; `just lint`.
 
-### DEV-005 — Survey probe (measured facts)
+### DEV-005 — Survey probe and `pdf_facts.json`
 
-`Status`: `PENDING` `Depends On`: `DEV-001, DEV-002` `Acceptance`:
-`AC-001, AC-005, AC-006`
+`Status`: `PENDING` `Depends On`: `DEV-001, DEV-002, DEV-004` `Acceptance`:
+`AC-001, AC-005, AC-006, AC-017, AC-018, AC-040`
 
 **Goal**
 
-Measure everything the survey can know about a PDF without a model.
+Measure everything the survey can know about a PDF without a model, and save it
+with a summary before anything needs a key or costs money.
 
 **Affected Area**
 
-Candidates `src/pydelity/steps/survey/{schemas,probe}.py`.
+Candidates in the survey step folder for the facts schemas and the probe, plus
+the facts summary and `pdf_facts.json` writing.
 
 **Expected Outcome**
 
@@ -211,17 +213,27 @@ quality with a node cap. Every threshold is a named constant; no word lists or
 document-type terms. A bookmarks, form or structure read that raises sets that
 fact to `null` (never an empty value) and adds a `probe_errors[]` item (`fact`,
 `message` without file contents); the run continues. A PDF that simply has none
-records `[]`, or a `structure` with `tagged: false`.
+records `[]`, or a `structure` with `tagged: false`. `pdf_facts.json` holds
+`fingerprint` (PDF SHA-256, `PROBE_VERSION`, facts `schema_version`),
+`probe_version`, `measured_at`, `pdf`, `facts` and `summary[]` (plain-text lines
+built deterministically from the facts). It is written atomically into the
+output folder right after measuring, before any API key check, estimate or
+question; a valid file with a matching fingerprint is reused unless `overwrite`,
+and a damaged one is measured again with a `damaged_output` warning. The summary
+lines are logged at INFO.
 
-From the command line: the run logs `Probe finished` with a one-line summary
-(pages without text or with garbled text, writing direction, rotated pages,
-repeated lines, bookmarks, form fields, structure-tag quality, unreadable
-facts); `--verbose` logs the facts page by page.
+From the command line: the run logs the summary lines (pages without text or
+with garbled text, writing direction, rotated pages, page numbering, repeated
+lines, bookmarks, form fields, structure-tag quality, unreadable facts) and
+writes `pdf_facts.json` to the output folder, with no API key needed; a rerun
+logs `Facts reused`; `--verbose` logs the facts page by page.
 
 **Self-Check**
 
 Run the probe on every PDF in the set and check its facts against the documents
-(pages, bookmarks, form fields, tags, rotation, printed numbers); `just lint`.
+(pages, bookmarks, form fields, tags, rotation, printed numbers); a rerun reuses
+`pdf_facts.json`, a damaged one is rewritten, and a run with no API key still
+writes it; `just lint`.
 
 ### DEV-007 — Cost ledger, pricing, estimate and `max_cost` guard
 
@@ -252,13 +264,15 @@ folder's recorded spend, with an unpriced model counting as over. A tripped
 check records one `max_cost_exceeded` warning and asks the run's decision once;
 yes lets the rest of the run go over with no further question, and no raises
 `BudgetExceededError` before anything is sent, leaving the run resumable. Money
-is `Decimal`; genai-prices runtime updates stay off.
+is `Decimal`; genai-prices runtime updates stay off. The run asks its questions
+through callables it is given: the CLI passes its prompt (or `--yes`), and the
+Python API passes none and never asks.
 
-From the command line: before anything that costs money, the run shows the cost
-estimate, the spend already recorded in the output folder and `max_cost`, and
-asks whether to continue; over `max_cost`, it logs the `max_cost_exceeded`
-warning first and the same question decides both; `--yes` skips the question and
-a non-interactive run without `--yes` stops.
+From the command line: after the facts are saved and before anything that costs
+money, the run shows the cost estimate, the spend already recorded in the output
+folder and `max_cost`, and asks whether to continue; over `max_cost`, it logs
+the `max_cost_exceeded` warning first and the same question decides both;
+`--yes` skips the question and a non-interactive run without `--yes` stops.
 
 **Self-Check**
 
@@ -294,9 +308,9 @@ request that fails after the SDK's retries raises `ProviderError` with the
 provider's own message unchanged and the original exception as its cause. Ported
 from KGForEdGlobal `model_registry.py` without its hand-kept model set.
 
-From the command line: the run checks the selected provider's API key and logs
-`Model ready` with the model, effort and output mode, or stops with the
-missing-key error. No model call happens yet.
+From the command line: after the facts are saved, the run checks the selected
+provider's API key and logs `Model ready` with the model, effort and output
+mode, or stops with the missing-key error. No model call happens yet.
 
 **Self-Check**
 
@@ -371,11 +385,11 @@ objects only; region boxes as page fractions; artifact `position` as `top` |
 `bottom` | `left` | `right` | `middle`), the stored `profile` (including
 `writing_direction.ranges[]` with inclusive page indexes and `direction`) and
 the `PdfSurvey` model for `pdf_survey.json` 1.0; a document-type-neutral prompt
-with `PROMPT_VERSION` carrying the facts summary (saying which facts were
-unavailable), user instructions and languages; checks C1–C7, each returning
-failure items (`page_index` or null, `message` naming the check with the
-proposed and measured values, `details`), one item per affected page, and the
-`checks[]` and `issues[]` records built from them in C1–C7 order. Unlike
+with `PROMPT_VERSION` carrying the `pdf_facts.json` summary lines (which say
+which facts were unavailable), user instructions and languages; checks C1–C7,
+each returning failure items (`page_index` or null, `message` naming the check
+with the proposed and measured values, `details`), one item per affected page,
+and the `checks[]` and `issues[]` records built from them in C1–C7 order. Unlike
 KGForEdGlobal's validators, which raise on the first problem, each check returns
 all its failures, so one retry message names every problem and the last attempt
 can record them all.
@@ -407,17 +421,19 @@ step's entry function (fingerprint, reuse, writing `pdf_survey.json`).
 
 **Expected Outcome**
 
-The fingerprint from the design's inputs; reuse of a valid, matching
-`pdf_survey.json` unless `overwrite`, and regeneration of a damaged one; the
-agent built through `build_model` with the uploaded file, a cache breakpoint
-after the PDF and facts summary, and an output validator that raises
-`ModelRetry` while retries remain and, on the last attempt, accepts and records
-still-failing checks as review issues. It uses PydanticAI's retry count and
-last-attempt flag in place of KGForEdGlobal's hand-kept attempt counter, and
-drops its raw-attempt files and `ExtractionUsageTracker` (the ledger replaces
-it). Python adds `other`, merges languages, stores `user_instructions`, converts
-region boxes to points and writes `pdf_survey.json` atomically. A refusal or an
-answer that never parses raises `SurveyError`.
+The fingerprint from the design's inputs, including the `pdf_facts.json`
+fingerprint; reuse of a valid, matching `pdf_survey.json` unless `overwrite`,
+and regeneration of a damaged one; the agent built through `build_model` with
+the uploaded file, a cache breakpoint after the PDF and facts summary, and an
+output validator that raises `ModelRetry` while retries remain and, on the last
+attempt, accepts and records still-failing checks as review issues.
+`pdf_survey.json` copies the facts it used and records
+`inputs.facts_fingerprint`. It uses PydanticAI's retry count and last-attempt
+flag in place of KGForEdGlobal's hand-kept attempt counter, and drops its
+raw-attempt files and `ExtractionUsageTracker` (the ledger replaces it). Python
+adds `other`, merges languages, stores `user_instructions`, converts region
+boxes to points and writes `pdf_survey.json` atomically. A refusal or an answer
+that never parses raises `SurveyError`.
 
 From the command line: the run makes the real survey call and logs
 `Survey finished` with the labels, languages, rotation, review-issue count and
@@ -434,7 +450,7 @@ retries by fault injection in the scratchpad script (a check forced to fail);
 ### DEV-012 — Run orchestration
 
 `Status`: `PENDING` `Depends On`: `DEV-004, DEV-007, DEV-011` `Acceptance`:
-`AC-014, AC-018, AC-019, AC-037, AC-038, AC-039`
+`AC-014, AC-018, AC-019, AC-037, AC-038, AC-039, AC-040`
 
 **Goal**
 
@@ -449,16 +465,18 @@ Candidates `src/pydelity/pipeline/{schemas,runner}.py`.
 
 Settings resolved and validated, the PDF opened (no size or page check), the
 folder prepared (stale temp files removed; a warning when `run.json` names
-another PDF); `run.json` written at start and end with steps, cost (`run_usd`,
-`by_step`, `output_folder_usd`, `unpriced_requests`), the review list (reused
-outputs' issues included), warnings and error; `failed`, `stopped` and
-`interrupted` recorded before re-raising, with `KeyboardInterrupt` caught and
-re-raised. Warnings are items (`code`, `step`, `message`, `details`) with this
-cycle's codes (`unpriced_model`, `max_cost_exceeded`, `other_pdf_in_folder`,
-`damaged_output`, `upload_fallback`, `probe_unavailable`), and each also goes to
-`PydelityWarning` and the log. A `ProviderError` or a `max_cost` no ends the run
-`failed` or `stopped`, with every written file valid. A planning hook gives the
-CLI the estimate before any spend.
+another PDF); `run.json` written at start and end with steps (each listing the
+`outputs` it wrote or reused, `pdf_facts.json` as soon as it exists), cost
+(`run_usd`, `by_step`, `output_folder_usd`, `unpriced_requests`), the review
+list (reused outputs' issues included), warnings and error; `failed`, `stopped`
+and `interrupted` recorded before re-raising, with `KeyboardInterrupt` caught
+and re-raised. Warnings are items (`code`, `step`, `message`, `details`) with
+this cycle's codes (`unpriced_model`, `max_cost_exceeded`,
+`other_pdf_in_folder`, `damaged_output`, `upload_fallback`,
+`probe_unavailable`), and each also goes to `PydelityWarning` and the log. A
+`ProviderError` or a `max_cost` no ends the run `failed` or `stopped`, with
+every written file valid. A planning hook gives the CLI the estimate before any
+spend.
 
 From the command line: every run writes `run.json` and ends with a summary line
 (status, cost of this run and of the folder, review-issue count); Ctrl+C logs
@@ -485,10 +503,11 @@ Candidates `src/pydelity/report/{html,images}.py`.
 
 `report.html` and `report/pages/<NNNN>.<jpg|png>` (about 1000 px wide,
 re-rendered only when missing or when `report/manifest.json`'s PDF SHA-256
-differs): run header, cost, review list, profile, facts summary, and one card
-per page with region and form-field boxes as percent-positioned CSS overlays and
-the page's findings. Static, no JavaScript, no external URLs, every inserted
-string escaped; written at the end of every run that got past input validation.
+differs): run header, cost, review list, profile, facts (the `pdf_facts.json`
+summary lines first), and one card per page with region and form-field boxes as
+percent-positioned CSS overlays and the page's findings. Static, no JavaScript,
+no external URLs, every inserted string escaped; written at the end of every run
+that got past input validation.
 
 From the command line: the run logs `Report written` with the path of
 `report.html`, which opens in a browser.
@@ -505,7 +524,7 @@ Loads the Developer HTML and CSS styles.
 ### DEV-014 — Python API
 
 `Status`: `PENDING` `Depends On`: `DEV-012, DEV-013` `Acceptance`:
-`AC-010, AC-015, AC-039`
+`AC-010, AC-015, AC-039, AC-040`
 
 **Goal**
 
@@ -521,10 +540,10 @@ Candidate `src/pydelity/api.py`; `src/pydelity/__init__.py`.
 Synchronous `run`, `survey` and `estimate` taking `pdf`, `config` (a path, a
 `Config` or a mapping) and setting keywords; `run` and `survey` also take
 `allow_over_max_cost` (default `False`), which answers the `max_cost` decision.
-They never prompt or read stdin, and they work inside a running event loop (on a
-worker thread). The root re-exports them with `Config`, the result models,
-`CostEstimate`, the errors and `PydelityWarning`; import stays free of side
-effects.
+`survey` writes `pdf_facts.json` and `pdf_survey.json`. They never prompt or
+read stdin, and they work inside a running event loop (on a worker thread). The
+root re-exports them with `Config`, the result models, `CostEstimate`, the
+errors and `PydelityWarning`; import stays free of side effects.
 
 From Python: `pydelity.run(...)`, `pydelity.survey(...)` and
 `pydelity.estimate(...)` work, in a script or in Jupyter; the command line is
@@ -538,7 +557,7 @@ empty environment prints nothing; `just lint`.
 ### DEV-015 — CLI
 
 `Status`: `PENDING` `Depends On`: `DEV-014` `Acceptance`:
-`AC-007, AC-008, AC-009, AC-015, AC-019, AC-037, AC-038`
+`AC-007, AC-008, AC-009, AC-015, AC-019, AC-037, AC-038, AC-040`
 
 **Goal**
 
@@ -753,11 +772,11 @@ Candidate `scripts/generate_reference_docs.py`;
 
 **Expected Outcome**
 
-Generated pages for configuration, CLI, Python API, `pdf_survey.json`,
-`run.json`, `cost.jsonl`, `uploads.json` and the survey checks, each marked as
-generated and including the measurement and estimate constants; regenerating
-after Markdown formatting is byte-identical, so CI's `git diff --exit-code`
-catches a stale page.
+Generated pages for configuration, CLI, Python API, `pdf_facts.json`,
+`pdf_survey.json`, `run.json`, `cost.jsonl`, `uploads.json` and the survey
+checks, each marked as generated and including the measurement and estimate
+constants; regenerating after Markdown formatting is byte-identical, so CI's
+`git diff --exit-code` catches a stale page.
 
 **Self-Check**
 
@@ -875,3 +894,19 @@ added, removed or reordered.
 `Purpose`: `DEVELOPMENT` `Target`: `NONE` `Assessed Inputs`:
 `scope 8fa6449 and design a80a831; this unapproved plan draft` `Next Action`:
 `Reconcile DEV-005 (and any step the new output touches, such as DEV-012, DEV-013 and DEV-021) with the reworked scope and design, then present the plan for approval.`
+
+Restored on the `RESUME` from `ARCHITECTING` (scope `93d74b8`, design `a78c078`)
+and reconciled: DEV-005 now writes and reuses `pdf_facts.json` with its summary
+lines and depends on DEV-004 for the output folder; DEV-007 and DEV-008 run
+after the facts are saved, with questions asked through callables; DEV-010 sends
+the summary lines; DEV-011 adds the facts fingerprint and copy; DEV-012,
+DEV-013, DEV-014, DEV-015 and DEV-021 take `pdf_facts.json` and `AC-040`. No
+step was added, removed or reordered.
+
+### Suspended Assignment 4
+
+`Recovery Frame`: `1` `Recovery Reason`:
+`User rework: add a configurable provider retry count, measure(pdf, ...) and load(output_dir) to the Python API, and async versions of the API functions named arun, asurvey, aestimate and so on; the survey keeps Python checks only, with no model verifier.`
+`Purpose`: `DEVELOPMENT` `Target`: `NONE` `Assessed Inputs`:
+`scope 93d74b8 and design a78c078; this unapproved plan draft` `Next Action`:
+`Reconcile DEV-004, DEV-005, DEV-008, DEV-014, DEV-015 and DEV-021 (and any other step the new settings and functions touch) with the reworked scope and design, then present the plan for approval.`
