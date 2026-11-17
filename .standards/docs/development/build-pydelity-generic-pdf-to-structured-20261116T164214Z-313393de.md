@@ -1348,6 +1348,26 @@ passed.
 - **Local ignored files under `backend/`.** `.venv/`, `.ruff_cache/` and
   `backend/.env.local` (empty, per the user, who asked for its removal on
   2026-11-16; not read) were deleted with `backend/`.
+- **GitHub settings (2026-11-16).** At the user's request, Developer wrote a
+  step-by-step walkthrough, checked against GitHub's docs that day, for:
+  Dependabot alerts, Dependabot security updates (grouped), Secret Protection
+  with push protection, private vulnerability reporting, and a branch ruleset on
+  `main` (pull request required, the "Lint and test" and "TruffleHog secret
+  scan" checks required, no force pushes or deletions). The user applies them in
+  the repository settings; they are not repository files. Before the walkthrough
+  `main` had only the IDinsight organization's Copilot code review ruleset. The
+  user reported the settings on. GitHub's public API then showed, for `main`,
+  ruleset 27420482 "Protect main" (active, repository): `deletion`,
+  `non_fast_forward`, `pull_request` with 0 approvals and
+  `required_status_checks` for "Lint and test" and "TruffleHog secret scan"
+  (strict), beside the organization's Copilot ruleset; and private vulnerability
+  reporting `enabled: true`. Dependabot alerts, security updates and push
+  protection are visible only to repository admins, so they rest on the user's
+  report. The user chose no bypass for themselves. The two required checks stay
+  on "Any source" for now: GitHub lists an app as a check's source only after it
+  has reported that check, and the source picker did not offer GitHub Actions
+  before either check had run. After the first pull request to `main` runs them,
+  the user switches both to GitHub Actions.
 - **Commits.** No commit is made unless the user asks.
 - **Styles loaded:** `styles/universal.md`, user style `tony`,
   `styles/python.md`; `styles/github-actions.md` for `DEV-009`, `DEV-013` and
