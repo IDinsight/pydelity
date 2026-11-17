@@ -136,6 +136,11 @@ so that no step needs hand-written per-document rules.
 - `AC-006`: Core code, prompts, profile fields and defaults name no document
   type or domain concept, hold no language-specific word lists, and contain no
   per-document rules or domain Pydantic classes.
+- `AC-040`: Right after measuring the PDF, before any API key check, cost
+  question or model call, the survey saves the measured facts and a summary of
+  them in their own output file, which stays in the output folder, and logs the
+  summary. A run that is declined, fails or has no API key still leaves that
+  file on disk.
 
 **Depends on:** None.
 
@@ -287,11 +292,11 @@ a maintainer contribute and release, from the docs alone.
 
 - `AC-031`: Following the docs site alone, a user on Windows, macOS or Linux can
   install pydelity from PyPI, set provider API keys, run the survey from the CLI
-  and from Python, find and read `pdf_survey.json`, `run.json`, the cost ledger
-  and the HTML report, control spend, and resume or rerun a run.
+  and from Python, find and read the facts file, `pdf_survey.json`, `run.json`,
+  the cost ledger and the HTML report, control spend, and resume or rerun a run.
 - `AC-032`: The docs site's reference pages cover every configuration setting
   (including `advanced:`), every CLI option, the public Python API and every
-  `pdf_survey.json` field, and match the code.
+  field of the facts file and `pdf_survey.json`, and match the code.
 - `AC-033`: The contributor pages cover local development with the just recipes,
   the tests, building and previewing the docs site, and the release procedure,
   including the one-time PyPI Trusted Publisher and GitHub Pages settings.
