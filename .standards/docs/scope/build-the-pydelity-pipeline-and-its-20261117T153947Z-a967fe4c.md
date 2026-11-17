@@ -18,10 +18,10 @@ model, and asks a model for a profile of the document that later steps rely on:
 its labels, languages, writing direction, rotated pages, and how content
 continues across pages. Every later step depends on that profile, so it comes
 first. Because a survey run calls a paid model, the cycle also delivers the run
-features any paid step needs: configuration, a CLI and a Python API, input-limit
-checks, cost reporting and spend controls, resume, and review output. People on
-Windows, macOS and Linux install the release from PyPI and learn to use it from
-an official, versioned docs site.
+features any paid step needs: configuration, a CLI and a Python API, clear
+errors when a provider rejects a PDF, cost reporting and spend controls, resume,
+and review output. People on Windows, macOS and Linux install the release from
+PyPI and learn to use it from an official, versioned docs site.
 
 ## Constraints
 
@@ -38,11 +38,14 @@ an official, versioned docs site.
   hand-written per-document config and no domain Pydantic classes.
   Document-specific knowledge comes only from the survey profile and the user's
   instructions.
-- The survey model reads the whole PDF. A PDF over the survey model's input
-  limits is rejected with a clear error, never split.
+- The survey model reads the whole PDF, never split. pydelity keeps no list of
+  per-model PDF input limits, because keeping one current is not maintainable:
+  it sends the PDF, and when the provider rejects it as too large the user sees
+  the provider's error.
 - The CLI shows a cost estimate and asks before spending; `--yes` skips the
-  question. There is no default `max_cost`. Cost is reported with no pass/fail
-  target.
+  question. There is no default `max_cost`, and going over it warns rather than
+  refuses: the user decides whether the run continues. Cost is reported with no
+  pass/fail target.
 - Automated tests mock model API calls and make no network calls to model
   providers. Real model runs use the user's own API keys.
 - Acceptance of the survey's output rests on the user's review of real runs on
@@ -84,8 +87,10 @@ an official, versioned docs site.
   mapping. Later cycles build them.
 - Any change to KGForEdGlobal, and KG, Learning Component or Learning
   Progression logic.
-- Automatic splitting or a chunked survey for PDFs over the survey model's input
-  limits.
+- Automatic splitting or a chunked survey for PDFs a provider rejects as too
+  large.
+- Shipping or maintaining per-model PDF input limits, or checking a PDF against
+  such limits before the model call.
 - A default spending limit.
 - A hosted service, a web UI beyond the HTML report, telemetry, and other Level
   4 capabilities such as structured audit logging and staging environments.
@@ -157,30 +162,34 @@ call it without the CLI.
 
 **Depends on:** 1.
 
-### 3. Control spend and input size
+### 3. Control spend and report rejected PDFs
 
-**Intent:** Stop the user from paying for a call that cannot succeed, and show
-what a run costs before and after it spends.
+**Intent:** Show what a run costs before and after it spends, let the user
+decide when a run would go over their spending limit, and tell them plainly when
+a provider will not take their PDF.
 
 **Done when:**
 
-- `AC-012`: Before any model call, the whole PDF's page count and file size are
-  checked against the survey model's PDF input limits. A PDF over either limit
-  stops the run with an error that names the model, the limit and the PDF's
-  value and tells the user to split the PDF or choose a model with higher
-  limits.
-- `AC-013`: Known PDF input limits ship for the default survey models and every
-  survey model the docs name. The user can override a model's limits under
-  `advanced:`. A model with no known limits gets a warning and the call goes
-  ahead.
 - `AC-014`: Every model call is recorded in a per-call cost ledger with its
   token usage and cost, and each run reports its cost per step and in total.
 - `AC-015`: Before spending, the CLI shows a cost estimate and asks to continue.
   `--yes` skips the question, a non-interactive run without `--yes` stops before
   spending, and the Python API never prompts.
-- `AC-016`: When `max_cost` is set, it counts all spend recorded in the output
-  folder, including earlier and resumed runs, and the run stops in a resumable
-  state rather than exceed it.
+- `AC-038`: When `max_cost` is set, it counts all spend recorded in the output
+  folder, including earlier and resumed runs. When a CLI run is about to take
+  that spend over `max_cost`, pydelity logs a warning naming `max_cost` and the
+  spend the run expects to reach, then asks whether to continue: yes continues,
+  no stops the run in a resumable state, `--yes` continues without asking, and a
+  non-interactive run without `--yes` stops in a resumable state.
+- `AC-039`: When a Python API run is about to take the output folder's recorded
+  spend over `max_cost`, pydelity logs the same warning and never prompts. The
+  run continues when the caller passed a boolean argument allowing it to go
+  over; otherwise it raises an error and leaves the run resumable.
+- `AC-037`: pydelity holds no per-model PDF input limits and does not check the
+  PDF against any before the model call. When the survey model's provider
+  rejects the PDF, for example as too large, the run stops: the CLI shows the
+  provider's error message and exits non-zero, and the Python API raises an
+  error that carries the provider's error.
 
 **Depends on:** 1, 2.
 
@@ -214,8 +223,9 @@ calls, on every platform and Python version the release supports.
 **Done when:**
 
 - `AC-021`: Automated tests cover the survey, configuration, the CLI and Python
-  API, the spend and input-limit controls, resume and the review output, with
-  both providers' responses mocked and no network calls to model providers.
+  API, the spend controls, the handling of a PDF the provider rejects, resume
+  and the review output, with both providers' responses mocked and no network
+  calls to model providers.
 - `AC-022`: CI runs the tests on Python 3.13 and Python 3.14, and "Lint and
   test" and "TruffleHog secret scan" still gate merges to `main`.
 - `AC-023`: On Windows, the built wheel installs with pip, and the `pydelity`
@@ -305,6 +315,16 @@ mocked tests cannot show.
   report, and accepts it, with every issue they raise resolved.
 
 **Depends on:** 1, 2, 3, 4.
+
+## Retired Acceptance Identifiers
+
+- `AC-012`: Retired on 2026-11-17 by user rework. pydelity no longer checks the
+  PDF against per-model input limits before the call; replaced by `AC-037`.
+- `AC-013`: Retired on 2026-11-17 by user rework. pydelity no longer ships or
+  lets users override per-model PDF input limits; replaced by `AC-037`.
+- `AC-016`: Retired on 2026-11-17 by user rework. Going over `max_cost` no
+  longer stops the run; replaced by `AC-038` for the CLI and `AC-039` for the
+  Python API.
 
 ## Assumptions
 
