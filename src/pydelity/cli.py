@@ -18,7 +18,8 @@ from loguru import logger
 # Package Library
 from pydelity import __version__
 from pydelity.api import run
-from pydelity.errors import PdfError, PydelityError
+from pydelity.errors import ConfigError, PdfError, PydelityError
+from pydelity.providers.profiles import DEFAULT_MODEL
 
 # Exit codes: the run failed; the input (settings, API key or PDF) is invalid.
 _EXIT_FAILED = 1
@@ -62,6 +63,13 @@ def _pydelity(
     pdf: Annotated[
         Path, typer.Argument(help="The PDF to process.", show_default=False)
     ],
+    model: Annotated[
+        str,
+        typer.Option(
+            help="The model to use, as <provider>:<model-id> (anthropic or openai).",
+            metavar="MODEL",
+        ),
+    ] = DEFAULT_MODEL,
     version: Annotated[
         bool,
         typer.Option(
@@ -78,19 +86,22 @@ def _pydelity(
     ----------
     pdf
         The PDF to process.
+    model
+        The model to use, as ``<provider>:<model-id>``.
     version
         Whether to print the version and exit instead (handled by `_show_version`).
 
     Raises
     ------
     typer.Exit
-        With exit code 2 when the PDF cannot be opened, or 1 when the run fails.
+        With exit code 2 when a setting is invalid or the PDF cannot be opened, or 1
+        when the run fails.
     """
 
     _enable_logging()
     try:
-        run(pdf)
-    except PdfError as error:
+        run(pdf, model=model)
+    except (ConfigError, PdfError) as error:
         logger.error(str(error))
         raise typer.Exit(code=_EXIT_INVALID_INPUT) from error
     except PydelityError as error:

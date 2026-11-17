@@ -252,7 +252,7 @@ Evidence, 2026-11-17, repo root, uncommitted on top of `0f1c417` (PyMuPDF 2.1):
 
 ### DEV-003 — Provider profiles
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`: `AC-011, AC-037`
+`Status`: `DONE` `Depends On`: `DEV-001` `Acceptance`: `AC-011, AC-037`
 
 **Goal**
 
@@ -286,10 +286,57 @@ stops with an error.
 Scratchpad script printing both profiles and parsing valid and invalid model
 settings; a search of `src/` for per-model figures; `just lint`.
 
+Evidence, 2026-11-17, repo root, uncommitted on top of `ed70f71`:
+
+- Scratchpad `tools/dev003_check.py`: 13 of 13 checks passed. It printed both
+  profiles: Anthropic (upload then request, no purpose, expiry 1–2,160 hours,
+  7,784 tokens per page, effort `high` →
+  `anthropic_effort: high, anthropic_thinking: adaptive`) and OpenAI (upload
+  then request, purpose `user_data`, expiry 1–720 hours, 6,000 tokens per page,
+  `openai_reasoning_effort: high`). The default model parses to
+  `anthropic:claude-opus-5-5`, and model IDs are kept as given (including ones
+  with `:`). Missing `:`, an empty provider or model ID, `google:` and
+  `Anthropic:` each raise `ConfigError`. `import pydelity` loads no
+  `pydantic_ai`; the settings types are imported for type checking only, because
+  `pydantic_ai.settings` alone takes about 1 s to import.
+- `pydelity tests/fixtures/pdfs/irs_pub1_arabic.pdf` logged
+  `Model: claude-opus-5-5 from provider anthropic`, and with
+  `--model openai:gpt-6.2-astra` logged `gpt-6.2-astra from provider openai`
+  (both exit 0). `--model google:gemini-3` logged
+  `model: provider 'google' is not supported; use 'anthropic' or 'openai'` and
+  exited 2, and `--model claude` exited 2.
+- A search of `src/` for context windows, page or size limits and model names
+  found only the default model and a doctest.
+- `just lint-python` (Ruff, ty, interrogate 100%) and `just test` (2 passed)
+  passed.
+
 **Implementation Notes**
 
-Reads `platform.claude.com`, `developers.openai.com` and the `genai-prices`
-release data.
+- Files approved by the user (2026-11-17): `src/pydelity/providers/__init__.py`
+  and `src/pydelity/providers/profiles.py`. The user chose `providers/` over
+  `models/` for this component; DEV-008 and DEV-009 add the model factory, the
+  ledger wrapper and uploads there.
+- Sources read 2026-11-17: Anthropic's installed SDK (`anthropic` 2.10.0,
+  `files.upload(expires_in_seconds=...)`: 3,600–7,776,000 s); OpenAI's installed
+  SDK (`openai` 3.53.0, `expires_after.seconds`: 3,600–2,592,000 s; without it,
+  non-batch files persist until deleted); Anthropic's PDF support page
+  (1,500–3,000 text tokens per page, plus each page billed as an image) and
+  vision page (at most 4,784 tokens per image on Claude 4.7 and later); OpenAI's
+  PDF files guide (text plus page images; no per-page figure; `user_data` for
+  model inputs) and images guide (patch-based models: high detail up to 2,500
+  patches × 1.2 tokens).
+- Tokens per page: Anthropic 3,000 text + 4,784 image = 7,784; OpenAI 3,000 text
+  (OpenAI gives none, so Anthropic's upper bound for the same page text) + 3,000
+  image = 6,000. Both are upper bounds, so estimates err high. DEV-007 compares
+  them with the usage real requests report.
+- OpenAI model for the docs: `openai:gpt-6.2-astra`, which OpenAI's models page
+  recommends as the default ("If you're not sure where to start"). It takes
+  image input (so PDF text plus page images) and reasoning effort low to max.
+- `genai-prices>=0.2.4` (latest) is now a direct runtime dependency. 0.2.4
+  prices `claude-opus-5-5` ($4 / $20 per million tokens) and `gpt-6.2-astra`
+  ($16 / $60), so the default model stays as designed.
+- Until DEV-004 adds the full configuration, `arun`/`run` take `model` as a
+  keyword argument, checked before the PDF is opened.
 
 ### DEV-004 — Configuration
 

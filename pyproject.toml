@@ -31,6 +31,7 @@ classifiers = [
 # that 1.x keeps, but requires onnxruntime, numpy and more, and has no wheels for Intel
 # Macs, Windows ARM, 32-bit Windows or musl Linux.
 dependencies = [
+    "genai-prices>=0.2.4",
     "loguru>=0.8.0",
     "pydantic>=2.14.3",
     "pydantic-ai-slim[anthropic,openai]>=2.69.0",
