@@ -21,22 +21,24 @@ Cycle: build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c
 
 ## Build Steps
 
-### DEV-001 — Package foundation: dependencies, errors, import-safe root, general utilities
+### DEV-001 — Package foundation and a first `pydelity` command
 
 `Status`: `PENDING` `Depends On`: `NONE` `Acceptance`: `AC-010, AC-018`
 
 **Goal**
 
 Make pydelity a real package that later steps build on: runtime dependencies,
-the errors component, an import-safe package root and the general utilities.
+the errors component, an import-safe package root, the general utilities, and a
+first `pydelity` command that each later step extends.
 
 **Affected Area**
 
 `pyproject.toml` and `uv.lock` (`uv add` pydantic, pydantic-settings[yaml],
 pydantic-ai-slim[anthropic,openai], loguru, typer, pymupdf; twine exact in the
 dev group), `.template.env` (only `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`),
-`src/pydelity/__init__.py`; candidates `src/pydelity/errors.py` and
-`src/pydelity/utils/{files,fingerprints,pdf}.py`.
+`src/pydelity/__init__.py`, `[project.scripts]` in `pyproject.toml`; candidates
+for the errors, the utilities (atomic files, fingerprints, PDF opening), the
+Typer CLI, `python -m pydelity` and a first `run()` the CLI calls.
 
 **Expected Outcome**
 
@@ -48,52 +50,63 @@ in the same folder, flush, `fsync`, `os.replace`), validated load into a
 Pydantic model that reports damage instead of raising, stale `*.tmp-*` cleanup,
 canonical-JSON `sha256:` fingerprints, and opening a PDF (full SHA-256 ported
 from KGForEdGlobal `utils/pdf.py`, page count, bytes; `PdfError` for
-password-protected, empty or unopenable files).
+password-protected, empty or unopenable files). A first `run()` opens the PDF
+and logs each stage through loguru; the CLI enables logging at INFO and calls
+it.
+
+From the command line: `pydelity <pdf>` opens the PDF, logs its name, page
+count, size and SHA-256, then `Run finished`; a missing, password-protected or
+broken file logs the error and exits non-zero; `pydelity --version` prints the
+version; `python -m pydelity <pdf>` does the same.
 
 **Self-Check**
 
 `just lint`; `just test` (existing smoke tests); a scratchpad script exercising
-atomic write and load, fingerprints and PDF opening; `import pydelity` with an
-empty environment prints nothing.
+atomic write and load and fingerprints; `pydelity` on a PDF and on a broken
+file; `import pydelity` with an empty environment prints nothing.
 
-### DEV-002 — Test fixture PDFs and their generator
+### DEV-002 — Real public-domain PDF set
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`: `AC-005, AC-021`
+`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`:
+`AC-005, AC-023, AC-035`
 
 **Goal**
 
-Give the probe, the mocked survey and the wheel smoke test small, reproducible
-PDFs covering the cases AC-005 names.
+Have real public-domain documents for the probe and for real survey runs as the
+code is built, plus one small file the CI wheel smoke test can use.
 
 **Affected Area**
 
-Candidates `scripts/make_test_pdfs.py` and `tests/fixtures/pdfs/*.pdf`.
+`data/pdfs/` (git-ignored; the user downloads the files); candidate
+`tests/fixtures/pdfs/` for the one committed smoke-test PDF; the source list in
+Plan Notes.
 
 **Expected Outcome**
 
-One committed script regenerates every fixture with PyMuPDF: a plain multi-page
-PDF with repeated header and footer lines, printed page numbers with an offset,
-roman front matter and bookmarks; two-column right-to-left text; Chinese and
-Japanese text, including vertical writing; a fillable form with text fields,
-checkboxes and radio buttons; rotated content (sideways text on pages whose
-rotation attribute is 0, and a page with rotation attribute 90); image-only
-pages with no text layer; control and private-use characters; a tagged PDF with
-a structure tree and an untagged twin. Each file stays under the 500 KB hook
-limit. If PyMuPDF cannot write a valid structure tree, Developer stops and asks
-the user to approve a small public tagged PDF instead (design Build Plan step
-2).
+Developer proposes public-domain PDFs, each with source URL, why it is public
+domain, size, page count and what it covers; the user approves and downloads
+them into `data/pdfs/`. Together they cover two-column right-to-left text
+(Arabic, Hebrew, Persian or Urdu); Chinese; Japanese with vertical
+(top-to-bottom) writing; a fillable form with checkboxes (such as a US federal
+tax form); rotated pages, including sideways text on pages whose rotation
+attribute is 0 if one can be found; scanned pages with no text layer; PDFs with
+and without bookmarks and structure tags; and a slide deck or image-heavy PDF.
+CAPS, already on disk in KGForEdGlobal's `data/` (which stays unchanged), is
+used locally as it is. Where no public-domain document covers a case, Developer
+says so and offers an openly licensed one for the user to accept or reject. Each
+file fits the default models' input limits. One small file (under the 500 KB
+hook limit) is copied, with the user's OK, to `tests/fixtures/pdfs/` and
+committed for the CI wheel smoke test. Each file's source, licence basis, size,
+page count and SHA-256 are recorded in Plan Notes.
+
+From the command line: `pydelity data/pdfs/<file>` opens each downloaded PDF and
+logs its page count and size.
 
 **Self-Check**
 
-Run the script twice and compare outputs; inspect each fixture with PyMuPDF
-(pages, text, widgets, table of contents, `StructTreeRoot`, rotation) and its
-size; `just lint`.
-
-**Implementation Notes**
-
-Font sources for right-to-left and CJK text are settled at the step (PyMuPDF's
-built-in CJK fonts; Hebrew or Arabic may need a committed OFL font file) and
-listed before it starts.
+Open each file with PyMuPDF (page count, text-layer presence, bookmarks,
+structure tags, form fields, rotation attributes, size), confirm it covers what
+it was chosen for, and record its SHA-256.
 
 ### DEV-003 — Model catalog and input-limit check
 
@@ -123,6 +136,11 @@ effort mapping and output mode, rechecked against the providers' docs.
 with the split-or-switch advice; an unknown model warns and proceeds; estimated
 input tokens over the context window warn. Confirms whether the locked
 `genai-prices` prices the default model and ships catalog prices if not.
+
+From the command line: `pydelity <pdf> --model <provider:model-id>` logs
+`Input limits OK` with the PDF's pages and size against the model's limits, or
+stops with the input-limit error; an unknown model logs a warning and carries
+on.
 
 **Self-Check**
 
@@ -160,6 +178,11 @@ dotted path. `ProviderEnv` (pydantic-settings, environment only, no `.env`,
 `SecretStr`) built per run, and `MissingApiKeyError` for the selected provider's
 empty key.
 
+From the command line: `--config <file>`, `--instructions`, `--language`,
+`--output-dir`, `--max-cost` and `--overwrite` work; the run logs `Settings OK`
+(the resolved settings with `--verbose`) or stops with one error listing every
+bad setting.
+
 **Self-Check**
 
 Scratchpad script with valid and invalid JSON and YAML files, several errors at
@@ -187,44 +210,24 @@ direction from Unicode bidi classes, printed numbers from page labels or top and
 bottom bands, page-numbering ranges, repeated lines with normalisation and caps,
 bookmarks, form fields with checked states and XFA presence, and structure-tree
 quality with a node cap. Every threshold is a named constant; no word lists or
-document-type terms. A bookmarks, forms or structure read that fails is recorded
-as unavailable, in the shape the corrected design sets, and never fails the run.
+document-type terms. A bookmarks, form or structure read that raises sets that
+fact to `null` (never an empty value) and adds a `probe_errors[]` item (`fact`,
+`message` without file contents); the run continues. A PDF that simply has none
+records `[]`, or a `structure` with `tagged: false`.
+
+From the command line: the run logs `Probe finished` with a one-line summary
+(pages without text or with garbled text, writing direction, rotated pages,
+repeated lines, bookmarks, form fields, structure-tag quality, unreadable
+facts); `--verbose` logs the facts page by page.
 
 **Self-Check**
 
-Run the probe on every fixture and compare with what the generator wrote;
-`just lint`.
-
-### DEV-006 — Mock provider server
-
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`: `AC-021, AC-023`
-
-**Goal**
-
-Let the survey, the wheel smoke script and Tester's tests run both providers'
-real PydanticAI adapters with no route to a provider.
-
-**Affected Area**
-
-Candidate `tests/fixtures/mock_providers.py` (standard library only).
-
-**Expected Outcome**
-
-A loopback HTTP server, reached through `ANTHROPIC_BASE_URL` and
-`OPENAI_BASE_URL`, that answers Anthropic Messages and Files API calls and
-OpenAI Responses and Files API calls with canned bodies: a structured survey
-answer the caller supplies, usage figures, upload success, "file not found",
-upload failures (server error, authentication failure), and a request log the
-caller can inspect. No production code path exists only for it.
-
-**Self-Check**
-
-Drive it with the `anthropic` and `openai` SDK clients from a scratchpad script;
-`just lint`.
+Run the probe on every PDF in the set and check its facts against the documents
+(pages, bookmarks, form fields, tags, rotation, printed numbers); `just lint`.
 
 ### DEV-007 — Cost ledger, pricing, estimate and budget guard
 
-`Status`: `PENDING` `Depends On`: `DEV-001, DEV-003` `Acceptance`:
+`Status`: `PENDING` `Depends On`: `DEV-003, DEV-004` `Acceptance`:
 `AC-014, AC-015, AC-016`
 
 **Goal**
@@ -246,15 +249,21 @@ that refuses a request when folder spend plus that request's upper bound exceeds
 `max_cost`, and refuses an unpriced model when `max_cost` is set. Money is
 `Decimal`; genai-prices runtime updates stay off.
 
+From the command line: before anything that costs money, the run shows the cost
+estimate, the spend already recorded in the output folder and `max_cost`, and
+asks whether to continue; `--yes` skips the question and a non-interactive run
+without `--yes` stops.
+
 **Self-Check**
 
 Scratchpad script writing and reading a ledger (including a damaged last line),
-pricing a synthetic response, estimate figures and guard decisions; `just lint`.
+pricing responses from small real provider calls against the provider's reported
+usage, estimate figures and guard decisions; `just lint`.
 
 ### DEV-008 — Model factory and LedgerModel
 
-`Status`: `PENDING` `Depends On`: `DEV-003, DEV-004, DEV-006, DEV-007`
-`Acceptance`: `AC-011, AC-014, AC-016`
+`Status`: `PENDING` `Depends On`: `DEV-003, DEV-004, DEV-007` `Acceptance`:
+`AC-011, AC-014, AC-016`
 
 **Goal**
 
@@ -276,10 +285,15 @@ the budget guard before each request and appends a ledger line after each
 response. Ported from KGForEdGlobal `model_registry.py` without its hand-kept
 model set.
 
+From the command line: the run checks the selected provider's API key and logs
+`Model ready` with the model, effort and output mode, or stops with the
+missing-key error. No model call happens yet.
+
 **Self-Check**
 
-Scratchpad agent runs against the mock server for both providers, checking
-requests, ledger lines and a budget refusal; `just lint`.
+Small real agent runs with each provider, checking the provider settings sent,
+ledger lines and prices against the provider's reported usage, and a budget
+refusal (a `max_cost` below one request); `just lint`.
 
 ### DEV-009 — PDF uploads, reuse and in-request fallback
 
@@ -308,10 +322,17 @@ records a warning and `pdf_transport: request`, writes no upload record, and
 raises `SurveyError` when the PDF is over the in-request limit. An
 authentication failure stops the run.
 
+From the command line: after confirmation, the run uploads the PDF and logs the
+provider's file id and expiry, or `Reusing upload` on a rerun; `uploads.json`
+appears in the output folder. No model call happens yet.
+
 **Self-Check**
 
-Scratchpad runs against the mock server covering upload, reuse, re-upload,
-fallback, the authentication stop and the too-large fallback; `just lint`.
+Real runs with each provider covering upload, reuse from `uploads.json`, and
+re-upload after a recorded file id the provider does not have; an invalid key
+for the authentication stop; the upload failure, fallback and too-large cases by
+fault injection in the scratchpad script (a failing upload call), since a
+provider cannot be made to fail on demand; `just lint`.
 
 ### DEV-010 — Survey proposal, profile, prompt and checks
 
@@ -324,22 +345,36 @@ Define what the model proposes and how Python checks it.
 
 **Affected Area**
 
-Candidates `src/pydelity/steps/survey/{schemas,prompt,checks}.py`.
+Candidates in the survey step folder, following KGForEdGlobal's
+`page_ir_extraction/` split: a prompts module (prompt builders), a validators
+module (checks C1–C7: what Pydantic cannot check, such as comparing the answer
+with the measured facts) and the schemas module (shapes and bounds Pydantic
+enforces).
 
 **Expected Outcome**
 
 The model-facing proposal schema (strings, integers, booleans, enums, arrays and
-objects only; region boxes as page fractions), the stored `profile` and the
-`PdfSurvey` model for `pdf_survey.json` 1.0; a document-type-neutral prompt with
-`PROMPT_VERSION` carrying the facts summary, user instructions and languages;
-checks C1–C7 returning failures that name the check, the pages and the measured
-values.
+objects only; region boxes as page fractions; artifact `position` as `top` |
+`bottom` | `left` | `right` | `middle`), the stored `profile` (including
+`writing_direction.ranges[]` with inclusive page indexes and `direction`) and
+the `PdfSurvey` model for `pdf_survey.json` 1.0; a document-type-neutral prompt
+with `PROMPT_VERSION` carrying the facts summary (saying which facts were
+unavailable), user instructions and languages; checks C1–C7, each returning
+failure items (`page_index` or null, `message` naming the check with the
+proposed and measured values, `details`), one item per affected page, and the
+`checks[]` and `issues[]` records built from them in C1–C7 order. Unlike
+KGForEdGlobal's validators, which raise on the first problem, each check returns
+all its failures, so one retry message names every problem and the last attempt
+can record them all.
+
+From the command line: `--verbose` logs the prompt and facts summary the survey
+will send. No model call happens yet.
 
 **Self-Check**
 
 Scratchpad script running the checks on hand-made passing and failing proposals
-against fixture facts; a search of code and prompt for document-type terms and
-word lists; `just lint`.
+against facts from the PDF set; a search of code and prompt for document-type
+terms and word lists; `just lint`.
 
 ### DEV-011 — Survey step
 
@@ -352,7 +387,10 @@ Run the survey end to end and store a checked profile.
 
 **Affected Area**
 
-Candidate `src/pydelity/steps/survey/step.py`.
+Candidates following KGForEdGlobal: an agents module (builds the agent and its
+output validator, which turns check failures into `ModelRetry`), an llm module
+(builds the message with the PDF and facts summary and runs the agent), and the
+step's entry function (fingerprint, reuse, writing `pdf_survey.json`).
 
 **Expected Outcome**
 
@@ -361,16 +399,24 @@ The fingerprint from the design's inputs; reuse of a valid, matching
 agent built through `build_model` with the uploaded file, a cache breakpoint
 after the PDF and facts summary, and an output validator that raises
 `ModelRetry` while retries remain and, on the last attempt, accepts and records
-still-failing checks as review issues. Python adds `other`, merges languages,
-stores `user_instructions`, converts region boxes to points and writes
-`pdf_survey.json` atomically. A refusal or an answer that never parses raises
-`SurveyError`.
+still-failing checks as review issues. It uses PydanticAI's retry count and
+last-attempt flag in place of KGForEdGlobal's hand-kept attempt counter, and
+drops its raw-attempt files and `ExtractionUsageTracker` (the ledger replaces
+it). Python adds `other`, merges languages, stores `user_instructions`, converts
+region boxes to points and writes `pdf_survey.json` atomically. A refusal or an
+answer that never parses raises `SurveyError`.
+
+From the command line: the run makes the real survey call and logs
+`Survey finished` with the labels, languages, rotation, review-issue count and
+cost, writing `pdf_survey.json` and `cost.jsonl`; a rerun with the same inputs
+logs `Survey reused` without a call; `--overwrite` reruns it.
 
 **Self-Check**
 
-Scratchpad survey runs on fixtures against the mock server for both providers:
-pass, retry then pass, still failing after retries, reuse, a changed-input rerun
-and `overwrite`; `just lint`.
+Real survey runs with both providers on PDFs from the set: reuse, a
+changed-input rerun and `overwrite`; retry-then-pass and still failing after
+retries by fault injection in the scratchpad script (a check forced to fail);
+`pdf_survey.json` reviewed against each PDF; `just lint`.
 
 ### DEV-012 — Run orchestration
 
@@ -394,13 +440,20 @@ PDF); `run.json` written at start and end with steps, cost (`run_usd`,
 `by_step`, `output_folder_usd`, `unpriced_requests`), the review list (reused
 outputs' issues included), warnings and error; `failed`, `stopped` and
 `interrupted` recorded before re-raising, with `KeyboardInterrupt` caught and
-re-raised. A planning hook gives the CLI the estimate before any spend.
+re-raised. Warnings are items (`code`, `step`, `message`, `details`) with this
+cycle's codes (`unknown_model_limits`, `unpriced_model`, `context_window`,
+`other_pdf_in_folder`, `damaged_output`, `upload_fallback`,
+`probe_unavailable`), and each also goes to `PydelityWarning`. A planning hook
+gives the CLI the estimate before any spend.
+
+From the command line: every run writes `run.json` and ends with a summary line
+(status, cost of this run and of the folder, review-issue count); Ctrl+C logs
+`interrupted`; a budget stop says how to resume.
 
 **Self-Check**
 
-Scratchpad runs against the mock server covering completion, a budget stop then
-a resume with a higher `max_cost`, an injected error and a simulated interrupt;
-`just lint`.
+Real runs covering completion, a budget stop then a resume with a higher
+`max_cost`, an injected error and a Ctrl+C during the model call; `just lint`.
 
 ### DEV-013 — HTML report
 
@@ -423,10 +476,13 @@ per page with region and form-field boxes as percent-positioned CSS overlays and
 the page's findings. Static, no JavaScript, no external URLs, every inserted
 string escaped; written at the end of every run that got past input validation.
 
+From the command line: the run logs `Report written` with the path of
+`report.html`, which opens in a browser.
+
 **Self-Check**
 
-Reports for completed and failed fixture runs opened from disk; escaping checked
-with a hostile label; `just lint`.
+Reports for completed and failed runs on PDFs from the set, opened from disk;
+escaping checked with a hostile label; `just lint`.
 
 **Implementation Notes**
 
@@ -454,10 +510,14 @@ and they work inside a running event loop (on a worker thread). The root
 re-exports them with `Config`, the result models, `CostEstimate`, the errors and
 `PydelityWarning`; import stays free of side effects.
 
+From Python: `pydelity.run(...)`, `pydelity.survey(...)` and
+`pydelity.estimate(...)` work, in a script or in Jupyter; the command line is
+unchanged.
+
 **Self-Check**
 
-Scratchpad calls of all three against the mock server, including from inside
-`asyncio.run`; import with an empty environment prints nothing; `just lint`.
+Real calls of all three, including from inside `asyncio.run`; import with an
+empty environment prints nothing; `just lint`.
 
 ### DEV-015 — CLI
 
@@ -470,24 +530,59 @@ Run the survey from the command line with nothing but a PDF path.
 
 **Affected Area**
 
-Candidates `src/pydelity/cli.py` and `src/pydelity/__main__.py`;
-`pyproject.toml` (`[project.scripts]`).
+The CLI module from DEV-001.
 
 **Expected Outcome**
 
-The design's options and flow (estimate, spend so far and `max_cost`;
-confirmation, `--yes`, the non-interactive stop), exit codes (0, 1, 2, 3, 130),
-logging levels and the end-of-run summary with review issues; the `pydelity`
+Finishes the command built up since DEV-001 to the design's contract: every
+option in the design's order of work, exit codes (0, 1, 2, 3, 130), logging
+levels, warnings printed as they occur, and the end-of-run summary with review
+issues grouped by check, a count per check before the list; the `pydelity`
 console script and `python -m pydelity`.
 
 **Self-Check**
 
-The installed `pydelity` against the mock server: `--yes`, piped stdin without
+The installed `pydelity` with real providers: `--yes`, piped stdin without
 `--yes`, a declined prompt, invalid settings and `--version`; `just lint`.
+
+### DEV-006 — Mock provider server
+
+`Status`: `PENDING` `Depends On`: `DEV-015` `Acceptance`: `AC-021, AC-023`
+
+**Goal**
+
+Let the CI wheel smoke test (AC-023) run both providers' real PydanticAI
+adapters with no provider keys and no spend. Development self-checks do not use
+it; they call the real providers. Tester may reuse and extend it for the
+automated tests (AC-021).
+
+**Affected Area**
+
+Candidate `tests/fixtures/mock_providers.py` (standard library only).
+
+**Expected Outcome**
+
+A loopback HTTP server, reached through `ANTHROPIC_BASE_URL` and
+`OPENAI_BASE_URL`, that answers Anthropic Messages and Files API calls and
+OpenAI Responses and Files API calls with canned bodies: a structured survey
+answer the caller supplies, usage figures, upload success, "file not found",
+upload failures (server error, authentication failure), and a request log the
+caller can inspect. The canned bodies follow the response shapes recorded from
+the real development runs (usage figures and ids only, never keys). No
+production code path exists only for it.
+
+From the command line: with `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` pointed at
+the stand-in, `pydelity <pdf> --yes` completes with no keys and no spend.
+
+**Self-Check**
+
+Run the installed `pydelity` (`--yes`) and the Python API against it for both
+providers on the committed smoke-test PDF; `just lint`.
 
 ### DEV-016 — Wheel build and smoke script
 
-`Status`: `PENDING` `Depends On`: `DEV-015` `Acceptance`: `AC-023, AC-024`
+`Status`: `PENDING` `Depends On`: `DEV-006, DEV-015` `Acceptance`:
+`AC-023, AC-024`
 
 **Goal**
 
@@ -502,8 +597,11 @@ Show that a built wheel installs and runs on any supported platform.
 `just build` cleans `dist/`, runs `uv build` and `twine check --strict`. The
 standard-library smoke script makes a fresh venv with pip, installs the wheel,
 starts the mock server, and runs the console script (`--yes`) and the Python API
-with each provider on a fixture PDF, asserting exit codes and valid outputs; it
-handles Windows paths and scripts.
+with each provider on the committed smoke-test PDF, asserting exit codes and
+valid outputs; it handles Windows paths and scripts.
+
+From the command line: `just build`, then the smoke script, which installs the
+built package into a fresh environment and runs `pydelity`.
 
 **Self-Check**
 
@@ -654,10 +752,11 @@ catches a stale page.
   lists the files and folders it will create or change and waits for their
   review; after each step Developer stops for the go-ahead to the next.
 - File and folder names are the user's decision (design, **Components**). The
-  proposed layout below needs their sign-off with the plan and again before each
-  step. The orchestration and step folders avoid the names `run` and `survey` at
-  the package root, where a subpackage would shadow the public `pydelity.run`
-  and `pydelity.survey` functions.
+  layout below is a sketch only: plan approval does not approve it, and the user
+  approves each file and folder name and location at the step that creates it.
+  The orchestration and step folders avoid the names `run` and `survey` at the
+  package root, where a subpackage would shadow the public `pydelity.run` and
+  `pydelity.survey` functions.
 
   ```text
   src/pydelity/
@@ -671,23 +770,50 @@ catches a stale page.
     models/             schemas.py, catalog.py, factory.py, ledger_model.py, uploads.py
     pipeline/           schemas.py (run.json, review issues), runner.py
     report/             html.py, images.py
-    steps/survey/       schemas.py, probe.py, prompt.py, checks.py, step.py
+    steps/survey/       schemas.py, probe.py, prompts.py, validators.py, agents.py,
+                        llm.py, step.py
     utils/              files.py, fingerprints.py, pdf.py
-  scripts/              make_test_pdfs.py, smoke_installed_wheel.py,
+  scripts/              smoke_installed_wheel.py,
                         generate_reference_docs.py
-  tests/fixtures/       mock_providers.py, pdfs/
+  tests/fixtures/       mock_providers.py, pdfs/ (the one smoke-test PDF)
+  data/pdfs/            real public-domain PDFs the user downloads (git-ignored)
   docs/                 Astro Starlight site
   .github/workflows/    release.yml, docs.yml (new); ci.yml (changed)
   ```
 
-- Ownership: formal tests, the autouse test guard fixture and verification
-  evidence are Tester's. The fixture PDFs, the mock provider server and the
-  smoke script are reusable project assets the design's Build Plan assigns to
+- Development self-checks call the real Anthropic and OpenAI APIs with the
+  user's keys (user decision, 2026-11-17), on small PDFs, and each step's
+  self-check evidence records the spend. Developer loads the keys from the
+  user's environment without printing them. Paths a provider cannot produce on
+  demand (upload failure, a check that fails then passes) use fault injection in
+  scratchpad scripts, never in pydelity code.
+- The mock provider server (DEV-006) is built late, only because the CI wheel
+  smoke test must run without keys or spend (AC-023 and the scope's mocked-test
+  constraint). Formal tests, the autouse test guard fixture and verification
+  evidence are Tester's. The smoke-test PDF, the mock server and the smoke
+  script are reusable project assets the design's Build Plan assigns to
   Developer; Tester may extend them.
 - `AC-031`, `AC-033`, `AC-034` and `AC-035` have no Developer step: they rest on
   Documenter's pages and README and on the user's review of real runs.
 - User style `tony` names pylint and mypy; this repo enforces the same intent
   with Ruff (`PL`, `C90`) and ty, which Developer uses.
+- Test PDFs are real public-domain documents, not generated ones (user decision,
+  2026-11-17, in line with the scope's assumption that test PDFs are public
+  documents the user approves). This replaces the design Build Plan's synthetic
+  fixtures; no technical criterion depends on how the PDFs were made. Tester
+  chooses which PDFs its committed tests use.
+- DEV-022 was withdrawn before approval (folded into DEV-002); its number is not
+  reused.
+- Every step from DEV-001 to DEV-016 leaves `pydelity <pdf>` (or, for DEV-014,
+  the Python API) able to try what the step built: each stage logs through
+  loguru that it finished, or why it failed, and the run ends after the last
+  stage built so far (user decision, 2026-11-17). DEV-017 to DEV-021 change CI,
+  the release and the docs, and are tried with the commands in their
+  self-checks.
+- The survey's model code follows KGForEdGlobal's `page_ir_extraction/` split
+  (`agents.py`, `llm.py`, `prompts.py`, `validators.py`, `schemas.py`), with
+  validators holding the checks Pydantic cannot express (user direction,
+  2026-11-17). File names are still approved at each step.
 - Project references loaded: `NONE` (`.standards/project-references/` does not
   exist).
 
@@ -698,3 +824,19 @@ catches a stale page.
 `Purpose`: `DEVELOPMENT` `Target`: `NONE` `Assessed Inputs`:
 `scope and design at commit 5be0f98; this plan draft` `Next Action`:
 `Reconcile DEV-005 and DEV-010 with the corrected design, then present the plan for approval.`
+
+Restored on the `RESUME` from `ARCHITECTING` (design commit `c9828bc`) and
+reconciled: DEV-005 now sets unreadable facts to `null` with `probe_errors[]`;
+DEV-010 takes the artifact `position` values, the `writing_direction.ranges[]`
+fields and the failure-item shape for `checks[]` and `issues[]`; DEV-012 takes
+the warning items and codes; DEV-015 groups review issues by check in the
+summary. No step was added or reordered, and nothing was implemented before the
+correction.
+
+### Suspended Assignment 2
+
+`Recovery Frame`: `1` `Recovery Reason`:
+`User rework: drop shipped per-model PDF input limits (send the PDF and report the provider's error) and make max_cost warn and let the user continue (the CLI asks; library callers pass a continue flag) instead of stopping.`
+`Purpose`: `DEVELOPMENT` `Target`: `NONE` `Assessed Inputs`:
+`scope 9b8b030 and design c9828bc; this unapproved plan draft` `Next Action`:
+`Reconcile DEV-003, DEV-007, DEV-009, DEV-012, DEV-014 and DEV-015 with the reworked scope and design, then present the plan for approval.`
