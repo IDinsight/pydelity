@@ -154,8 +154,7 @@ with the same results.
 
 ### DEV-002 — Real public-domain PDF set
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`:
-`AC-005, AC-023, AC-035`
+`Status`: `DONE` `Depends On`: `DEV-001` `Acceptance`: `AC-005, AC-023, AC-035`
 
 **Goal**
 
@@ -164,29 +163,31 @@ code is built, plus one small file the CI wheel smoke test can use.
 
 **Affected Area**
 
-`data/pdfs/` (git-ignored; the user downloads the files); candidate
-`tests/fixtures/pdfs/` for the one committed smoke-test PDF; the source list in
-Plan Notes.
+`tests/fixtures/pdfs/` (committed; every test PDF, each under the 500 KB hook
+limit) and `tests/fixtures/pdfs/SOURCES.md` (provenance), as the user decided on
+2026-11-17 in place of the git-ignored `data/pdfs/`; Plan Notes point to
+`SOURCES.md`.
 
 **Expected Outcome**
 
 Developer proposes public-domain PDFs, each with source URL, why it is public
-domain, size, page count and what it covers; the user approves and downloads
-them into `data/pdfs/`. Together they cover two-column right-to-left text
-(Arabic, Hebrew, Persian or Urdu); Chinese; Japanese with vertical
-(top-to-bottom) writing; a fillable form with checkboxes (such as a US federal
-tax form); rotated pages, including sideways text on pages whose rotation
-attribute is 0 if one can be found; scanned pages with no text layer; PDFs with
-and without bookmarks and structure tags; and a slide deck or image-heavy PDF.
-CAPS, already on disk in KGForEdGlobal's `data/` (which stays unchanged), is
-used locally as it is. Where no public-domain document covers a case, Developer
-says so and offers an openly licensed one for the user to accept or reject. Each
-file is a size the providers are likely to accept. One small file (under the 500
-KB hook limit) is copied, with the user's OK, to `tests/fixtures/pdfs/` and
-committed for the CI wheel smoke test. Each file's source, licence basis, size,
-page count and SHA-256 are recorded in Plan Notes.
+domain, size, page count and what it covers; the user approves them and they are
+downloaded into `tests/fixtures/pdfs/` and committed. Together they cover
+two-column right-to-left text (Arabic, Hebrew, Persian or Urdu); Chinese;
+Japanese with vertical (top-to-bottom) writing; a fillable form with checkboxes
+(such as a US federal tax form); rotated pages, including sideways text on pages
+whose rotation attribute is 0 if one can be found; scanned pages with no text
+layer; PDFs with and without bookmarks and structure tags; and a slide deck or
+image-heavy PDF. CAPS, already on disk in KGForEdGlobal's `data/` (which stays
+unchanged), is used locally as it is. Where no public-domain document covers a
+case, Developer says so and offers an openly licensed one for the user to accept
+or reject. Each file is under 500 KB, so every one can be committed; a case that
+only a larger file covers is reported to the user instead. One of them serves
+the CI wheel smoke test. `tests/fixtures/pdfs/SOURCES.md` records each file's
+source URL, licence basis (with any attribution an open licence requires), size,
+page count, SHA-256 and the cases it covers.
 
-From the command line: `pydelity data/pdfs/<file>` opens each downloaded PDF and
+From the command line: `pydelity tests/fixtures/pdfs/<file>` opens each PDF and
 logs its page count and size.
 
 **Self-Check**
@@ -194,6 +195,60 @@ logs its page count and size.
 Open each file with PyMuPDF (page count, text-layer presence, bookmarks,
 structure tags, form fields, rotation attributes, size), confirm it covers what
 it was chosen for, and record its SHA-256.
+
+Evidence, 2026-11-17, repo root, uncommitted on top of `0f1c417` (PyMuPDF 2.1):
+
+- Candidates: 21 PDFs downloaded to the scratchpad with the user's permission
+  and inspected with a scratchpad script (`tools/inspect_pdfs.py`: page sizes,
+  rotation attributes, character counts, line directions, `wmode`, Unicode bidi
+  share, block columns, bookmarks, page labels, widgets, XFA, `StructTreeRoot`
+  and `MarkInfo`). Rejected: `f1040--1913.pdf` (retyped, not a scan), the other
+  older Form 1040 and 1040A scans (only one scan needed), Persian and Urdu
+  Publication 1 (same layout as Arabic), the Knesset law (one body column),
+  Forms W-4 and 8962 (W-9 chosen). Two courts.go.jp judgments failed TLS
+  certificate verification and were skipped. CDC, BLS, SSA, GAO and CRS refuse
+  scripted downloads.
+- Committed set, approved by the user: 9 files in `tests/fixtures/pdfs/` (1.4 MB
+  in total), each under 500 KB: `bls_navigating_slides.pdf` (16 slides, images
+  on every slide, tagged), `caps_english_hl_pages_28_35.pdf` (CAPS pages 28–35
+  copied with PyMuPDF `insert_pdf`, page labels 23–30 kept; rotation attribute 0
+  with 88–98% of each page's text in direction (0, −1)),
+  `irs_form_1040_1950.pdf` (page labels; 400 sideways heading characters on page
+  4), `irs_form_1040a_1965_scan.pdf` (images only, 0 characters),
+  `irs_form_w9.pdf` (8 checkboxes, 15 text fields, XFA, tagged, 51 sideways
+  characters on page 1), `irs_pub1_arabic.pdf` (89–92% right-to-left, two and
+  three columns, tagged), `irs_pub1_chinese_simplified.pdf` (two and three
+  columns, tagged), `irs_w9_instructions.pdf` (22 bookmarks, tagged) and
+  `japan_official_gazette_2019_extra_9.pdf` (213 of 251 characters with `wmode`
+  1, page labels, a signature field, untagged).
+- Coverage of the cases: two-column right-to-left (Arabic); Chinese; vertical
+  Japanese; a fillable form with checkboxes; sideways text on pages whose
+  rotation attribute is 0 (CAPS, dominant; W-9 and 1950 Form 1040, minor); pages
+  with no text layer (1965 Form 1040A); with bookmarks and tags (W-9
+  instructions); tagged without bookmarks (Publication 1, W-9, slides); neither
+  (gazette, CAPS, both old forms); a slide deck (BLS). Not covered: a page whose
+  rotation attribute is 90, 180 or 270. No candidate that could be downloaded
+  had one.
+- `tests/fixtures/pdfs/SOURCES.md` gives each file's source, license basis (17
+  U.S.C. § 105; Japan's Copyright Act Article 13; South Africa's Copyright Act
+  section 12(8)(a) for CAPS, which the user confirmed), size, page count,
+  SHA-256 and contents. A scratchpad check recomputed every size and SHA-256 and
+  matched all 9 entries, with no PDF missing an entry.
+- `pydelity tests/fixtures/pdfs/<file>` opened all 9 and logged the expected
+  page count, size and SHA-256 (exit 0).
+- `uv run --locked prek run --files tests/fixtures/pdfs/* src/pydelity/api.py`:
+  every hook passed, including `check-added-large-files`, `detect-secrets` and
+  `env-template-sync` (the user's `.env` now matches `.template.env`).
+  `just lint-markdown` and `just lint-python` passed.
+
+**Implementation Notes**
+
+- The CAPS excerpt is regenerated only by copying pages 28–35 of the
+  KGForEdGlobal copy (`data/funda_wande/caps_english_hl_grade_3_fs.pdf`, SHA-256
+  `c939a3a9…b878d24d`, left unchanged). PyMuPDF writes a new file ID on each
+  save, so a regenerated excerpt has a different SHA-256.
+- While running this step, DEV-001's log line was corrected to say `1 page`
+  rather than `1 pages`.
 
 ### DEV-003 — Provider profiles
 
@@ -967,6 +1022,7 @@ constants; regenerating after Markdown formatting is byte-identical, so CI's
 - Approved by the user on 2026-11-17 (scope `a938118`, design `2e96832`); user
   style `tony` is locked. Implementation continues in a new session, starting
   with DEV-001's file and folder list for the user's review.
+- Test PDF sources: `tests/fixtures/pdfs/SOURCES.md` (DEV-002).
 - Project references loaded: `NONE` (`.standards/project-references/` does not
   exist).
 

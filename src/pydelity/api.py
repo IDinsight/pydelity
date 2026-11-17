@@ -40,9 +40,9 @@ async def arun(pdf: str | os.PathLike[str]) -> None:
     logger.info("Opening {path}", path=path)
     info = await asyncio.to_thread(open_pdf, path)
     logger.info(
-        "Opened {name}: {pages} pages, {size:,} bytes, SHA-256 {sha256}",
+        "Opened {name}: {pages}, {size:,} bytes, SHA-256 {sha256}",
         name=info.name,
-        pages=info.page_count,
+        pages=f"{info.page_count} page" + ("" if info.page_count == 1 else "s"),
         sha256=info.sha256,
         size=info.bytes,
     )
