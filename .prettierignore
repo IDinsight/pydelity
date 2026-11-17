@@ -1,0 +1,4 @@
+# Files Prettier leaves as they are. scripts/format_markdown.mjs reads this file.
+
+# Written by release-please, which would undo any formatting at the next release.
+CHANGELOG.md

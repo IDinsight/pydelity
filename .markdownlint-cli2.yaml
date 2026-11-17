@@ -9,6 +9,11 @@ gitignore: true
 globs:
   - "**/*.md"
 
+# release-please writes CHANGELOG.md with blank lines markdownlint rejects, and
+# would undo any fix at the next release.
+ignores:
+  - CHANGELOG.md
+
 # Ignore inline `markdownlint-disable` and `-enable` comments, so this file alone
 # decides what is checked. Shipped STANDARDS files carry such comments, which would
 # otherwise switch line length back on.

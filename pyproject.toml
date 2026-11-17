@@ -35,6 +35,7 @@ maintainers = [{name = "IDinsight DSEM", email = "dsem@idinsight.org" }]
 name = "pydelity"
 readme = "README.md"
 requires-python = ">=3.13"
+# Bumped by release-please's release pull requests, with uv.lock; not edited by hand.
 version = "0.0.1"
 
 [project.urls]

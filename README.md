@@ -81,3 +81,20 @@ in one step, and keep the lists in alphabetical order.
 
 With the git hook installed, prek runs the checks on the files in each commit.
 To run every hook on every file, use `uv run prek run --all-files`.
+
+### Releases
+
+[release-please](https://github.com/googleapis/release-please) works out
+releases from the commit messages on `main`, so they follow
+[Conventional Commits](https://www.conventionalcommits.org/). When a pull
+request is squash-merged, its title becomes that message.
+
+- `fix:` makes a patch release and `feat:` a minor one. A `!` after the type
+  (`feat!:`) or a `BREAKING CHANGE:` footer makes a major one.
+- Other types, such as `docs:`, `test:`, `ci:` and Dependabot's `build(deps):`,
+  make no release.
+- After each push to `main`, release-please opens or updates a release pull
+  request with the next version and its `CHANGELOG.md` entry. Merging it sets
+  the version in `pyproject.toml` and `uv.lock`, tags `vX.Y.Z` and creates the
+  GitHub release.
+- Releases are not published to PyPI automatically yet.

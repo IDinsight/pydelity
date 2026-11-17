@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Format every Markdown file git tracks or would track with the pinned Prettier, then,
-// where the STANDARDS workflow is installed, run its consistency check.
+// where the STANDARDS workflow is installed, run its consistency check. Files listed in
+// .prettierignore (CHANGELOG.md, which release-please writes) are skipped.
 //
 // Project Markdown gets Prettier's output as is. STANDARDS workflow files may only
 // change in whitespace, so for those this script applies a guard: it writes Prettier's
@@ -87,6 +88,13 @@ async function main() {
   let skipped = 0;
 
   for (const file of listMarkdownFiles()) {
+    // prettier.format() does not read .prettierignore by itself.
+    const { ignored } = await prettier.getFileInfo(file, {
+      ignorePath: ".prettierignore",
+    });
+    if (ignored) {
+      continue;
+    }
     const original = readFileSync(file, "utf8");
     const options = (await prettier.resolveConfig(file)) ?? {};
     const formatted = await prettier.format(original, { ...options, filepath: file });

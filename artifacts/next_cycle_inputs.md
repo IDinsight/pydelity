@@ -202,3 +202,7 @@ Context, not requirements.
   version bump has to change both.
 - `[tool.coverage.report]` in `pyproject.toml` still holds scaffold entries: a
   `def cli` exclusion and an `omit` for `src/pydelity/__init__.py`.
+- Added after sign-off: release-please (`.github/workflows/release-please.yml`)
+  versions, tags and creates GitHub releases but does not publish. The PyPI
+  release workflow can start from those releases: the token release-please uses
+  is not the job token, so its releases do trigger `release` events.
