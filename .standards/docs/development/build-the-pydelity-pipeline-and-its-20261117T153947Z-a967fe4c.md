@@ -17,7 +17,7 @@ Cycle: build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c
 - `Architecture`:
   `.standards/docs/specs/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
 - `Request`:
-  `Build step 1 (survey) of pydelity with the run features it needs (config, CLI and Python API, input limits, cost ledger and spend controls, resume, review list, HTML report) for Anthropic and OpenAI models; CI on Python 3.13 and 3.14 with wheel installs on Windows, macOS and Linux; the 0.1.0 PyPI release workflow; and the Astro Starlight docs site.`
+  `Build step 1 (survey) of pydelity with the run features it needs (config, CLI and Python API, provider errors, cost ledger and spend controls, resume, review list, HTML report) for Anthropic and OpenAI models; CI on Python 3.13 and 3.14 with wheel installs on Windows, macOS and Linux; the 0.1.0 PyPI release workflow; and the Astro Starlight docs site.`
 
 ## Build Steps
 
@@ -44,7 +44,7 @@ Typer CLI, `python -m pydelity` and a first `run()` the CLI calls.
 
 `import pydelity` exposes `__version__`, disables loguru for `pydelity` and
 reads no file, network or environment. `PydelityError` with `ConfigError`,
-`PdfError`, `InputLimitError`, `MissingApiKeyError`, `BudgetExceededError` and
+`PdfError`, `MissingApiKeyError`, `BudgetExceededError`, `ProviderError` and
 `SurveyError`, plus `PydelityWarning`. Utilities: atomic UTF-8 write (temp file
 in the same folder, flush, `fsync`, `os.replace`), validated load into a
 Pydantic model that reports damage instead of raising, stale `*.tmp-*` cleanup,
@@ -94,8 +94,8 @@ and without bookmarks and structure tags; and a slide deck or image-heavy PDF.
 CAPS, already on disk in KGForEdGlobal's `data/` (which stays unchanged), is
 used locally as it is. Where no public-domain document covers a case, Developer
 says so and offers an openly licensed one for the user to accept or reject. Each
-file fits the default models' input limits. One small file (under the 500 KB
-hook limit) is copied, with the user's OK, to `tests/fixtures/pdfs/` and
+file is a size the providers are likely to accept. One small file (under the 500
+KB hook limit) is copied, with the user's OK, to `tests/fixtures/pdfs/` and
 committed for the CI wheel smoke test. Each file's source, licence basis, size,
 page count and SHA-256 are recorded in Plan Notes.
 
@@ -108,48 +108,46 @@ Open each file with PyMuPDF (page count, text-layer presence, bookmarks,
 structure tags, form fields, rotation attributes, size), confirm it covers what
 it was chosen for, and record its SHA-256.
 
-### DEV-003 — Model catalog and input-limit check
+### DEV-003 — Provider profiles
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`:
-`AC-011, AC-012, AC-013`
+`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`: `AC-011, AC-037`
 
 **Goal**
 
-Know each supported provider's and model's PDF limits, and stop an oversized PDF
-before any upload or request.
+Record the few provider-level facts pydelity needs, and nothing per model.
 
 **Affected Area**
 
-Candidates `src/pydelity/models/{schemas,catalog}.py`.
+Candidates for the provider profiles in the models area, and the `--model`
+option of the CLI.
 
 **Expected Outcome**
 
 Model settings parse as `<provider>:<model-id>` with provider `anthropic` or
-`openai` only. Provider facts: transports (upload, then in-request fallback),
-OpenAI upload purpose `user_data`, upload expiry range and default. Entries for
-`anthropic:claude-opus-5-5` and one current OpenAI model recommended for PDF
-input, each with `max_pdf_pages`, `max_pdf_bytes`, `max_request_pdf_bytes`,
-`context_window_tokens`, `pdf_tokens_per_page`, `limits_source` (URL and date),
-effort mapping and output mode, rechecked against the providers' docs.
-`advanced.models` overrides merge over an entry. The check raises
-`InputLimitError` naming the model, the limit, its value and the PDF's value,
-with the split-or-switch advice; an unknown model warns and proceeds; estimated
-input tokens over the context window warn. Confirms whether the locked
-`genai-prices` prices the default model and ships catalog prices if not.
+`openai` only; any model ID is sent as given. One profile per provider: PDF
+transports (upload, then in-request fallback), OpenAI upload purpose
+`user_data`, the allowed upload expiry range with its maximum as the default
+(OpenAI's range checked against its docs), a PDF tokens-per-page figure for the
+cost estimate (a named constant derived from the provider's PDF docs), and the
+`effort` mapping. No page, size or context-window figure and no list of models
+anywhere. The current OpenAI model recommended for document input is picked for
+the docs, and a `genai-prices` minimum version that prices
+`anthropic:claude-opus-5-5` is set (if no release prices it, the default model
+goes back to Architect).
 
-From the command line: `pydelity <pdf> --model <provider:model-id>` logs
-`Input limits OK` with the PDF's pages and size against the model's limits, or
-stops with the input-limit error; an unknown model logs a warning and carries
-on.
+From the command line: `pydelity <pdf> --model <provider:model-id>` logs the
+provider and model it will use; a provider other than `anthropic` or `openai`
+stops with an error.
 
 **Self-Check**
 
-Scratchpad script covering page and byte overruns, overrides, an unknown model
-and the context warning; `just lint`.
+Scratchpad script printing both profiles and parsing valid and invalid model
+settings; a search of `src/` for per-model figures; `just lint`.
 
 **Implementation Notes**
 
-Rechecking limits reads `platform.claude.com` and `developers.openai.com`.
+Reads `platform.claude.com`, `developers.openai.com` and the `genai-prices`
+release data.
 
 ### DEV-004 — Configuration
 
@@ -168,13 +166,13 @@ Candidates `src/pydelity/config/{schemas,loading}.py`.
 **Expected Outcome**
 
 `Config` (`pdf`, `instructions`, `languages`, `output_dir`, `model`, `max_cost`,
-`overwrite`, `advanced`) and `AdvancedConfig` (`survey`, `uploads`, `models`)
-with `extra="forbid"` and the design's defaults and bounds; BCP-47 syntax
-validation; `.json`, `.yaml` and `.yml` loading with relative paths resolved
-against the config file's folder; precedence keywords or CLI over file over
-defaults, with the CLI `PDF` winning; `expiry_hours` checked against the
-selected provider's range; one `ConfigError` listing every invalid setting by
-dotted path. `ProviderEnv` (pydantic-settings, environment only, no `.env`,
+`overwrite`, `advanced`) and `AdvancedConfig` (`survey`, `uploads`, and `models`
+holding prices only) with `extra="forbid"` and the design's defaults and bounds;
+BCP-47 syntax validation; `.json`, `.yaml` and `.yml` loading with relative
+paths resolved against the config file's folder; precedence keywords or CLI over
+file over defaults, with the CLI `PDF` winning; `expiry_hours` checked against
+the selected provider's range; one `ConfigError` listing every invalid setting
+by dotted path. `ProviderEnv` (pydantic-settings, environment only, no `.env`,
 `SecretStr`) built per run, and `MissingApiKeyError` for the selected provider's
 empty key.
 
@@ -225,18 +223,20 @@ facts); `--verbose` logs the facts page by page.
 Run the probe on every PDF in the set and check its facts against the documents
 (pages, bookmarks, form fields, tags, rotation, printed numbers); `just lint`.
 
-### DEV-007 — Cost ledger, pricing, estimate and budget guard
+### DEV-007 — Cost ledger, pricing, estimate and `max_cost` guard
 
 `Status`: `PENDING` `Depends On`: `DEV-003, DEV-004` `Acceptance`:
-`AC-014, AC-015, AC-016`
+`AC-014, AC-015, AC-038, AC-039`
 
 **Goal**
 
-Price, record and limit every model request.
+Price and record every model request, and let the user decide when a run would
+go over `max_cost`.
 
 **Affected Area**
 
-Candidates `src/pydelity/costs/{schemas,ledger,pricing,budget}.py`.
+Candidates in the costs area: schemas, ledger, pricing, estimate and the
+`max_cost` guard.
 
 **Expected Outcome**
 
@@ -244,26 +244,33 @@ Ledger-entry and `CostEstimate` schemas; `cost.jsonl` appends with flush and
 `fsync` under an in-process lock, and a reader that skips a damaged trailing
 line with a warning; pricing through PydanticAI's `ModelResponse.cost()` with
 `advanced.models` price overrides and `price_source`, unpriced responses
-recorded as null; the estimate formulas with named constants; a budget guard
-that refuses a request when folder spend plus that request's upper bound exceeds
-`max_cost`, and refuses an unpriced model when `max_cost` is set. Money is
-`Decimal`; genai-prices runtime updates stay off.
+recorded as null; the estimate formulas with named constants and the provider's
+tokens-per-page figure, including `over_max_cost`; and the `max_cost` guard
+(design decision 11): a plan-time check against the estimate's maximum and a
+per-request check against that request's upper bound, both counting the whole
+folder's recorded spend, with an unpriced model counting as over. A tripped
+check records one `max_cost_exceeded` warning and asks the run's decision once;
+yes lets the rest of the run go over with no further question, and no raises
+`BudgetExceededError` before anything is sent, leaving the run resumable. Money
+is `Decimal`; genai-prices runtime updates stay off.
 
 From the command line: before anything that costs money, the run shows the cost
 estimate, the spend already recorded in the output folder and `max_cost`, and
-asks whether to continue; `--yes` skips the question and a non-interactive run
-without `--yes` stops.
+asks whether to continue; over `max_cost`, it logs the `max_cost_exceeded`
+warning first and the same question decides both; `--yes` skips the question and
+a non-interactive run without `--yes` stops.
 
 **Self-Check**
 
 Scratchpad script writing and reading a ledger (including a damaged last line),
 pricing responses from small real provider calls against the provider's reported
-usage, estimate figures and guard decisions; `just lint`.
+usage, estimate figures, and the guard's warning and both answers with spend
+already in the folder; `just lint`.
 
 ### DEV-008 — Model factory and LedgerModel
 
 `Status`: `PENDING` `Depends On`: `DEV-003, DEV-004, DEV-007` `Acceptance`:
-`AC-011, AC-014, AC-016`
+`AC-011, AC-014, AC-037, AC-038, AC-039`
 
 **Goal**
 
@@ -280,10 +287,12 @@ Candidates `src/pydelity/models/{factory,ledger_model}.py`.
 from `ProviderEnv`, the request timeout, max output tokens, the effort mapping
 (Anthropic adaptive thinking with effort; OpenAI reasoning effort) and the
 provider's output mode (`NativeOutput` or `PromptedOutput`, never forced
-`tool_choice`), wrapped in `LedgerModel`, a PydanticAI `WrapperModel` that asks
-the budget guard before each request and appends a ledger line after each
-response. Ported from KGForEdGlobal `model_registry.py` without its hand-kept
-model set.
+`tool_choice`, chosen from the model's PydanticAI profile), wrapped in
+`LedgerModel`, a PydanticAI `WrapperModel` that runs the per-request `max_cost`
+check before each request and appends a ledger line after each response. A model
+request that fails after the SDK's retries raises `ProviderError` with the
+provider's own message unchanged and the original exception as its cause. Ported
+from KGForEdGlobal `model_registry.py` without its hand-kept model set.
 
 From the command line: the run checks the selected provider's API key and logs
 `Model ready` with the model, effort and output mode, or stops with the
@@ -292,13 +301,14 @@ missing-key error. No model call happens yet.
 **Self-Check**
 
 Small real agent runs with each provider, checking the provider settings sent,
-ledger lines and prices against the provider's reported usage, and a budget
-refusal (a `max_cost` below one request); `just lint`.
+ledger lines and prices against the provider's reported usage, the per-request
+`max_cost` question (a `max_cost` below one request), and `ProviderError` from a
+real rejection (a model ID the provider does not have); `just lint`.
 
 ### DEV-009 — PDF uploads, reuse and in-request fallback
 
 `Status`: `PENDING` `Depends On`: `DEV-008` `Acceptance`:
-`AC-011, AC-012, AC-018, AC-021`
+`AC-011, AC-018, AC-021, AC-037`
 
 **Goal**
 
@@ -316,11 +326,13 @@ expiry from `advanced.uploads.expiry_hours` or the provider maximum;
 `uploads.json` written atomically after a successful upload, one record per
 provider and PDF SHA-256; reuse while at least one hour remains; one re-upload
 after "file not found"; a damaged `uploads.json` treated as empty. When the
-upload path fails (anything but an authentication failure, after the SDK's own
-retries), the step switches to `BinaryContent` for the rest of the step run,
-records a warning and `pdf_transport: request`, writes no upload record, and
-raises `SurveyError` when the PDF is over the in-request limit. An
-authentication failure stops the run.
+upload path fails (after the SDK's own retries), the step switches to
+`BinaryContent` for the rest of the step run, records an `upload_fallback`
+warning and `pdf_transport: request`, and writes no upload record. Two upload
+errors stop the run with `ProviderError` instead: an authentication failure and
+a rejection as too large (413). Nothing checks the PDF's size first; a provider
+rejection of the in-request call raises `ProviderError` that also gives the
+earlier upload error.
 
 From the command line: after confirmation, the run uploads the PDF and logs the
 provider's file id and expiry, or `Reusing upload` on a rerun; `uploads.json`
@@ -330,9 +342,10 @@ appears in the output folder. No model call happens yet.
 
 Real runs with each provider covering upload, reuse from `uploads.json`, and
 re-upload after a recorded file id the provider does not have; an invalid key
-for the authentication stop; the upload failure, fallback and too-large cases by
-fault injection in the scratchpad script (a failing upload call), since a
-provider cannot be made to fail on demand; `just lint`.
+for the authentication stop; a real rejection where a provider refuses a PDF
+from the set, if one does; the upload failure and fallback by fault injection in
+the scratchpad script (a failing upload call), since a provider cannot be made
+to fail on demand; `just lint`.
 
 ### DEV-010 — Survey proposal, profile, prompt and checks
 
@@ -421,7 +434,7 @@ retries by fault injection in the scratchpad script (a check forced to fail);
 ### DEV-012 — Run orchestration
 
 `Status`: `PENDING` `Depends On`: `DEV-004, DEV-007, DEV-011` `Acceptance`:
-`AC-014, AC-016, AC-018, AC-019`
+`AC-014, AC-018, AC-019, AC-037, AC-038, AC-039`
 
 **Goal**
 
@@ -434,17 +447,18 @@ Candidates `src/pydelity/pipeline/{schemas,runner}.py`.
 
 **Expected Outcome**
 
-Settings resolved and validated, the PDF opened and limit-checked, the folder
-prepared (stale temp files removed; a warning when `run.json` names another
-PDF); `run.json` written at start and end with steps, cost (`run_usd`,
+Settings resolved and validated, the PDF opened (no size or page check), the
+folder prepared (stale temp files removed; a warning when `run.json` names
+another PDF); `run.json` written at start and end with steps, cost (`run_usd`,
 `by_step`, `output_folder_usd`, `unpriced_requests`), the review list (reused
 outputs' issues included), warnings and error; `failed`, `stopped` and
 `interrupted` recorded before re-raising, with `KeyboardInterrupt` caught and
 re-raised. Warnings are items (`code`, `step`, `message`, `details`) with this
-cycle's codes (`unknown_model_limits`, `unpriced_model`, `context_window`,
-`other_pdf_in_folder`, `damaged_output`, `upload_fallback`,
-`probe_unavailable`), and each also goes to `PydelityWarning`. A planning hook
-gives the CLI the estimate before any spend.
+cycle's codes (`unpriced_model`, `max_cost_exceeded`, `other_pdf_in_folder`,
+`damaged_output`, `upload_fallback`, `probe_unavailable`), and each also goes to
+`PydelityWarning` and the log. A `ProviderError` or a `max_cost` no ends the run
+`failed` or `stopped`, with every written file valid. A planning hook gives the
+CLI the estimate before any spend.
 
 From the command line: every run writes `run.json` and ends with a summary line
 (status, cost of this run and of the folder, review-issue count); Ctrl+C logs
@@ -491,7 +505,7 @@ Loads the Developer HTML and CSS styles.
 ### DEV-014 — Python API
 
 `Status`: `PENDING` `Depends On`: `DEV-012, DEV-013` `Acceptance`:
-`AC-010, AC-015`
+`AC-010, AC-015, AC-039`
 
 **Goal**
 
@@ -505,10 +519,12 @@ Candidate `src/pydelity/api.py`; `src/pydelity/__init__.py`.
 **Expected Outcome**
 
 Synchronous `run`, `survey` and `estimate` taking `pdf`, `config` (a path, a
-`Config` or a mapping) and setting keywords. They never prompt or read stdin,
-and they work inside a running event loop (on a worker thread). The root
-re-exports them with `Config`, the result models, `CostEstimate`, the errors and
-`PydelityWarning`; import stays free of side effects.
+`Config` or a mapping) and setting keywords; `run` and `survey` also take
+`allow_over_max_cost` (default `False`), which answers the `max_cost` decision.
+They never prompt or read stdin, and they work inside a running event loop (on a
+worker thread). The root re-exports them with `Config`, the result models,
+`CostEstimate`, the errors and `PydelityWarning`; import stays free of side
+effects.
 
 From Python: `pydelity.run(...)`, `pydelity.survey(...)` and
 `pydelity.estimate(...)` work, in a script or in Jupyter; the command line is
@@ -522,7 +538,7 @@ empty environment prints nothing; `just lint`.
 ### DEV-015 — CLI
 
 `Status`: `PENDING` `Depends On`: `DEV-014` `Acceptance`:
-`AC-007, AC-008, AC-009, AC-015, AC-019`
+`AC-007, AC-008, AC-009, AC-015, AC-019, AC-037, AC-038`
 
 **Goal**
 
@@ -535,10 +551,12 @@ The CLI module from DEV-001.
 **Expected Outcome**
 
 Finishes the command built up since DEV-001 to the design's contract: every
-option in the design's order of work, exit codes (0, 1, 2, 3, 130), logging
-levels, warnings printed as they occur, and the end-of-run summary with review
-issues grouped by check, a count per check before the list; the `pydelity`
-console script and `python -m pydelity`.
+option in the design's order of work, the mid-run `max_cost` question, a
+provider's error printed unchanged after the provider and model (with the PDF's
+name, pages and size when the call carried it), exit codes (0, 1, 2, 3, 130),
+logging levels, warnings printed as they occur, and the end-of-run summary with
+review issues grouped by check, a count per check before the list; the
+`pydelity` console script and `python -m pydelity`.
 
 **Self-Check**
 
@@ -566,10 +584,10 @@ A loopback HTTP server, reached through `ANTHROPIC_BASE_URL` and
 `OPENAI_BASE_URL`, that answers Anthropic Messages and Files API calls and
 OpenAI Responses and Files API calls with canned bodies: a structured survey
 answer the caller supplies, usage figures, upload success, "file not found",
-upload failures (server error, authentication failure), and a request log the
-caller can inspect. The canned bodies follow the response shapes recorded from
-the real development runs (usage figures and ids only, never keys). No
-production code path exists only for it.
+upload failures (server error, authentication failure, 413 too large), a request
+that rejects the PDF, and a request log the caller can inspect. The canned
+bodies follow the response shapes recorded from the real development runs (usage
+figures and ids only, never keys). No production code path exists only for it.
 
 From the command line: with `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` pointed at
 the stand-in, `pydelity <pdf> --yes` completes with no keys and no spend.
@@ -767,7 +785,7 @@ catches a stale page.
     errors.py           PydelityError and subclasses, PydelityWarning
     config/             schemas.py (Config, AdvancedConfig, ProviderEnv), loading.py
     costs/              schemas.py, ledger.py, pricing.py, budget.py (estimate, guard)
-    models/             schemas.py, catalog.py, factory.py, ledger_model.py, uploads.py
+    models/             providers.py, factory.py, ledger_model.py, uploads.py
     pipeline/           schemas.py (run.json, review issues), runner.py
     report/             html.py, images.py
     steps/survey/       schemas.py, probe.py, prompts.py, validators.py, agents.py,
@@ -840,3 +858,20 @@ correction.
 `Purpose`: `DEVELOPMENT` `Target`: `NONE` `Assessed Inputs`:
 `scope 9b8b030 and design c9828bc; this unapproved plan draft` `Next Action`:
 `Reconcile DEV-003, DEV-007, DEV-009, DEV-012, DEV-014 and DEV-015 with the reworked scope and design, then present the plan for approval.`
+
+Restored on the `RESUME` from `ARCHITECTING` (scope `8fa6449`, design `a80a831`)
+and reconciled: DEV-003 is now provider profiles only (`AC-037` replaces the
+retired `AC-012` and `AC-013`); DEV-007, DEV-008 and DEV-014 carry the
+`max_cost` warning, the CLI question and `allow_over_max_cost` (`AC-038` and
+`AC-039` replace the retired `AC-016`); DEV-008, DEV-009, DEV-012 and DEV-015
+carry `ProviderError`; DEV-001 drops `InputLimitError`; DEV-004 keeps only
+prices under `advanced.models`; DEV-006 adds rejection responses. No step was
+added, removed or reordered.
+
+### Suspended Assignment 3
+
+`Recovery Frame`: `1` `Recovery Reason`:
+`User rework: save the probe's measured facts and their summary in a new output file right after measuring, before any API key check, cost question or model call, so they survive a declined, failed or keyless run.`
+`Purpose`: `DEVELOPMENT` `Target`: `NONE` `Assessed Inputs`:
+`scope 8fa6449 and design a80a831; this unapproved plan draft` `Next Action`:
+`Reconcile DEV-005 (and any step the new output touches, such as DEV-012, DEV-013 and DEV-021) with the reworked scope and design, then present the plan for approval.`
