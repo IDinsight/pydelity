@@ -1,5 +1,10 @@
 """The run: open the PDF, prepare the output folder, run the steps, write ``run.json``.
 
+`run_pipeline` is the whole run. `run_measure`, `run_estimate` and
+`run_survey_step` do parts of it for the Python API's ``measure``, ``estimate`` and
+``survey``, which write no ``run.json`` and no report. `load_run` reads a folder
+back.
+
 ``run.json`` is written when the run starts, with status ``running``, and again when
 it ends: ``completed``, ``failed``, ``stopped`` (a ``max_cost`` no or a declined
 confirmation) or ``interrupted`` (Ctrl+C, or a cancelled ``arun``). The run writes it,
@@ -23,6 +28,7 @@ from pathlib import Path
 
 # Third Party Library
 from loguru import logger
+from pydantic import BaseModel
 
 # Package Library
 from pydelity.config.schemas import Config
@@ -35,7 +41,7 @@ from pydelity.costs.budget import (
 )
 from pydelity.costs.ledger import LEDGER_FILE_NAME, Ledger, read_ledger
 from pydelity.costs.schemas import CostEstimate
-from pydelity.errors import BudgetExceededError
+from pydelity.errors import BudgetExceededError, OutputError
 from pydelity.pipeline.schemas import (
     PdfRecord,
     RunCost,
@@ -51,11 +57,21 @@ from pydelity.providers.ledger_model import LedgerContext
 from pydelity.providers.profiles import PdfTransport
 from pydelity.report.html import write_report
 from pydelity.report.images import render_pages
-from pydelity.schema_versions import RUN_SCHEMA_VERSION
+from pydelity.schema_versions import (
+    FACTS_SCHEMA_VERSION,
+    RUN_SCHEMA_VERSION,
+    SURVEY_SCHEMA_VERSION,
+)
 from pydelity.surveying.facts import FACTS_FILE_NAME, measure_facts
 from pydelity.surveying.prompts import PROMPT_VERSION, survey_pdf
 from pydelity.surveying.schemas import PdfFacts, PdfSurvey, SurveyAnswer
-from pydelity.surveying.survey import SURVEY_FILE_NAME, run_survey, saved_survey
+from pydelity.surveying.survey import (
+    SURVEY_FILE_NAME,
+    run_survey,
+    saved_survey,
+    survey_fingerprint,
+    survey_inputs,
+)
 from pydelity.utils.coroutines import (
     IssuedWarning,
     collect_warnings,
@@ -214,7 +230,7 @@ def _describe_error(error: BaseException) -> str:
 
 
 def _estimate_cost(
-    *, config: Config, page_count: int, prompt_chars: int
+    *, config: Config, page_count: int, prompt_chars: int, reused: bool
 ) -> CostEstimate:
     """Estimate the survey's cost, counting what the output folder has already spent.
 
@@ -226,6 +242,8 @@ def _estimate_cost(
         The PDF's page count.
     prompt_chars
         The survey prompt's length in characters, without the PDF.
+    reused
+        Whether the saved survey would be reused, so nothing is sent.
 
     Returns
     -------
@@ -241,7 +259,7 @@ def _estimate_cost(
         config=config,
         page_count=page_count,
         prompt_chars=prompt_chars,
-        reused=False,
+        reused=reused,
         spent_usd=ledger.spent_usd,
     )
     for message in estimate.warnings:
@@ -283,6 +301,45 @@ async def _finish(
     return record
 
 
+def _load_part[ModelT: BaseModel](
+    *, model_type: type[ModelT], path: Path, version: str
+) -> ModelT | None:
+    """Read one output file for `load_run`, raising instead of reporting damage.
+
+    Parameters
+    ----------
+    model_type
+        The model the file must validate against. It has a ``schema_version``.
+    path
+        The file.
+    version
+        The schema version this pydelity writes; the file's major version must match.
+
+    Returns
+    -------
+    ModelT | None
+        The file's contents, or ``None`` when it does not exist.
+
+    Raises
+    ------
+    OutputError
+        If the file is not valid JSON, does not match its schema, or has another
+        major schema version.
+    """
+
+    loaded = load_model(model_type=model_type, path=path)
+    if loaded.damage is not None:
+        raise OutputError(f"{loaded.damage}; it cannot be read back")
+    found = getattr(loaded.model, "schema_version", None)
+    major = version.split(".", maxsplit=1)[0]
+    if found is not None and found.split(".", maxsplit=1)[0] != major:
+        raise OutputError(
+            f"{path.name} has schema version {found}, but this pydelity reads only "
+            f"version {major}.x"
+        )
+    return loaded.model
+
+
 def _log_estimate(estimate: CostEstimate) -> None:
     """Log the cost estimate, the folder's spend so far and ``max_cost``.
 
@@ -293,7 +350,12 @@ def _log_estimate(estimate: CostEstimate) -> None:
     """
 
     for step in estimate.steps:
-        if step.expected_usd is None or step.max_usd is None:
+        if step.reused:
+            logger.info(
+                "{name}: the saved output would be reused, nothing to spend",
+                name=step.name.capitalize(),
+            )
+        elif step.expected_usd is None or step.max_usd is None:
             logger.info(
                 "{name} cost estimate: unknown, no price is known for {model} "
                 "(at most {requests} requests)",
@@ -398,6 +460,83 @@ def _new_run_id() -> str:
     """
 
     return f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{secrets.token_hex(4)}"
+
+
+async def _open(config: Config) -> PdfInfo:
+    """Open the PDF off the event loop and log its size, pages and SHA-256.
+
+    Parameters
+    ----------
+    config
+        The run's settings, for the PDF's path.
+
+    Returns
+    -------
+    PdfInfo
+        The opened PDF.
+
+    Raises
+    ------
+    PdfError
+        If the PDF is empty, password-protected or cannot be opened.
+    """
+
+    pdf = await asyncio.to_thread(open_pdf, config.pdf)
+    logger.info(
+        "Opened {name}: {pages}, {size:,} bytes, SHA-256 {sha256}",
+        name=pdf.name,
+        pages=f"{pdf.page_count} page" + ("" if pdf.page_count == 1 else "s"),
+        sha256=pdf.sha256,
+        size=pdf.bytes,
+    )
+    return pdf
+
+
+def _prepare_folder(folder: Path) -> None:
+    """Create the output folder and remove files left by interrupted writes.
+
+    Parameters
+    ----------
+    folder
+        The output folder.
+    """
+
+    folder.mkdir(exist_ok=True, parents=True)
+    for leftover in remove_stale_temp_files(folder):
+        logger.debug("Removed {path}, left by an interrupted write", path=leftover)
+
+
+def _prompt_chars(*, config: Config, facts: PdfFacts) -> int:
+    """Measure the survey prompt, logging it in detail, for the cost estimate.
+
+    Parameters
+    ----------
+    config
+        The run's settings, for the user's instructions and languages.
+    facts
+        The facts, whose summary goes into the prompt.
+
+    Returns
+    -------
+    int
+        The prompt's length in characters: both messages and the answer's JSON
+        schema, without the PDF.
+    """
+
+    prompts = survey_pdf(
+        facts_summary=facts.summary,
+        instructions=config.instructions,
+        languages=config.languages,
+        page_count=facts.pdf.page_count,
+    )
+    logger.debug(
+        "Survey instructions (prompt version {version}):\n{instructions}",
+        instructions=prompts.system_message,
+        version=PROMPT_VERSION,
+    )
+    logger.debug("Survey text sent with the PDF:\n{text}", text=prompts.user_message)
+    schema = json.dumps(SurveyAnswer.model_json_schema())
+    return len(prompts.system_message) + len(prompts.user_message) + len(schema)
 
 
 def _record(
@@ -512,7 +651,7 @@ async def _survey(
     *,
     confirm: SpendConfirmation | None,
     decide_over_max_cost: OverMaxCostDecision,
-) -> None:
+) -> PdfSurvey:
     """Run the survey step: measure the PDF, then reuse or make the survey.
 
     A new survey first checks the API key and the cost estimate, and asks before
@@ -528,6 +667,11 @@ async def _survey(
     decide_over_max_cost
         Called with the warning's details when the run could exceed ``max_cost``;
         returns whether to continue.
+
+    Returns
+    -------
+    PdfSurvey
+        The survey, reused or new.
     """
 
     config = run.config
@@ -540,7 +684,7 @@ async def _survey(
     )
     if run.survey is not None:
         run.step_status = "reused"
-        return
+        return run.survey
 
     ledger_path = config.output_folder / LEDGER_FILE_NAME
     guard = SpendGuard(
@@ -569,25 +713,11 @@ async def _survey(
         provider=config.model_choice.provider,
     )
 
-    prompts = survey_pdf(
-        facts_summary=run.facts.summary,
-        instructions=config.instructions,
-        languages=config.languages,
-        page_count=run.pdf.page_count,
-    )
-    logger.debug(
-        "Survey instructions (prompt version {version}):\n{instructions}",
-        instructions=prompts.system_message,
-        version=PROMPT_VERSION,
-    )
-    logger.debug("Survey text sent with the PDF:\n{text}", text=prompts.user_message)
-    # The prompt is the two messages and the answer's JSON schema.
-    schema = json.dumps(SurveyAnswer.model_json_schema())
-    prompt_chars = len(prompts.system_message) + len(prompts.user_message)
     estimate = _estimate_cost(
         config=config,
         page_count=run.pdf.page_count,
-        prompt_chars=prompt_chars + len(schema),
+        prompt_chars=_prompt_chars(config=config, facts=run.facts),
+        reused=False,
     )
     await _ask_before_spending(confirm=confirm, estimate=estimate, guard=guard)
     run.survey, run.transport = await run_survey(
@@ -597,24 +727,49 @@ async def _survey(
         output_folder=config.output_folder,
         pdf=run.pdf,
     )
+    return run.survey
 
 
-def _warn_other_pdf(run: _Run) -> None:
+def _survey_is_saved(*, config: Config, facts: PdfFacts) -> bool:
+    """Tell whether the run would reuse the saved survey, without logging it.
+
+    Parameters
+    ----------
+    config
+        The run's settings.
+    facts
+        The facts the survey would use.
+
+    Returns
+    -------
+    bool
+        Whether ``pdf_survey.json`` is valid, matches the inputs and ``overwrite``
+        is not set.
+    """
+
+    path = config.output_folder / SURVEY_FILE_NAME
+    saved = load_model(model_type=PdfSurvey, path=path).model
+    expected = survey_fingerprint(survey_inputs(config=config, facts=facts))
+    return saved is not None and saved.fingerprint == expected and not config.overwrite
+
+
+def _warn_other_pdf(*, folder: Path, sha256: str) -> None:
     """Warn when the output folder holds results for another PDF.
 
     Parameters
     ----------
-    run
-        The run, for the output folder and the PDF's SHA-256.
+    folder
+        The output folder.
+    sha256
+        The SHA-256 of this run's PDF.
     """
 
-    folder = run.config.output_folder
     others = {}
     record = load_model(model_type=RunRecord, path=folder / RUN_FILE_NAME).model
-    if record is not None and record.pdf.sha256 != run.pdf.sha256:
+    if record is not None and record.pdf.sha256 != sha256:
         others[RUN_FILE_NAME] = record.pdf.sha256
     facts = load_model(model_type=PdfFacts, path=folder / FACTS_FILE_NAME).model
-    if facts is not None and facts.pdf.sha256 != run.pdf.sha256:
+    if facts is not None and facts.pdf.sha256 != sha256:
         others[FACTS_FILE_NAME] = facts.pdf.sha256
     if others:
         warn(
@@ -651,6 +806,130 @@ async def _write_report(record: RunRecord, *, run: _Run) -> Path | None:
         return None
     logger.info("Report written: {path}", path=path)
     return path
+
+
+def load_run(output_dir: Path) -> RunResult:
+    """Read an output folder back as Python objects, with no model call.
+
+    Parameters
+    ----------
+    output_dir
+        The output folder.
+
+    Returns
+    -------
+    RunResult
+        The folder's ``run.json``, ``pdf_facts.json``, ``pdf_survey.json`` and
+        ``cost.jsonl``. A part is ``None``, or an empty ledger, when its file is
+        absent.
+
+    Raises
+    ------
+    OutputError
+        If the folder does not exist, holds none of those files, or holds one that
+        is not valid JSON, does not match its schema or has another major schema
+        version.
+    """
+
+    folder = output_dir.resolve()
+    if not folder.is_dir():
+        raise OutputError(f"{folder} does not exist or is not a folder")
+
+    record = _load_part(
+        model_type=RunRecord, path=folder / RUN_FILE_NAME, version=RUN_SCHEMA_VERSION
+    )
+    facts = _load_part(
+        model_type=PdfFacts,
+        path=folder / FACTS_FILE_NAME,
+        version=FACTS_SCHEMA_VERSION,
+    )
+    survey = _load_part(
+        model_type=PdfSurvey,
+        path=folder / SURVEY_FILE_NAME,
+        version=SURVEY_SCHEMA_VERSION,
+    )
+    ledger_path = folder / LEDGER_FILE_NAME
+    ledger = read_ledger(ledger_path)
+    if ledger.damage is not None:
+        warn(ledger.damage, code="damaged_output", details={"file": LEDGER_FILE_NAME})
+    if record is None and facts is None and survey is None and not ledger_path.exists():
+        raise OutputError(
+            f"{folder} holds none of {RUN_FILE_NAME}, {FACTS_FILE_NAME}, "
+            f"{SURVEY_FILE_NAME} and {LEDGER_FILE_NAME}"
+        )
+    return RunResult(
+        facts=facts,
+        ledger=ledger.entries,
+        output_dir=folder,
+        record=record,
+        survey=survey,
+    )
+
+
+async def run_estimate(*, config: Config) -> CostEstimate:
+    """Estimate what a run would cost, writing nothing and calling no model.
+
+    The saved facts are used when they match; otherwise the PDF is measured without
+    saving the facts. A survey that would be reused costs nothing.
+
+    Parameters
+    ----------
+    config
+        The run's settings, already checked.
+
+    Returns
+    -------
+    CostEstimate
+        The estimate, also logged.
+
+    Raises
+    ------
+    PdfError
+        If the PDF is empty, password-protected or cannot be opened.
+    """
+
+    pdf = await _open(config)
+    facts = await measure_facts(
+        output_folder=config.output_folder,
+        overwrite=config.overwrite,
+        pdf=pdf,
+        save=False,
+    )
+    return _estimate_cost(
+        config=config,
+        page_count=pdf.page_count,
+        prompt_chars=_prompt_chars(config=config, facts=facts),
+        reused=_survey_is_saved(config=config, facts=facts),
+    )
+
+
+async def run_measure(*, config: Config) -> PdfFacts:
+    """Prepare the output folder, then measure the PDF or reuse its saved facts.
+
+    No API key is needed and no model is called.
+
+    Parameters
+    ----------
+    config
+        The run's settings, already checked.
+
+    Returns
+    -------
+    PdfFacts
+        The facts, as saved in ``pdf_facts.json``.
+
+    Raises
+    ------
+    PdfError
+        If the PDF is empty, password-protected or cannot be opened.
+    """
+
+    pdf = await _open(config)
+    _prepare_folder(config.output_folder)
+    _warn_other_pdf(folder=config.output_folder, sha256=pdf.sha256)
+    return await measure_facts(
+        output_folder=config.output_folder, overwrite=config.overwrite, pdf=pdf
+    )
 
 
 async def run_pipeline(
@@ -699,25 +978,16 @@ async def run_pipeline(
         matches the survey's answer format.
     """
 
-    pdf = await asyncio.to_thread(open_pdf, config.pdf)
-    logger.info(
-        "Opened {name}: {pages}, {size:,} bytes, SHA-256 {sha256}",
-        name=pdf.name,
-        pages=f"{pdf.page_count} page" + ("" if pdf.page_count == 1 else "s"),
-        sha256=pdf.sha256,
-        size=pdf.bytes,
-    )
+    pdf = await _open(config)
     folder = config.output_folder
-    folder.mkdir(exist_ok=True, parents=True)
-    for leftover in remove_stale_temp_files(folder):
-        logger.debug("Removed {path}, left by an interrupted write", path=leftover)
+    _prepare_folder(folder)
 
     run = _Run(
         config=config, pdf=pdf, run_id=_new_run_id(), started_at=datetime.now(UTC)
     )
     with collect_warnings() as collected:
         run.warnings = collected
-        _warn_other_pdf(run)
+        _warn_other_pdf(folder=folder, sha256=pdf.sha256)
         run.step_warnings_from = len(collected)
         write_model_atomic(
             model=_record(run, error=None, status="running", step_status=None),
@@ -743,7 +1013,53 @@ async def run_pipeline(
     return RunResult(
         facts=run.facts,
         ledger=read_ledger(folder / LEDGER_FILE_NAME).entries,
-        output_dir=folder,
+        output_dir=folder.resolve(),
         record=record,
         survey=run.survey,
     )
+
+
+async def run_survey_step(
+    *, config: Config, decide_over_max_cost: OverMaxCostDecision
+) -> PdfSurvey:
+    """Run the survey step alone: no ``run.json`` and no report.
+
+    It writes ``pdf_facts.json``, ``pdf_survey.json`` and the ledger lines of its
+    requests, as the survey does in a full run.
+
+    Parameters
+    ----------
+    config
+        The run's settings, already checked.
+    decide_over_max_cost
+        Called with the warning's details when the survey could exceed
+        ``max_cost``; returns whether to continue.
+
+    Returns
+    -------
+    PdfSurvey
+        The survey, reused or new.
+
+    Raises
+    ------
+    BudgetExceededError
+        If the survey could go over ``max_cost`` and the decision is no.
+    MissingApiKeyError
+        If the selected provider's API key is not set.
+    PdfError
+        If the PDF is empty, password-protected or cannot be opened.
+    ProviderError
+        If the provider rejects the upload for an invalid API key or as too large, or
+        a request fails after the provider retries.
+    SurveyError
+        If the model refuses, runs out of output tokens, or never gives an answer that
+        matches the survey's answer format.
+    """
+
+    pdf = await _open(config)
+    _prepare_folder(config.output_folder)
+    _warn_other_pdf(folder=config.output_folder, sha256=pdf.sha256)
+    run = _Run(
+        config=config, pdf=pdf, run_id=_new_run_id(), started_at=datetime.now(UTC)
+    )
+    return await _survey(run, confirm=None, decide_over_max_cost=decide_over_max_cost)

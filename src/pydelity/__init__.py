@@ -13,7 +13,19 @@ from importlib.metadata import version as _distribution_version
 from loguru import logger as _logger
 
 # Package Library
-from pydelity.api import arun, run
+from pydelity.api import (
+    aestimate,
+    ameasure,
+    arun,
+    asurvey,
+    estimate,
+    load,
+    measure,
+    run,
+    survey,
+)
+from pydelity.config.schemas import Config
+from pydelity.costs.schemas import CostEstimate
 from pydelity.errors import (
     BudgetExceededError,
     ConfigError,
@@ -25,20 +37,35 @@ from pydelity.errors import (
     PydelityWarning,
     SurveyError,
 )
+from pydelity.pipeline.schemas import RunRecord, RunResult
+from pydelity.surveying.schemas import PdfFacts, PdfSurvey
 
 __all__ = [
     "BudgetExceededError",
+    "Config",
     "ConfigError",
+    "CostEstimate",
     "MissingApiKeyError",
     "OutputError",
     "PdfError",
+    "PdfFacts",
+    "PdfSurvey",
     "ProviderError",
     "PydelityError",
     "PydelityWarning",
+    "RunRecord",
+    "RunResult",
     "SurveyError",
     "__version__",
+    "aestimate",
+    "ameasure",
     "arun",
+    "asurvey",
+    "estimate",
+    "load",
+    "measure",
     "run",
+    "survey",
 ]
 
 __version__ = _distribution_version("pydelity")

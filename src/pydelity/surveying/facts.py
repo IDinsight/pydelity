@@ -410,27 +410,31 @@ def facts_fingerprint(pdf_sha256: str) -> str:
 
 
 async def measure_facts(
-    *, output_folder: Path, overwrite: bool, pdf: PdfInfo
+    *, output_folder: Path, overwrite: bool, pdf: PdfInfo, save: bool = True
 ) -> PdfFacts:
     """Measure the PDF, or reuse its saved facts, and log the summary.
 
     A valid ``pdf_facts.json`` with a matching fingerprint is reused unless
     ``overwrite`` is set. A damaged one is measured again, with a warning. New facts
-    are written atomically. Each fact the probe could not read gives a warning.
+    are written atomically, unless ``save`` is false. Each fact the probe could not
+    read gives a warning.
 
     Parameters
     ----------
     output_folder
-        The output folder, which must exist.
+        The output folder. It must exist when ``save`` is true.
     overwrite
         Whether to measure again even when the saved facts match.
     pdf
         The PDF, already opened and checked.
+    save
+        Whether to write new facts to ``pdf_facts.json``. A cost estimate measures
+        the PDF without writing anything.
 
     Returns
     -------
     PdfFacts
-        The facts, as saved in ``pdf_facts.json``.
+        The facts, as saved in ``pdf_facts.json`` or as they would be.
     """
 
     path = output_folder / FACTS_FILE_NAME
@@ -467,8 +471,11 @@ async def measure_facts(
             schema_version=FACTS_SCHEMA_VERSION,
             summary=summarize(facts),
         )
-        write_model_atomic(model=result, path=path)
-        logger.info("Facts measured and saved to {path}", path=path)
+        if save:
+            write_model_atomic(model=result, path=path)
+            logger.info("Facts measured and saved to {path}", path=path)
+        else:
+            logger.info("Facts measured, not saved")
 
     for line in result.summary:
         logger.info("  {line}", line=line)

@@ -1482,7 +1482,7 @@ changes (macOS arm64, Python 3.13.9). No model was called and nothing was spent.
 
 ### DEV-014 — Python API
 
-`Status`: `PENDING` `Depends On`: `DEV-012, DEV-013` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-012, DEV-013` `Acceptance`:
 `AC-010, AC-015, AC-039, AC-040, AC-042, AC-043, AC-044`
 
 **Goal**
@@ -1526,6 +1526,77 @@ event loop raises `RuntimeError` naming its `a` function and writes nothing; two
 `asurvey` calls on different folders at once; `measure` and `load` with no API
 key; cancelling `arun`; import with an empty environment prints nothing;
 `just lint`.
+
+Evidence, 2026-11-18, on `f339afa` plus the uncommitted DEV-014 changes (macOS
+arm64, Python 3.13.9).
+
+- `just lint-python` (Ruff check and format, ty, interrogate 100%) and
+  `just test` (2 passed) pass.
+- Scratchpad `dev014_offline.py`, 25 of 25 checks, with no API key set and a
+  stand-in model (PydanticAI's `FunctionModel` inside `LedgerModel`):
+  - `measure` writes only `pdf_facts.json` and returns facts equal to it. A
+    second call reuses the file without rewriting it, and `ameasure` returns the
+    same facts.
+  - `estimate` on a new folder writes nothing, not even the folder, and returns
+    one survey step of up to 3 requests. `aestimate` returns the same estimate.
+    Where the survey would be reused, the step is `reused`, nothing is to be
+    spent, and the folder's spend is counted.
+  - `survey` writes `pdf_facts.json`, `pdf_survey.json`, `cost.jsonl` and
+    `uploads.json`, but no `run.json` or report, and returns the survey as
+    saved. `asurvey` on the same folder reuses it and sends nothing.
+  - `load` on a completed run's folder equals what `run` returned, with an
+    absolute or a relative path, and equals what `arun` returned after a rerun.
+    On a folder only `measure` wrote, it returns the facts, and `None` or an
+    empty ledger elsewhere. It raises `OutputError` for a missing folder, an
+    empty folder, a corrupt `pdf_survey.json` (naming the file) and a `run.json`
+    of schema 2.0.
+  - Inside a running event loop, `measure`, `estimate`, `survey` and `run` each
+    raise `RuntimeError` naming the `a` function to await. They write nothing
+    and leave no "never awaited" warning, and `load` works there.
+  - Two `asurvey` calls on different folders run at once, and their model
+    requests overlap.
+  - While `ameasure` measured the W-9 instructions (about 190 ms), the longest
+    pause of the event loop was 32 to 45 ms, against 180 to 204 ms for the probe
+    run on the loop itself. The probe runs on a worker thread, but PyMuPDF holds
+    the GIL during some calls, so the loop gets short pauses rather than none.
+  - `measure` and `ameasure` give the same `PydelityWarning` for a damaged
+    `pdf_facts.json`.
+  - `import pydelity` with an empty environment exits 0 and prints nothing. The
+    package root exports the API, the result models, `Config`, `CostEstimate`,
+    the errors and `PydelityWarning`.
+- `dev011_offline.py` (30 of 30), `dev012_offline.py` (26 of 26, which also
+  covers a cancelled `arun`), `dev013_check.py` (26 of 26) and
+  `dev001_rework_check.py` (12 of 12) still pass.
+- Real calls (`dev014_real.py`, `claude-opus-5-5`, one request of at most 10,000
+  output tokens per survey; $0.41 recorded in total):
+  - `measure` and `ameasure`, then `estimate` and `aestimate`, on a new folder
+    gave equal results and wrote only `pdf_facts.json`. The estimate was about
+    $0.36, at most $0.40.
+  - Two `asurvey` calls at once, on the W-9 and the CAPS extract, finished in 24
+    seconds ($0.19 and $0.17). They wrote no `run.json` or report, and the CAPS
+    survey has rotation 90 on pages 0-7.
+  - `survey` on the W-9 folder reused the survey and spent nothing. `arun` there
+    completed with the survey reused, wrote `run.json` and the report, and
+    `load` equals what it returned.
+  - `run` on a new folder completed with one request ($0.05, reading the PDF
+    from the cache), and `load` equals what it returned.
+
+**Implementation Notes**
+
+- Files approved by the user (2026-11-18): changes to `src/pydelity/api.py`,
+  `src/pydelity/__init__.py`, `src/pydelity/pipeline/runner.py` and
+  `src/pydelity/surveying/facts.py`.
+- The runner has a public function for each part: `run_measure`, `run_estimate`,
+  `run_survey_step`, `run_pipeline` and `load_run`. `measure` and `survey`
+  prepare the folder and warn about another PDF's files, as a run does, but
+  write no `run.json` and no report.
+- `estimate` uses the saved facts when they match and otherwise measures the PDF
+  without saving (`measure_facts(save=False)`). It checks for a reusable survey
+  without logging `Survey reused`. A reused step is logged as "the saved output
+  would be reused".
+- `load` checks each file's major schema version against `schema_versions.py`.
+  `RunResult.output_dir` is the resolved folder in both `run` and `load`, so the
+  two compare equal.
 
 ### DEV-015 — CLI
 
@@ -1760,6 +1831,11 @@ constants; regenerating after Markdown formatting is byte-identical, so CI's
 
 ## Plan Notes
 
+- Deviations from the design's decision 2, approved by the user on 2026-11-18:
+  the survey prompt is built in a function that returns a `PromptPair` rather
+  than kept in string constants, and the report's stylesheet ships as package
+  data (`report/report.css`, through `[tool.setuptools.package-data]`) rather
+  than as a string constant. The report's HTML is still built in Python.
 - Collaboration: `STEPWISE`. The user also asked that before each step Developer
   lists the files and folders it will create or change and waits for their
   review; after each step Developer stops for the go-ahead to the next.
