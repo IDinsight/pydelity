@@ -27,3 +27,6 @@
    alphabetical order within each group. Exceptions are allowed when ordering
    would break execution or make the code difficult to understand, including
    dependencies, Pydantic validators, and type definitions.
+10. For comments/docstrings, avoid overloaded jargon, promotional language,
+    filler, and stock AI phrases. Use technical language only when necessary or
+    required. Use plain language and simple explanations.

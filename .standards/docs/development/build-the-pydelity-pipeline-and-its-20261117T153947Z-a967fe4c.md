@@ -725,7 +725,7 @@ Evidence, 2026-11-17, repo root, uncommitted on top of the DEV-005 commit:
 
 ### DEV-008 — Model factory and LedgerModel
 
-`Status`: `PENDING` `Depends On`: `DEV-003, DEV-004, DEV-007` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-003, DEV-004, DEV-007` `Acceptance`:
 `AC-011, AC-014, AC-037, AC-038, AC-039, AC-041`
 
 **Goal**
@@ -768,6 +768,76 @@ real rejection (a model ID the provider does not have); attempt counts for
 `provider_retries` 0 and 3 by fault injection in the scratchpad (an unreachable
 address or a local stub answering 503), since a provider cannot be made to fail
 on demand; `just lint`.
+
+Evidence, 2026-11-18, on `8a96ab0` plus the uncommitted DEV-008 changes (macOS
+arm64, Python 3.13.9, pydantic-ai-slim 2.69.0).
+
+- `just lint-python` (Ruff check and format, ty, interrogate 100%) and
+  `just test` (2 passed) pass.
+- Scratchpad `dev008_offline.py`: 25 of 25 checks passed against a loopback stub
+  of the Anthropic API reached through `ANTHROPIC_BASE_URL` (the design's test
+  seam), with no provider key in the environment. It ran outside the sandbox,
+  which does not allow binding a local port. The SDK clients get `max_retries`
+  from `advanced.provider_retries` (3 and 0 tried) and the 900 s timeout. Model
+  settings: Anthropic `anthropic_effort`, adaptive `anthropic_thinking` and
+  `max_tokens` 32000; OpenAI `openai_reasoning_effort` and `max_tokens`. Output
+  mode: native for `claude-opus-5-5` and `gpt-6.2-astra`, prompted for an
+  unknown older Claude ID. A missing key raises `MissingApiKeyError`. The
+  request body carried `max_tokens` 32000, adaptive thinking,
+  `output_config.effort` and a `json_schema` format. Each response wrote one
+  ledger line priced by hand ($0.008 for 1,000 input and 200 output tokens),
+  with requests numbered 1 and 2. A `max_cost` of $0.01 (one request's upper
+  bound is $0.64) asked once: no raised `BudgetExceededError` with nothing sent
+  and no ledger; yes sent and recorded two requests with one question. A 400
+  gave `ProviderError` after one attempt, not temporary, with the provider's
+  message unchanged. A 503 (`retry-after-ms: 1`) made 1 attempt with
+  `provider_retries` 0 and 4 with 3, temporary, and the message names the
+  retries and `advanced.provider_retries`. An unreachable address gave a
+  temporary `ProviderError` with no status code.
+- Scratchpad `dev008_real.py`, real requests with the user's keys loaded from
+  `.env` into that process only (never printed), effort `low`, default
+  `max_output_tokens`: for `anthropic:claude-opus-5-5` and
+  `openai:gpt-6.2-astra`, a `max_cost` below one request with the answer no sent
+  nothing; with yes, one question, a parsed structured answer, and one ledger
+  line priced exactly by hand ($0.001008 for 207 input and 9 output tokens;
+  $0.00088 for 50 and 12). The bodies sent carried `max_tokens` (Anthropic) or
+  `max_output_tokens` (OpenAI) 32000, effort `low`, a `json_schema` output
+  format and no `tool_choice`. Nonexistent model IDs gave `ProviderError` 404,
+  not temporary, with the provider's own message (`model: claude-nonexistent-1`;
+  OpenAI's "does not exist or you do not have access to it") and no ledger line.
+  A streamed Anthropic run recorded its line too. 15 of 15 passed; about $0.003
+  spent.
+- CLI on `tests/fixtures/pdfs/irs_form_w9.pdf` with `--yes`: without
+  `ANTHROPIC_API_KEY`, the facts were saved, then exit 2 with the missing-key
+  error. With a placeholder key (no request is made), it logged
+  `Model ready: claude-opus-5-5 from anthropic, effort high, native structured output`,
+  then the estimate and `Run finished`, exit 0; `gpt-6.2-astra` and an unknown
+  older Claude ID logged native and prompted output.
+
+**Implementation Notes**
+
+- Files approved by the user (2026-11-18): `src/pydelity/providers/factory.py`
+  and `src/pydelity/providers/ledger_model.py` (in the existing `providers/`
+  folder, not the sketched `models/`), plus changes to `src/pydelity/errors.py`
+  and `src/pydelity/api.py`.
+- The per-request upper bound is the request's estimated input (text at
+  `PROMPT_CHARS_PER_TOKEN`, each document at the PDF's page count times the
+  provider's tokens per page, each earlier answer at its reported output tokens)
+  plus the request's own `max_tokens`. With the default 32000 that is about
+  $0.64 per request on `claude-opus-5-5` and $1.28 on `gpt-6.2-astra`, so a
+  smaller `max_cost` always asks. `costs/budget.py`'s `request_upper_bound`,
+  which read the survey's `max_output_tokens`, is no longer used.
+- `LedgerModel` wraps the streaming path too, so no request goes unrecorded. An
+  unpriced response is recorded with a null cost; the estimate already warns
+  `unpriced_model` before the run spends.
+- `api.py` makes a run ID (`_new_run_id`) for the ledger context until DEV-012
+  moves the run into its own module.
+- For DEV-010: a `PydelityWarning` raised inside PydanticAI's agent loop (the
+  per-request `max_cost` warning) points at PydanticAI's own file, because
+  `warn` skips only pydelity and asyncio frames; DEV-010 should make it point at
+  the caller's code. PydanticAI prints a first-run banner only when a script
+  calls an agent itself, not when an installed library does; DEV-010 confirms no
+  banner appears when the survey runs from pydelity.
 
 ### DEV-009 — PDF uploads, reuse and in-request fallback
 

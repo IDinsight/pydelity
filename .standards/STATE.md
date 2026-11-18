@@ -15,7 +15,7 @@
 `Development`:
 `.standards/docs/development/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`User go-ahead to continue with DEV-008 and review of the file and folder names and locations it will create or change.`
+`User go-ahead to continue with DEV-009 and review of the file and folder names and locations it will create or change.`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

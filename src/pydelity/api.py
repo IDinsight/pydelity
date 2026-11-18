@@ -15,8 +15,10 @@ spending money on model requests.
 import asyncio
 import json
 import os
+import secrets
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Third Party Library
@@ -34,6 +36,8 @@ from pydelity.costs.budget import (
 )
 from pydelity.costs.ledger import LEDGER_FILE_NAME, read_ledger
 from pydelity.costs.schemas import CostEstimate, MaxCostWarning
+from pydelity.providers.factory import build_model, output_mode
+from pydelity.providers.ledger_model import LedgerContext
 from pydelity.surveying.facts import measure_facts
 from pydelity.surveying.schemas import PdfFacts
 from pydelity.utils.coroutines import run_in_daemon_thread, run_sync, warn
@@ -184,6 +188,18 @@ def _log_estimate(estimate: CostEstimate) -> None:
     )
 
 
+def _new_run_id() -> str:
+    """Return a new run ID: the UTC time and a random suffix.
+
+    Returns
+    -------
+    str
+        Such as ``20261118T141500Z-9f86d081``.
+    """
+
+    return f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{secrets.token_hex(4)}"
+
+
 def _warn(message: str) -> None:
     """Log a warning and issue it as a `pydelity.errors.PydelityWarning`.
 
@@ -207,8 +223,8 @@ async def arun(
     """Run pydelity on a PDF.
 
     The run validates the settings, opens the PDF, measures it (or reuses the facts
-    saved in ``pdf_facts.json`` in the output folder) and checks the cost estimate
-    against ``max_cost``. It does not prompt for input.
+    saved in ``pdf_facts.json`` in the output folder), checks the provider's API key
+    and checks the cost estimate against ``max_cost``. It does not prompt for input.
 
     Parameters
     ----------
@@ -230,6 +246,8 @@ async def arun(
         If the run could go over ``max_cost`` and ``allow_over_max_cost`` is not set.
     ConfigError
         Listing every invalid setting, or naming a config file that cannot be read.
+    MissingApiKeyError
+        If the selected provider's API key is not set.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
     """
@@ -278,6 +296,8 @@ async def arun_with_questions(
         If the run could go over ``max_cost`` and the decision is no.
     ConfigError
         Listing every invalid setting, or naming a config file that cannot be read.
+    MissingApiKeyError
+        If the selected provider's API key is not set.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
     SpendDeclinedError
@@ -312,21 +332,39 @@ async def arun_with_questions(
         output_folder=output_folder, overwrite=resolved.overwrite, pdf=info
     )
 
+    ledger_path = output_folder / LEDGER_FILE_NAME
+    guard = SpendGuard(
+        decide=decide_over_max_cost, ledger_path=ledger_path, max_cost=resolved.max_cost
+    )
+    survey_settings = resolved.advanced.survey
+    model = build_model(
+        config=resolved,
+        context=LedgerContext(
+            guard=guard,
+            ledger_path=ledger_path,
+            pdf=info,
+            run_id=_new_run_id(),
+            step="survey",
+        ),
+        effort=survey_settings.effort,
+        max_output_tokens=survey_settings.max_output_tokens,
+        request_timeout_seconds=survey_settings.request_timeout_seconds,
+    )
     choice = resolved.model_choice
     logger.info(
-        "Model: {model_id} from provider {provider}",
+        "Model ready: {model_id} from {provider}, effort {effort}, {mode} structured "
+        "output",
+        effort=survey_settings.effort,
+        mode=output_mode(model),
         model_id=choice.model_id,
         provider=choice.provider,
     )
-    ledger_path = output_folder / LEDGER_FILE_NAME
+
     estimate = _estimate_cost(
         config=resolved,
         facts=facts,
         ledger_path=ledger_path,
         page_count=info.page_count,
-    )
-    guard = SpendGuard(
-        decide=decide_over_max_cost, ledger_path=ledger_path, max_cost=resolved.max_cost
     )
     await _ask_before_spending(confirm=confirm, estimate=estimate, guard=guard)
     logger.info("Run finished")
@@ -361,6 +399,8 @@ def run(
         If the run could go over ``max_cost`` and ``allow_over_max_cost`` is not set.
     ConfigError
         Listing every invalid setting, or naming a config file that cannot be read.
+    MissingApiKeyError
+        If the selected provider's API key is not set.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
     RuntimeError
