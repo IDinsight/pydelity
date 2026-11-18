@@ -172,6 +172,10 @@ back without the CLI.
   path given on the CLI wins over the config file's.
 - `AC-009`: Invalid settings stop the run before any model call with a message
   naming each invalid setting.
+- `AC-047`: A root-level `examples/` folder in the repo holds a JSON and a YAML
+  config file that users can copy as a starting template. Each holds every
+  setting the config file accepts, including `advanced:`, and no other, and
+  pydelity reads both without a settings error.
 - `AC-010`: The run and the survey step can be called from Python without the
   CLI. Importing pydelity needs no environment settings and logs nothing unless
   the caller asks for logs.
