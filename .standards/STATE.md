@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -27,18 +27,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
-`Scope revised for the user rework: AC-003 is retired; AC-045 keeps the well-formedness and repeated-line checks that send an answer back, and AC-046 keeps the model's reading over the measured facts and puts each rotation or page-number disagreement on the review list. Architecture reruns before Developer resumes.`
+`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Design rerun for AC-045 and AC-046 (decision 5): checks C1-C7 test only form and completeness, C3 and C4 keep only range rules, and a comparison after acceptance records rotation_differs and page_number_differs review issues without retrying. Approved survey deviations (1,000 repeated lines, Cf removal, label numbers, every repeated line in the request) folded in.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `DEVELOPING` `Owner`: `SCOPING` `FailureType`: `SCOPING` `Reason`:
-`User rework: the survey's model trusts its own reading of the PDF over the measured facts, which become hints; AC-003 requires the profile to agree with the measured rotation and printed page numbers and sends a disagreeing answer back to the model.`
-`ResumeAt`: `DEVELOPING` `RerunThrough`: `ARCHITECTING`
+`Active`: `false`
 
 ## Outstanding Obligations
 

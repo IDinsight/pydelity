@@ -14,9 +14,9 @@ inherit, and builds step 1 (survey) on them.
 
 - Scope:
   `.standards/docs/scope/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
-  (AC-001 to AC-044; AC-012, AC-013 and AC-016 are retired). Project context:
-  `.standards/CONTEXT.md`. Design inputs: `artifacts/design_brief.md` (step 1
-  design points, cross-cutting directions, known source defects) and
+  (AC-001 to AC-046; AC-003, AC-012, AC-013 and AC-016 are retired). Project
+  context: `.standards/CONTEXT.md`. Design inputs: `artifacts/design_brief.md`
+  (step 1 design points, cross-cutting directions, known source defects) and
   `artifacts/next_cycle_inputs.md`.
 - Baseline: `src/pydelity/` holds only a docstring module and `py.typed`; no
   runtime dependency, CLI or console script. Tooling is just, prek, uv (strict
@@ -57,6 +57,17 @@ inherit, and builds step 1 (survey) on them.
 - User rework recorded 2026-11-18 during development: the sync API functions use
   `asyncio.run` only and raise an error pointing to the async version when an
   event loop is already running, instead of using a worker thread (decision 14).
+- User rework recorded 2026-11-18 during development (scope AC-045 and AC-046,
+  replacing AC-003): the survey's model treats the measured facts as hints and
+  trusts its own reading of the PDF. The checks that send an answer back test
+  only that it is well formed and complete; differences from the measured
+  rotation and printed page numbers go on the review list (decision 5). It
+  followed a run where the probe took numbers in table cells for printed page
+  numbers and the old page-numbering check made the model agree with them.
+- Survey changes the user approved during development (2026-11-18, recorded in
+  the development plan) are part of this design: repeated lines ignore invisible
+  formatting characters and the probe keeps up to 1,000 of them; a page label
+  gives the number at its end; and the survey request lists every repeated line.
 - Test PDFs are real public-domain documents the user approves, not generated
   ones (user decision recorded in the development plan, 2026-11-17).
 - No project references exist under `.standards/project-references/`; none is
@@ -116,10 +127,10 @@ inherit, and builds step 1 (survey) on them.
    The survey uploads the PDF with the provider's Files API (Anthropic; OpenAI
    with purpose `user_data`) and sends one user message that references it
    through PydanticAI's `UploadedFile`, plus a text part with the measured facts
-   summary and any user instructions and languages. No splitting. Retries
-   reference the same file instead of resending the bytes, and Anthropic accepts
-   up to 500 MB per uploaded file against 128 MB for a PDF sent inside the
-   request.
+   summary, every repeated line (ID, text, page count, band) and any user
+   instructions and languages. No splitting. Retries reference the same file
+   instead of resending the bytes, and Anthropic accepts up to 500 MB per
+   uploaded file against 128 MB for a PDF sent inside the request.
 
    Fallback: when the upload path fails, the step sends the PDF inside the
    request instead, as PydanticAI `BinaryContent(media_type="application/pdf")`,
@@ -162,17 +173,34 @@ inherit, and builds step 1 (survey) on them.
    OpenAI caches long repeated prefixes automatically. Check-failure retries
    then read the PDF's tokens from cache.
 
-5. **Checks run in a PydanticAI output validator.** Every model answer is
-   checked by deterministic Python checks against the measured facts. While
-   retries remain, a failed check raises `ModelRetry` with a message naming each
-   failure and the measured values. On the final allowed attempt
-   (`RunContext.last_attempt`), the validator accepts the answer and records
-   each still-failing check as a review issue. `advanced.survey.check_retries`
-   (default 2) sets `output_retries`. An answer that never parses into the
-   proposal schema exhausts PydanticAI's retries and fails the survey. These
-   checks are the survey's only checks: no second model reviews or corrects the
-   answer (scope non-goal). Check retries are new model requests and are
-   separate from provider retries (decision 13).
+5. **The model's reading wins over the measured facts; Python checks only that
+   the answer is well formed and complete** (AC-045, AC-046). The probe reads
+   the PDF's text layer and objects, not the page as a reader sees it, so it can
+   miss things (text inside images) or mistake them (a number in a table cell
+   taken for a page number). The prompt therefore gives the measured facts as
+   hints: wherever the model's own reading of the PDF differs from them, for
+   page numbers, rotation or any other fact, the model answers with what it
+   reads. It must still say, for every repeated line, whether it is an artifact
+   or content.
+
+   Checks C1–C7 run in a PydanticAI output validator on every model answer. They
+   use the facts only for the page count and the repeated-line IDs, and never
+   compare the answer with a measured value. While retries remain, a failed
+   check raises `ModelRetry` with a message naming each failure. On the final
+   allowed attempt (`RunContext.last_attempt`), the validator accepts the answer
+   and records each still-failing check as a review issue.
+   `advanced.survey.check_retries` (default 2) sets `output_retries`. An answer
+   that never parses into the proposal schema exhausts PydanticAI's retries and
+   fails the survey. Check retries are new model requests and are separate from
+   provider retries (decision 13).
+
+   Once the answer is accepted, Python compares the profile with the measured
+   rotation and printed page numbers (**Disagreements with the facts**) and
+   records each difference as a review issue. This comparison runs once, never
+   sends the answer back and never changes the profile. The checks and this
+   comparison are all the survey checks: no second model reviews or corrects the
+   answer (scope non-goal).
+
 6. **Cost ledger by wrapping the model.** `LedgerModel`, a PydanticAI
    `WrapperModel`, wraps every model pydelity builds. Before each request it
    asks the `max_cost` guard (decision 11) whether the request may go ahead;
@@ -312,10 +340,14 @@ and adapt, without changing KGForEdGlobal:
   fingerprint.
 - `AC-002`: Model-facing proposal schema and the stored `profile` section, the
   `kind`/`role` enums (decision 8), Python-owned `other` label.
-- `AC-003`: Checks C1–C7, the output-validator retry rule (decision 5), review
-  issues for checks still failing after retries.
+- `AC-045`: Checks C1–C7, the output-validator retry rule (decision 5), review
+  issues for checks still failing after the retries; the request lists every
+  repeated line so the model can account for each one (decision 4).
+- `AC-046`: The prompt's treatment of the facts as hints (decision 5); the
+  comparison under **Disagreements with the facts**, run once on the accepted
+  answer and never sent back, and its review issues.
 - `AC-004`: User instructions and languages flow into the prompt and the stored
-  profile after the checks; no setting disables a check.
+  profile after the checks; no setting disables a check or the comparison.
 - `AC-005`: Probe measurement rules; committed test PDF fixtures (Build Plan
   step 2). Correctness evidence is Tester's.
 - `AC-006`: Vocabulary and prompt constraints under **Technical Acceptance
@@ -397,8 +429,8 @@ may use the errors component; nothing uses the entry points):
 - **Survey step** — facts schemas and the `kind`/`role` enums, proposal and
   profile schemas, `PdfSurvey`; the PyMuPDF probe, `PROBE_VERSION`, the facts
   summary and `pdf_facts.json` (write and reuse); the generic prompt and
-  `PROMPT_VERSION`; checks C1–C7; the agent, output validator, merge,
-  fingerprint and reuse.
+  `PROMPT_VERSION`; checks C1–C7; the comparison with the facts; the agent,
+  output validator, merge, fingerprint and reuse.
 - **Report** — `report.html`, page images and their manifest.
 - **Configuration** — `Config` and `AdvancedConfig`, file loading, precedence,
   error formatting; `ProviderEnv` (pydantic-settings, environment only, built
@@ -685,14 +717,14 @@ it (atomically).
   `passed` (true when `failures` is empty), `attempts` (model answers checked, 1
   plus the retries used), `failures[]` (on the accepted answer). Each failure
   item: `page_index` (int, or null when no single page applies), `message`
-  (names the check, what was proposed and what was measured), `details` (object
-  with the proposed and measured values, such as
-  `{"proposed": 0, "measured": 90}`). A failure that concerns several pages is
-  one item per page, so a wrong rotation range over 30 pages gives 30 items.
-- `issues[]`: review issues from this step, one per failure item of the accepted
-  answer: the failure's `page_index`, `message` and `details` plus `step`
-  (`"survey"`) and `check` (the check name), the same shape as `run.json`
-  `review[]`.
+  (names the check and what is wrong), `details` (object with the proposed value
+  and, where it applies, what it was checked against, such as the page count). A
+  failure that concerns several pages is one item per page, so ranges that
+  overlap on 30 pages give 30 items.
+- `issues[]`: review issues from this step: one per failure item of the accepted
+  answer (its `page_index`, `message` and `details`, with `check` the check
+  name), then one per disagreement with the facts (with `check` the comparison
+  name), each with `step` (`"survey"`); the same shape as `run.json` `review[]`.
 - Model-facing proposal schema: a separate Pydantic model using only strings,
   integers, booleans, enums, arrays and objects (no pattern, length or numeric
   bounds) so it fits both providers' structured-output subsets; bounds are
@@ -701,16 +733,14 @@ it (atomically).
 
 ### Checks (names are part of the `run.json` contract)
 
+Each check tests that the answer is well formed and complete (AC-045). None
+compares the answer with a measured value (AC-046).
+
 - `labels` (C1): names non-empty and unique (case-insensitive), every label has
   at least one kind, every region names an existing label.
 - `regions` (C2): valid page index; box within 0–1 with `x0 < x1`, `y0 < y1`.
-- `rotation` (C3): ranges inside the PDF, non-overlapping; on every page whose
-  measured orientation is confident, the profile's degrees equal the measured
-  `dominant`.
-- `page_numbering` (C4): ranges inside the PDF, non-overlapping; in each range,
-  at least 80% of pages with a measured arabic number match `index + offset`; a
-  measured range of 3 or more pages must be covered by a profile range with the
-  same offset.
+- `rotation` (C3): ranges inside the PDF and non-overlapping.
+- `page_numbering` (C4): ranges inside the PDF and non-overlapping.
 - `artifacts` (C5): every probe repeated-line ID appears exactly once, in an
   artifact or in `non_artifact_lines`; no unknown IDs.
 - `writing_direction` (C6): ranges inside the PDF and non-overlapping.
@@ -718,6 +748,35 @@ it (atomically).
   accepts every tag (decision 15; `zxx` allowed). One failure item per rejected
   tag (`details`: `{"proposed": "<tag>"}`), or one for an empty list
   (`{"proposed": []}`); `page_index` is null.
+
+### Disagreements with the facts (names are part of the `run.json` contract)
+
+Python compares the accepted answer with the facts once, after the output
+validator accepts it (AC-046). The comparison never raises `ModelRetry`, never
+changes the profile and runs the same whatever the instructions and languages. A
+page can disagree only where the probe measured a value. Where it measured
+nothing (no text layer, text inside images, an orientation that is not
+confident, no printed number found), the profile stands with no issue. The
+profile's value for a page comes from the first range in the answer that covers
+it, ignoring ranges outside the PDF. Each disagreement is one review issue with
+the page's `page_index`, a `message` naming the page, the measured value (with
+the printed text for a page number) and the profile's value, and these
+`details`:
+
+- `rotation_differs`: on a page whose measured orientation is confident, the
+  profile's degrees (0 when no range covers the page) differ from the measured
+  `dominant`. `details`: `measured`, `profile` (such as
+  `{"measured": 90, "profile": 0}`).
+- `page_number_differs`: on a page whose measured printed number has a `value`,
+  the profile's number for the page differs from it. The profile's number is
+  `index + offset` when a range with style `arabic` or `roman` and an offset
+  covers the page, and null otherwise (no range, style `other` or `none`, or a
+  null offset). `details`: `measured`, `profile` and `source` (the printed
+  number's `page_label` or `text`), such as
+  `{"measured": 12, "profile": null, "source": "text"}`.
+
+Disagreements are not check failures: they are not in `checks[]`, and a survey
+with only disagreements has every check passed.
 
 ### `run.json`
 
@@ -741,9 +800,9 @@ it (atomically).
   a request; null when the model is unpriced), `check` (`plan` | `request`),
   `allowed` (the decision). The CLI summary groups review issues by check and
   shows a count per check before listing them.
-- Review issue: `step`, `check`, `page_index` (null when none applies),
-  `message`, `details` (object). The run's review list holds the issues of every
-  step output used by the run, reused ones included.
+- Review issue: `step`, `check` (a check or comparison name), `page_index` (null
+  when none applies), `message`, `details` (object). The run's review list holds
+  the issues of every step output used by the run, reused ones included.
 - Written at start (`running`) and at the end; on Ctrl+C or when `arun` is
   cancelled, the pipeline catches `KeyboardInterrupt` or `CancelledError`,
   writes `interrupted`, and re-raises.
@@ -921,7 +980,8 @@ it (atomically).
    `build_model`; run it; each request passes the per-request `max_cost` check
    and is written to the ledger; the output validator runs C1–C7 and retries or
    accepts as in decision 5; Python adds `other`, merges user languages, stores
-   `user_instructions`, converts region boxes, copies the facts in; write
+   `user_instructions`, converts region boxes, copies the facts in, compares the
+   profile with the facts and adds a review issue per disagreement; write
    `pdf_survey.json` atomically. If the provider answers that the recorded file
    no longer exists, upload again once, replace the record and retry the
    request. When the upload path fails (decision 4), send the PDF inside the
@@ -955,16 +1015,20 @@ it (atomically).
   - Inline direction from Unicode bidirectional classes of letters: `rtl` when R
     and AL classes reach 70% of strong characters, `ltr` when L does, `mixed`
     otherwise, `none` without strong characters.
-  - Printed numbers: the PDF page label when the document defines labels;
-    otherwise a line in the top or bottom band that is a single number in any
-    script's decimal digits (Python `int()` on `str.isdecimal()` text) or a
+  - Printed numbers: when the document defines page labels, the number at the
+    end of the page's label, after any prefix (`12`, `Page 12`, `A-iv`), as
+    decimal digits in any script or a roman numeral; a label that ends in no
+    number is kept with style `label` and a null `value`. On a page with no
+    label number, a line in the top or bottom band that is a single number in
+    any script's decimal digits (Python `int()` on `str.isdecimal()` text) or a
     roman numeral, with only non-letter decoration around it. Ranges of constant
     `printed − index` form `page_numbering`.
-  - Repeated lines: normalise (NFKC, case fold, collapse whitespace, decimal
-    digits → `#`); a normalised line counts once per page and is repeated when
-    it appears on at least 3 pages and at least 5% of pages (2 pages when the
-    PDF has 2 or 3 pages); at most 200, most frequent first, with
-    `repeated_lines_truncated` set when capped.
+  - Repeated lines: remove invisible formatting characters (Unicode category
+    Cf), then normalise (NFKC, case fold, collapse whitespace, decimal digits →
+    `#`); a line with nothing visible is never repeated. A normalised line
+    counts once per page and is repeated when it appears on at least 3 pages and
+    at least 5% of pages (2 pages when the PDF has 2 or 3 pages); at most 1,000,
+    most frequent first, with `repeated_lines_truncated` set when capped.
   - Bookmarks from PyMuPDF's table of contents; form fields from PyMuPDF
     widgets, with checkbox and radio `checked` from the on-state value; XFA
     presence from the AcroForm dictionary.
@@ -980,19 +1044,30 @@ it (atomically).
     `[]` (or a `structure` with `tagged: false`).
 - `AC-002`: The stored profile always has `other`; every label maps to exactly
   one role and a non-empty kind list from the enums.
-- `AC-003`: Each failing check produces a `ModelRetry` message naming the check,
-  the pages and the measured values while retries remain; after the last allowed
-  attempt, every still-failing check appears in `pdf_survey.json` `issues` and
-  in the run's review list with `step: "survey"`, the check name and the page
-  where one applies.
+- `AC-045`: Each failing check produces a `ModelRetry` message naming the check
+  and what is wrong while retries remain; after the last allowed attempt, every
+  still-failing check appears in `pdf_survey.json` `issues` and in the run's
+  review list with `step: "survey"`, the check name and the page where one
+  applies. An answer that leaves out a repeated-line ID, gives one twice or
+  names one the probe did not find fails C5. The request text holds every
+  repeated line's ID.
+- `AC-046`: A well-formed answer whose rotation or page numbering differs from
+  the facts passes C1–C7 and is accepted after one request, with no check retry.
+  The stored profile keeps the model's rotation and page numbering unchanged,
+  and the review list has one `rotation_differs` or `page_number_differs` issue
+  per page that differs, with its `page_index` and the measured and profile
+  values in `details`. A page with no confident orientation or no measured
+  number gets no such issue. The prompt presents the facts as hints and asks the
+  model to answer with its own reading where they differ.
 - `AC-004`: Instructions and languages appear in the prompt and in `profile`;
-  the checks run identically with and without them; no setting skips a check.
+  the checks and the comparison with the facts run identically with and without
+  them; no setting skips either.
 - `AC-006`: Core code, prompts, schema field names, defaults and checks contain
   no document-type or domain words and no natural-language word lists; language
   handling uses Unicode properties only, and language tags are checked against
   the IANA registry that `langcodes` bundles. Prompt examples, if any, use
   neutral placeholders.
-- `AC-003`, `AC-004`, `AC-009`: The `languages` values `en_US`, `EN-us` and
+- `AC-045`, `AC-004`, `AC-009`: The `languages` values `en_US`, `EN-us` and
   `en-US` all resolve to `en-US` in the resolved settings, the survey
   fingerprint and the profile; `zz` or `en-` in the setting raises `ConfigError`
   naming its position and value before any model call. A model answer whose
@@ -1201,6 +1276,18 @@ Developer proposes its name and place and waits for the user's sign-off.
   later is rejected until `langcodes` is upgraded, and a release that changes a
   tag's standard form changes the survey fingerprint for runs that use it, so
   the survey runs again.
+- With the model's reading kept, a probe mistake no longer reaches the profile,
+  but it does reach the review list: numbers in table cells taken for page
+  numbers, or page labels that number pages printing none (a cover labelled 1),
+  give one `page_number_differs` issue per page. `source` tells label numbers
+  from text numbers. Keeping page labels as a separate fact from the printed
+  text would cut that noise; it changes the facts schema, so it is left for a
+  later cycle if review lists show it matters.
+- The model can also be wrong where the facts were right. The review list is the
+  only signal, so users should read the `rotation_differs` and
+  `page_number_differs` issues; the docs say so (Documenter).
+- Every repeated line is sent with the request and must be accounted for, so a
+  PDF near the 1,000-line cap adds input and output tokens to each request.
 - In Jupyter and other async code the sync functions raise, so users there
   `await` the `a` functions (Jupyter allows top-level `await`). The docs show
   both forms and say which to use where (Documenter).
@@ -1257,7 +1344,15 @@ Developer proposes its name and place and waits for the user's sign-off.
   output validator already gives retries with conversation history and a
   last-attempt signal.
 - A second model that verifies the survey answer: excluded by the scope; the
-  Python checks compare the answer with measured facts.
+  Python checks test the answer's form and the comparison flags differences from
+  the facts for review.
+- Checks that send an answer back when its rotation or page numbering differs
+  from the facts (the earlier design): they made the model agree with probe
+  mistakes, such as numbers in table cells taken for page numbers. The user
+  chose the model's reading, with differences on the review list.
+- Flagging pages where the model reports a value the probe did not measure (such
+  as a page number in an image): the facts have nothing to disagree with there,
+  and a scanned PDF would get an issue on every page.
 - Separate retry counts for uploads and model requests, or per step: more
   settings for little gain; one count covers every request to the provider.
   Retrying in pydelity (or with PydanticAI's optional retry transport) instead
