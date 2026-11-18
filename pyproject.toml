@@ -24,8 +24,13 @@ dev = [
 [project]
 authors = [{name = "IDinsight DSEM", email = "dsem@idinsight.org" }]
 classifiers = [
-    "Development Status :: 1 - Planning",
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
 ]
 # Runtime dependencies are minimum versions. PyMuPDF 2.x fixes page-label and hang bugs
 # that 1.x keeps, but requires onnxruntime, numpy and more, and has no wheels for Intel
@@ -40,7 +45,7 @@ dependencies = [
     "pymupdf>=2.1",
     "typer>=0.29.1",
 ]
-description = "Under development and not yet usable. PDF to structured JSON, faithfully."
+description = "Survey any PDF with Anthropic or OpenAI models: page numbers, rotation, writing direction and repeated lines, as JSON with a list of things to review."
 keywords = ["agents", "genai", "JSON", "llm", "PDF", "structured"]
 license = "MIT"
 license-files = ["LICENSE"]
@@ -55,6 +60,7 @@ version = "0.0.1"
 pydelity = "pydelity.cli:main"
 
 [project.urls]
+Documentation = "https://idinsight.github.io/pydelity/"
 Homepage = "https://github.com/IDinsight/pydelity"
 Issues = "https://github.com/IDinsight/pydelity/issues"
 Repository = "https://github.com/IDinsight/pydelity"

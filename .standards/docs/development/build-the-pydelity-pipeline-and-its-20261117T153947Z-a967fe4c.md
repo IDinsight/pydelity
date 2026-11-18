@@ -2050,7 +2050,7 @@ Evidence, 2026-11-18, on `613b7af` plus the uncommitted `ci.yml` (macOS arm64).
 
 ### DEV-018 — Release workflow, package metadata and 0.1.0 evidence
 
-`Status`: `PENDING` `Depends On`: `DEV-016` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-016` `Acceptance`:
 `AC-024, AC-025, AC-026, AC-036`
 
 **Goal**
@@ -2076,6 +2076,63 @@ otherwise the `release-as` fallback.
 **Self-Check**
 
 `just lint-workflows`; `just build`; the AC-036 evidence recorded here.
+
+Evidence, 2026-11-18, on `b069485` plus the uncommitted DEV-018 files (macOS
+arm64).
+
+- `.github/workflows/release.yml`: `just lint-workflows` (zizmor, auditor
+  persona) reports nothing, and `prek run --files` on it passes `check-yaml` and
+  zizmor. zizmor ran offline locally; CI runs its online audits.
+- `pyproject.toml`: `just build` builds the wheel and sdist and
+  `twine check --strict` passes both. The wheel's metadata has the new summary,
+  the seven classifiers, the `Documentation` URL and `License-Expression: MIT`.
+  `uv lock --check` passes (the lock holds no description or classifiers), and
+  `just test` passes.
+- AC-036, from the release-please source, read but never run:
+  - The pinned `release-please-action` v5.0.0
+    (`45996ed1f6d02564a971a2fa1b5860e934307cf7`) bundles release-please 17.6.0:
+    its `package.json` asks for `^17.6.0` and its `package-lock.json` (263,054
+    bytes, from raw.githubusercontent.com) resolves `release-please-17.6.0.tgz`.
+    That tarball (162 KB, from registry.npmjs.org, downloaded with the user's
+    approval) matches the lock's sha512.
+  - `build/src/manifest.js`: when no GitHub release matches the manifest's
+    version, release-please logs "No latest release found for path … but a
+    previous version (0.0.1) was specified in the manifest" and uses the
+    manifest version as the latest release, for any version except `0.0.0`. With
+    no release commit to stop at, it reads every commit on `main`, up to its
+    default search depth of 500.
+  - `build/src/versioning-strategies/default.js`: any breaking commit bumps the
+    major version (1.0.0 from 0.0.1), because `bump-minor-pre-major` is off by
+    default and not set here. Otherwise any `feat` commit bumps the minor
+    version, and `MinorVersionUpdate` gives 0.1.0 from 0.0.1.
+  - `main` holds three commits: `Initial commit`,
+    `chore: set up the repo, dev tooling and release-please (#1)` and
+    `ci(deps): Bump the github-actions group with 2 updates (#2)`. None is a
+    `feat`, a `fix` or breaking. None of this branch's 43 commits is marked
+    breaking (`!` or `BREAKING CHANGE`).
+  - So with this cycle's work merged as a non-breaking `feat:` commit,
+    release-please proposes 0.1.0. `"release-as"` is not needed, and
+    `release-please-config.json` is unchanged. A breaking marker in the merged
+    commit or its body would give 1.0.0 instead.
+- Not verified: `release.yml` runs only when a release is published.
+
+**Implementation Notes**
+
+- Files approved by the user (2026-11-18): `.github/workflows/release.yml` (new)
+  and `pyproject.toml`.
+- New actions, each pinned to the commit of its latest release:
+  `actions/upload-artifact` v7.0.2 (`cf430e0…`), `actions/download-artifact`
+  v8.0.2 (`9000827…`) and `pypa/gh-action-pypi-publish` v1.14.3 (`7245906…`).
+  Dependabot's `github-actions` updates cover them.
+- The build job runs `uv run --locked just build`, the recipe developers use,
+  with setup-uv's cache turned off. Releases have their own concurrency group
+  and are never canceled partway.
+- Before the first release, the user sets up publishing (their decision,
+  2026-11-18): the PyPI project `pydelity` belongs to the personal account
+  `tonyzhao6`, while the package's author and maintainer stay "IDinsight DSEM".
+  On PyPI, a trusted publisher for owner `IDinsight`, repository `pydelity`,
+  workflow `release.yml` and environment `pypi`; on GitHub, an environment named
+  `pypi` that allows tags matching `v*`.
 
 ### DEV-019 — Docs site scaffold and versioned build
 
