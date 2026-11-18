@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Annotated
 
 # Third Party Library
+import pydantic_ai
 import typer
 
 from loguru import logger
@@ -276,6 +277,10 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
     """
 
     _enable_logging(verbose=verbose)
+    # The command owns its process, so PydanticAI's first-run banner, which is meant for
+    # people who write their own agents, stays off. PydanticAI documents setting this
+    # flag, but declares it without a type, so ty reads it as always true.
+    pydantic_ai.BANNER_ENABLED = False  # ty: ignore[invalid-assignment]
     given = {
         "instructions": instructions,
         "languages": language or None,

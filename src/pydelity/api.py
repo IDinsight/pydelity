@@ -38,13 +38,13 @@ from pydelity.costs.ledger import LEDGER_FILE_NAME, read_ledger
 from pydelity.costs.schemas import CostEstimate, MaxCostWarning
 from pydelity.providers.factory import build_model, output_mode
 from pydelity.providers.ledger_model import LedgerContext
-from pydelity.providers.uploads import attach_pdf
 from pydelity.surveying.facts import measure_facts
 from pydelity.surveying.prompts import PROMPT_VERSION, survey_pdf
-from pydelity.surveying.schemas import SurveyAnswer
+from pydelity.surveying.schemas import PdfFacts, SurveyAnswer
+from pydelity.surveying.survey import run_survey, saved_survey
 from pydelity.utils.coroutines import run_in_daemon_thread, run_sync, warn
 from pydelity.utils.files import remove_stale_temp_files
-from pydelity.utils.pdf import open_pdf
+from pydelity.utils.pdf import PdfInfo, open_pdf
 
 # Asks whether to go ahead and spend, given the cost estimate.
 type SpendConfirmation = Callable[[CostEstimate], bool]
@@ -199,6 +199,106 @@ def _new_run_id() -> str:
     return f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{secrets.token_hex(4)}"
 
 
+async def _survey(
+    *,
+    config: Config,
+    confirm: SpendConfirmation | None,
+    decide_over_max_cost: OverMaxCostDecision,
+    facts: PdfFacts,
+    pdf: PdfInfo,
+) -> None:
+    """Check the API key and the cost, then survey the PDF and save the survey.
+
+    Parameters
+    ----------
+    config
+        The run's settings.
+    confirm
+        Called with the cost estimate; returns whether to continue. ``None``
+        continues without asking.
+    decide_over_max_cost
+        Called with the warning's details when the run could exceed ``max_cost``;
+        returns whether to continue.
+    facts
+        The measured facts.
+    pdf
+        The PDF.
+
+    Raises
+    ------
+    BudgetExceededError
+        If the run could go over ``max_cost`` and the decision is no.
+    MissingApiKeyError
+        If the selected provider's API key is not set.
+    ProviderError
+        If the provider rejects the upload for an invalid API key or as too large, or
+        a request fails after the provider retries.
+    SpendDeclinedError
+        If ``confirm`` answers no.
+    SurveyError
+        If the model refuses, runs out of output tokens, or never gives an answer that
+        matches the survey's answer format.
+    """
+
+    ledger_path = config.output_folder / LEDGER_FILE_NAME
+    guard = SpendGuard(
+        decide=decide_over_max_cost, ledger_path=ledger_path, max_cost=config.max_cost
+    )
+    survey_settings = config.advanced.survey
+    model = build_model(
+        config=config,
+        context=LedgerContext(
+            guard=guard,
+            ledger_path=ledger_path,
+            pdf=pdf,
+            run_id=_new_run_id(),
+            step="survey",
+        ),
+        effort=survey_settings.effort,
+        max_output_tokens=survey_settings.max_output_tokens,
+        request_timeout_seconds=survey_settings.request_timeout_seconds,
+    )
+    choice = config.model_choice
+    logger.info(
+        "Model ready: {model_id} from {provider}, effort {effort}, {mode} structured "
+        "output",
+        effort=survey_settings.effort,
+        mode=output_mode(model),
+        model_id=choice.model_id,
+        provider=choice.provider,
+    )
+
+    prompts = survey_pdf(
+        facts_summary=facts.summary,
+        instructions=config.instructions,
+        languages=config.languages,
+        page_count=pdf.page_count,
+    )
+    logger.debug(
+        "Survey instructions (prompt version {version}):\n{instructions}",
+        instructions=prompts.system_message,
+        version=PROMPT_VERSION,
+    )
+    logger.debug("Survey text sent with the PDF:\n{text}", text=prompts.user_message)
+    # The prompt is the two messages and the answer's JSON schema.
+    schema = json.dumps(SurveyAnswer.model_json_schema())
+    prompt_chars = len(prompts.system_message) + len(prompts.user_message)
+    estimate = _estimate_cost(
+        config=config,
+        ledger_path=ledger_path,
+        page_count=pdf.page_count,
+        prompt_chars=prompt_chars + len(schema),
+    )
+    await _ask_before_spending(confirm=confirm, estimate=estimate, guard=guard)
+    await run_survey(
+        config=config,
+        facts=facts,
+        model=model,
+        output_folder=config.output_folder,
+        pdf=pdf,
+    )
+
+
 def _warn(message: str) -> None:
     """Log a warning and issue it as a `pydelity.errors.PydelityWarning`.
 
@@ -221,11 +321,12 @@ async def arun(
 ) -> None:
     """Run pydelity on a PDF.
 
-    The run validates the settings, opens the PDF, measures it (or reuses the facts
-    saved in ``pdf_facts.json`` in the output folder), checks the provider's API key
-    and checks the cost estimate against ``max_cost``. Then it uploads the PDF to the
-    provider, or reuses its upload from ``uploads.json``. It does not prompt for
-    input.
+    The run validates the settings, opens the PDF and measures it, or reuses the facts
+    saved in ``pdf_facts.json`` in the output folder. It then reuses the survey saved
+    in ``pdf_survey.json`` when its inputs are unchanged. Otherwise it checks the
+    provider's API key and the cost estimate against ``max_cost``, uploads the PDF (or
+    reuses its upload from ``uploads.json``), asks the model to survey it and saves
+    ``pdf_survey.json``. It does not prompt for input.
 
     Parameters
     ----------
@@ -252,8 +353,11 @@ async def arun(
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
     ProviderError
-        If the provider rejects the PDF's upload for an invalid API key or as too
-        large.
+        If the provider rejects the upload for an invalid API key or as too large, or
+        a request fails after the provider retries.
+    SurveyError
+        If the model refuses, runs out of output tokens, or never gives an answer that
+        matches the survey's answer format.
     """
 
     await arun_with_questions(
@@ -305,10 +409,13 @@ async def arun_with_questions(
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
     ProviderError
-        If the provider rejects the PDF's upload for an invalid API key or as too
-        large.
+        If the provider rejects the upload for an invalid API key or as too large, or
+        a request fails after the provider retries.
     SpendDeclinedError
         If ``confirm`` answers no.
+    SurveyError
+        If the model refuses, runs out of output tokens, or never gives an answer that
+        matches the survey's answer format.
     """
 
     resolved = resolve_config(config=config, pdf=pdf, settings=settings)
@@ -339,59 +446,14 @@ async def arun_with_questions(
         output_folder=output_folder, overwrite=resolved.overwrite, pdf=info
     )
 
-    ledger_path = output_folder / LEDGER_FILE_NAME
-    guard = SpendGuard(
-        decide=decide_over_max_cost, ledger_path=ledger_path, max_cost=resolved.max_cost
-    )
-    survey_settings = resolved.advanced.survey
-    model = build_model(
-        config=resolved,
-        context=LedgerContext(
-            guard=guard,
-            ledger_path=ledger_path,
+    if saved_survey(config=resolved, facts=facts, output_folder=output_folder) is None:
+        await _survey(
+            config=resolved,
+            confirm=confirm,
+            decide_over_max_cost=decide_over_max_cost,
+            facts=facts,
             pdf=info,
-            run_id=_new_run_id(),
-            step="survey",
-        ),
-        effort=survey_settings.effort,
-        max_output_tokens=survey_settings.max_output_tokens,
-        request_timeout_seconds=survey_settings.request_timeout_seconds,
-    )
-    choice = resolved.model_choice
-    logger.info(
-        "Model ready: {model_id} from {provider}, effort {effort}, {mode} structured "
-        "output",
-        effort=survey_settings.effort,
-        mode=output_mode(model),
-        model_id=choice.model_id,
-        provider=choice.provider,
-    )
-
-    prompts = survey_pdf(
-        facts_summary=facts.summary,
-        instructions=resolved.instructions,
-        languages=resolved.languages,
-        page_count=info.page_count,
-    )
-    logger.debug(
-        "Survey instructions (prompt version {version}):\n{instructions}",
-        instructions=prompts.system_message,
-        version=PROMPT_VERSION,
-    )
-    logger.debug("Survey text sent with the PDF:\n{text}", text=prompts.user_message)
-    # The prompt is the two messages and the answer's JSON schema.
-    schema = json.dumps(SurveyAnswer.model_json_schema())
-    prompt_chars = len(prompts.system_message) + len(prompts.user_message)
-    estimate = _estimate_cost(
-        config=resolved,
-        ledger_path=ledger_path,
-        page_count=info.page_count,
-        prompt_chars=prompt_chars + len(schema),
-    )
-    await _ask_before_spending(confirm=confirm, estimate=estimate, guard=guard)
-    await attach_pdf(
-        config=resolved, model=model, output_folder=output_folder, pdf=info
-    )
+        )
     logger.info("Run finished")
 
 
@@ -429,11 +491,14 @@ def run(
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
     ProviderError
-        If the provider rejects the PDF's upload for an invalid API key or as too
-        large.
+        If the provider rejects the upload for an invalid API key or as too large, or
+        a request fails after the provider retries.
     RuntimeError
         If called while an event loop is running, as in Jupyter or async code. Use
         ``await pydelity.arun(...)`` there instead.
+    SurveyError
+        If the model refuses, runs out of output tokens, or never gives an answer that
+        matches the survey's answer format.
     """
 
     run_sync(

@@ -1066,7 +1066,7 @@ changes (macOS arm64, Python 3.13.9).
 
 ### DEV-011 — Survey step
 
-`Status`: `PENDING` `Depends On`: `DEV-009, DEV-010` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-009, DEV-010` `Acceptance`:
 `AC-002, AC-003, AC-004, AC-011, AC-017, AC-018`
 
 **Goal**
@@ -1109,6 +1109,128 @@ Real survey runs with both providers on PDFs from the set: reuse, a
 changed-input rerun and `overwrite`; retry-then-pass and still failing after
 retries by fault injection in the scratchpad script (a check forced to fail);
 `pdf_survey.json` reviewed against each PDF; `just lint`.
+
+Evidence, 2026-11-18, on `a65021a` plus the uncommitted DEV-011 changes (macOS
+arm64, Python 3.13.9, PydanticAI 2.69.0).
+
+- `just lint-python` (Ruff check and format, ty, interrogate 100%) and
+  `just test` (2 passed) pass.
+- Scratchpad `dev011_offline.py`, 30 of 30 checks, no network: PydanticAI's
+  `FunctionModel` inside pydelity's `LedgerModel` stands in for the provider.
+  - A correct answer: one request; all seven checks pass with `attempts` 1. The
+    request is the instructions as the system message, then the uploaded file,
+    the text and a cache point.
+  - The profile:
+    - The model's `Other` label is dropped, and `other` is added last with role
+      `body` and every kind.
+    - With the user's `en_US` and the model's `EN` and `fr`, the languages are
+      `en-US`, `en` and `fr`.
+    - A region box becomes points on the page's measured size, and its label
+      takes the profile label's spelling.
+    - The user's instructions are stored, the facts are copied in, and the
+      fingerprint matches the inputs.
+  - `Survey finished` names the labels, languages, rotation, review-issue count
+    and cost.
+  - Reuse: the same inputs (also with `EN-us`) and changed
+    `advanced.provider_retries`, timeout or `max_cost` reuse the survey.
+    `overwrite`, or a change to the instructions, languages, model, check
+    retries, effort or `max_output_tokens`, runs it again. `arun` with unchanged
+    inputs logs `Survey reused` with no API key set; with `overwrite` or new
+    instructions it goes on to the model and stops at the missing key. A damaged
+    `pdf_survey.json` gives a warning and the survey runs again.
+  - Retry, then pass, on the CAPS extract: the second request carries the retry
+    message naming page 0 and the measured 90 degrees; every check passes with
+    `attempts` 2.
+  - Still failing with `check_retries` 1: the second answer is accepted. There
+    are 12 review issues (labels 2, regions 1, rotation 8, languages 1), each
+    with `step` `survey`, its check and its page. `zz` is left out of the
+    profile's languages, and an issue names it. The duplicate label is dropped,
+    the label without kinds may take every kind, and the region on page 99 is
+    dropped.
+  - `SurveyError` and no `pdf_survey.json` for an answer that never parses
+    (after 3 requests), a refusal (with the refusal text) and running out of
+    output tokens (naming `advanced.survey.max_output_tokens`).
+  - A 404 naming the uploaded file: one new upload, the `uploads.json` record
+    replaced, and the survey starts over with the new file. A failed re-upload
+    falls back to sending the PDF in the request. When the provider rejects that
+    too, the `ProviderError` keeps the provider's message, adds the upload
+    error, and has the SDK error as its cause. A 404 that does not name the file
+    (a missing model) raises `ProviderError` with no new upload.
+  - The `max_cost` warning raised inside the agent loop points at the calling
+    script. Before the change to `utils/coroutines.py` it pointed at a
+    PydanticAI file, and then at an anyio file.
+- Scratchpad `dev001_rework_check.py` (12 of 12) still passes. It now stops each
+  run at a tiny `max_cost` instead of letting it reach the model.
+- Real runs (`dev011_real.py`, $1.86 in total, each run held under $6 by
+  pydelity's own `max_cost` guard):
+  - `openai:gpt-6.2-astra` on the W-9: a first run (one request, $0.39), a rerun
+    that sent nothing, and a rerun with new instructions that reused the upload
+    (one request, $0.40). The `--overwrite` run was stopped by the plan-time
+    guard before anything was sent: its maximum ($5.55, three requests of up to
+    32,000 output tokens) was more than the budget left. The overwrite path
+    itself ran on Anthropic and offline. The cache point is accepted by OpenAI's
+    Responses API.
+  - `anthropic:claude-opus-5-5` on the W-9 from the command line with
+    `--language en_US --yes`: exit 0, `Survey finished` (one request, $0.19).
+    The rerun logged `Survey reused` and sent nothing. New instructions reused
+    the upload (one request, $0.20). `overwrite` within five minutes read 27,804
+    tokens from the cache ($0.08).
+  - The CAPS extract on Anthropic: the model's first answer had 5 check
+    failures; the second passed. The profile has rotation 90 on pages 0-7, page
+    numbers with offset 23 and every repeated line accounted for (two requests,
+    $0.24).
+  - Fault injection on the W-9 (a C1 failure added in the script): failing once
+    gave two requests, `attempts` 2, and all checks passing, with the retry
+    reading 27,767 tokens from the cache. Always failing, with `check_retries`
+    1, gave two requests and an accepted answer with `labels` failed and one
+    review issue.
+  - Each `pdf_survey.json` was reviewed against its PDF:
+    - W-9: page 0 has no page number and pages 1-5 print the page index plus
+      1. The running form name (R1) and `Page N` (R2) are artifacts, and the
+         form, tables and their notes are regions.
+    - CAPS extract: one table runs across all 8 pages, rotated 90 degrees, with
+      an upright running header and footer.
+  - The estimate is above the real cost: $0.36 against $0.08-$0.20 per Anthropic
+    survey, and $0.63 against $0.39-$0.40 per OpenAI survey. The real output was
+    1,858-5,633 tokens per answer, against the estimate's 8,000.
+- PydanticAI's first-run banner appeared in these runs. PydanticAI hides it when
+  the code that starts the agent is in `site-packages`. On this Homebrew Python,
+  though, the standard library's real path (`/opt/homebrew/Cellar/...`) differs
+  from the one `sysconfig` reports (`/opt/homebrew/opt/...`). PydanticAI then
+  takes `contextlib` for the user's code, and the banner appears even with
+  pydelity installed from a wheel (checked in a fresh virtual environment).
+
+**Implementation Notes**
+
+- Files approved by the user (2026-11-18): `src/pydelity/surveying/agents.py`,
+  `src/pydelity/surveying/llm.py` and `src/pydelity/surveying/survey.py`, plus
+  changes to `src/pydelity/api.py` and `src/pydelity/utils/coroutines.py`.
+- In PydanticAI 2.69 the output retry count is `Agent(retries={"output": n})`;
+  an answer that does not parse uses one of the same retries. `attempts` is the
+  run's request count, which is 1 plus the retries used.
+- After the last attempt, the profile keeps the model's values with these
+  exceptions, each reported by a review issue:
+  - a label with an empty name, or a name an earlier label already uses
+    (regardless of case), is left out;
+  - a label without kinds may take every kind, so every label has at least one
+    (AC-002);
+  - a region on a page the PDF does not have is left out, since its box cannot
+    be converted. Region boxes are rounded to 0.01 points.
+- The survey's cost in `Survey finished` is the sum of the `cost.jsonl` lines
+  the survey added.
+- `arun` checks for a reusable `pdf_survey.json` right after the facts, so a
+  reused survey needs no API key and logs no estimate.
+- `warn` also skips PydanticAI, pydantic_graph and anyio frames. A warning
+  raised inside the agent loop runs in an anyio task. It points at the line that
+  called the sync function, or, for an awaited `arun`, at the code that runs the
+  event loop.
+- The user approved a change to `src/pydelity/cli.py` (2026-11-18): the command
+  sets `pydantic_ai.BANNER_ENABLED = False` for its own process, while the
+  Python API leaves the banner to PydanticAI and the caller. Checked offline
+  with a placeholder key and no network: the command printed no banner, and
+  `pydelity.run` in the same setup printed it once. In that run the command also
+  printed each `PydelityWarning` a second time, as a Python warning pointing at
+  a Typer file, after its log line; DEV-012 handles warnings in the command.
 
 ### DEV-012 — Run orchestration
 

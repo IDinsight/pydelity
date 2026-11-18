@@ -21,14 +21,24 @@ from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any, cast
 
+# Third Party Library
+import anyio
+import pydantic_ai
+import pydantic_graph
+
 # Package Library
 from pydelity.errors import PydelityWarning
 
-# Warnings point at the caller's code: the first stack frame outside this package and
-# outside asyncio, which runs the coroutines that issue them.
+# Warnings point at the first stack frame outside this package, asyncio, PydanticAI and
+# the libraries PydanticAI runs its agent with (pydantic_graph and anyio). Model
+# requests inside the agent can issue warnings, such as the max_cost warning.
 _SKIPPED_PREFIXES = (
     str(Path(__file__).parent.parent) + os.sep,
-    str(Path(asyncio.__file__).parent) + os.sep,
+    *(
+        str(Path(module.__file__).parent) + os.sep
+        for module in (anyio, asyncio, pydantic_ai, pydantic_graph)
+        if module.__file__ is not None
+    ),
 )
 
 
