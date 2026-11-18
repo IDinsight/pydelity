@@ -462,7 +462,7 @@ on top of it:
 
 ### DEV-005 — Survey probe and `pdf_facts.json`
 
-`Status`: `PENDING` `Depends On`: `DEV-001, DEV-002, DEV-004` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-001, DEV-002, DEV-004` `Acceptance`:
 `AC-001, AC-005, AC-006, AC-017, AC-018, AC-040`
 
 **Goal**
@@ -509,6 +509,73 @@ Run the probe on every PDF in the set and check its facts against the documents
 (pages, bookmarks, form fields, tags, rotation, printed numbers); a rerun reuses
 `pdf_facts.json`, a damaged one is rewritten, and a run with no API key still
 writes it; `just lint`.
+
+Evidence, 2026-11-17, repo root, uncommitted on top of the DEV-004 rework
+commit:
+
+- Scratchpad `tools/dev005_check.py`: 35 of 35 checks passed, on the 9 committed
+  PDFs, a scratchpad copy of `irs_pub1_arabic.pdf` with page 0 set to rotation
+  90, and KGForEdGlobal's full 142-page CAPS (read only).
+  - Arabic Publication 1: right to left on both pages, upright, tagged (good).
+    Chinese: text good, Han letters count as left to right. Gazette: 85% of
+    characters in vertical writing; one signature field; AcroForm without XFA;
+    printed number from its page label.
+  - W-9: 23 fields (8 checkboxes unchecked, 15 text), AcroForm and XFA, field
+    boxes inside the page; a short sideways line on page 0 while the dominant
+    angle stays 0. W-9 instructions: 22 bookmarks, pages 1–6 printed 2–7 (offset
+    +1), running footer repeated in the bottom band.
+  - 1965 Form 1040A scan: no characters, no orientation, no direction.
+  - CAPS excerpt: rotation attribute 0 on every page with the text at 90°
+    (confident); page labels 23–30 as one range, offset +23; untagged. Rotated
+    copy: page 0 (attribute 90) reads 270 and is landscape, page 1 stays 0.
+  - 1950 Form 1040: labels 1–4 (offset +1); 202 sideways heading characters on
+    page 3 with the dominant angle 0. Slides: 16 pages of 720 × 540 points,
+    footer repeated on all 16, IDs `R1`… in order.
+  - `pdf_facts.json` via `pydelity.run`: written with no API key in the
+    environment; a stale `pdf_facts.json.tmp-…` removed; `schema_version` `1.0`,
+    `probe_version` 1, `pydelity_version` and the PDF identity set; the
+    fingerprint equals the formula; `summary` equals `summarize(facts)`; a rerun
+    leaves the file byte-identical; `overwrite=True` measures again; a damaged
+    file issues a `PydelityWarning` and is measured again.
+  - Fault injection (scratchpad patch of `_bookmarks` raising `RuntimeError`):
+    `bookmarks` is `null`, one `probe_errors` item, a summary line and a
+    `PydelityWarning`; the form and structure are still read.
+  - Event loop: while `arun` measured the 142-page CAPS (1.55 s), a ticker task
+    kept running; its longest wait was 47 ms (median about 30 ms), because
+    PyMuPDF holds the GIL while it extracts text.
+- CLI on every PDF in the set: the summary lines are logged at INFO, `-v` logs
+  one line per page, and a rerun logs `Facts reused`.
+- First run of the W-9 instructions picked a list marker (`1.`) near the top
+  over the page number at the bottom, splitting the numbering into four ranges.
+  Fixed: among a page's candidates, the style and offset most pages share wins,
+  and nearness to the edge breaks ties.
+- A search of `surveying/` for document-type and domain words found none.
+- `just lint` (Prettier, STANDARDS check, markdownlint, Ruff, ty, interrogate
+  100%, zizmor) and `just test` (2 passed) passed; `env -i` `import pydelity`
+  printed nothing.
+
+**Implementation Notes**
+
+- Files approved by the user (2026-11-17):
+  `src/pydelity/surveying/{__init__,schemas,probe,facts}.py`, plus `api.py` and
+  `.gitignore` (`pydelity-output/`).
+- PyMuPDF reports text directions and boxes in the unrotated page's coordinates,
+  so the probe turns line directions into displayed angles
+  (`(unrotated angle − rotation attribute) mod 360`) and boxes into displayed
+  coordinates with `page.rotation_matrix`.
+- Measurement constants (public in `probe.py`, for the generated reference):
+  band 10% of page height; direction share 0.7; garbled share 0.1; orientation
+  share 0.8 with at least 20 characters; repeated lines on at least 3 pages and
+  5% of pages (2 pages for 2–3-page PDFs), at most 200; structure cap 20,000
+  elements, at least 10 elements, 90% page coverage for `good`.
+- The structure tree is walked with `xref_get_key`, parsing `K` arrays for
+  references, marked-content IDs and inline references; page coverage counts
+  pages with marked content or object references. The summary marks a page as
+  mostly vertical from 50% vertical characters.
+- PDFs are iterated by index (`document[index]`), since PyMuPDF's `Document` has
+  no `__iter__` for type checkers. `measure_facts` issues warnings from the
+  coroutine (`pydelity.utils.coroutines.warn`) and logs them; DEV-012 adds them
+  to `run.json`.
 
 ### DEV-007 — Cost ledger, pricing, estimate and `max_cost` guard
 
@@ -1157,6 +1224,15 @@ constants; regenerating after Markdown formatting is byte-identical, so CI's
   style `tony` is locked. Implementation continues in a new session, starting
   with DEV-001's file and folder list for the user's review.
 - Test PDF sources: `tests/fixtures/pdfs/SOURCES.md` (DEV-002).
+- Step folders (user decision, 2026-11-17): each pipeline step gets one folder
+  directly under `src/pydelity/`, named with an "-ing" word so it never collides
+  with a public API function (a verb such as `survey` or `run`): `surveying/`
+  for step 1, and later `extracting/`, `verifying/`, `assembling/`, `proposing/`
+  and `projecting/`. Each step folder holds its own modules (`schemas.py`,
+  `probe.py`, `prompts.py`, `validators.py` and so on), so nothing is more than
+  two levels deep; this replaces the `steps/survey/` sketch above. DEV-005's
+  files: `surveying/{__init__,schemas,probe,facts}.py`, `api.py` and
+  `.gitignore`.
 - Project references loaded: `NONE` (`.standards/project-references/` does not
   exist).
 

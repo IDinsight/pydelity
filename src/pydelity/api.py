@@ -15,7 +15,9 @@ from loguru import logger
 
 # Package Library
 from pydelity.config.loading import ConfigSource, resolve_config
+from pydelity.surveying.facts import measure_facts
 from pydelity.utils.coroutines import run_coroutine
+from pydelity.utils.files import remove_stale_temp_files
 from pydelity.utils.pdf import open_pdf
 
 
@@ -27,8 +29,9 @@ async def arun(
 ) -> None:
     """Run pydelity on a PDF.
 
-    So far the run checks the settings, opens the PDF and logs what it found; the
-    survey and the rest of the run come in later versions.
+    So far the run checks the settings, opens the PDF, and measures it or reuses its
+    saved facts (``pdf_facts.json`` in the output folder); the model call and the
+    rest of the run come in later versions.
 
     Parameters
     ----------
@@ -68,6 +71,15 @@ async def arun(
         sha256=info.sha256,
         size=info.bytes,
     )
+    output_folder = resolved.output_folder
+    output_folder.mkdir(exist_ok=True, parents=True)
+    for leftover in remove_stale_temp_files(output_folder):
+        logger.debug("Removed {path}, left by an interrupted write", path=leftover)
+
+    await measure_facts(
+        output_folder=output_folder, overwrite=resolved.overwrite, pdf=info
+    )
+
     choice = resolved.model_choice
     logger.info(
         "Model: {model_id} from provider {provider}",
