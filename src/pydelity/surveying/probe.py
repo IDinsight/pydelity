@@ -70,7 +70,7 @@ ORIENTATION_MIN_CHARS = 20
 PROBE_VERSION = 1
 
 # At most this many repeated lines are kept, most frequent first.
-REPEATED_MAX_LINES = 200
+REPEATED_MAX_LINES = 1000
 
 # A line is repeated when it appears on at least this many pages and on at least
 # `REPEATED_MIN_SHARE` of the pages.
@@ -600,15 +600,18 @@ def _normalize(text: str) -> str:
     Returns
     -------
     str
-        NFKC-normalized, case-folded, whitespace collapsed, each run of digits ``#``.
+        Without invisible formatting characters (Unicode category Cf, such as a
+        zero-width space), NFKC-normalized, case-folded, whitespace collapsed, each
+        run of digits ``#``. A line with nothing visible becomes empty.
 
     Examples
     --------
-    >>> _normalize("Page  12 of 30")
-    'page # of #'
+    >>> _normalize("Page  12 of 30"), _normalize("Page 12\u200b"), _normalize("\u200b")
+    ('page # of #', 'page #', '')
     """
 
-    folded = unicodedata.normalize("NFKC", text).casefold()
+    visible = "".join(char for char in text if unicodedata.category(char) != "Cf")
+    folded = unicodedata.normalize("NFKC", visible).casefold()
     return re.sub(r"\d+", "#", " ".join(folded.split()))
 
 

@@ -1907,6 +1907,32 @@ constants; regenerating after Markdown formatting is byte-identical, so CI's
 
 ## Plan Notes
 
+- The user's run on a third PDF of their own (59 pages, bilingual, $0.83, one
+  request, 2026-11-18) led to two probe changes in
+  `src/pydelity/surveying/probe.py`, approved by the user:
+  - Lines are compared for repeats without invisible formatting characters
+    (Unicode category Cf, such as a zero-width space). A line with nothing
+    visible is no longer a repeated line, and a heading that differs from
+    another only by such a character now counts with it. On that PDF the
+    repeated lines went from 111 to 113: an invisible line went away, and merged
+    headings reached the repeat threshold.
+  - `REPEATED_MAX_LINES` is 1,000 instead of 200: a deviation from the design's
+    "at most 200", approved by the user. Every repeated line is sent with the
+    request (about 25 characters each), and check C5 asks the model to account
+    for each one, so a PDF near the limit adds input and output tokens.
+  - Checks: measured before and after on all 12 PDFs, only that PDF's repeated
+    lines changed; every other fact of every PDF is unchanged. Lint,
+    `just test`, the doctests, `dev010_check.py`, `dev011_offline.py` and
+    `dev012_offline.py` pass.
+  - The same run showed the probe taking a lone number at the top of a table row
+    for a printed page number on 16 pages, each at a different offset. Check C4
+    then made the model split its page numbering into 31 ranges around them,
+    though its notes say they are table cells. The user wants the model to trust
+    what it sees over the facts in general. That changes AC-003 in the scope
+    ("rotation agrees with the measured text direction, the printed-page offset
+    agrees with the printed page numbers ... A failed check is sent back to the
+    model") and decision 5 of the design. With the user's go-ahead it went to
+    the Scoper as a rework (Suspended Assignment 7).
 - The user's run on a second PDF of their own (142 pages, $1.91, 2026-11-18)
   showed why every survey so far needed a second request. The facts summary
   names only the 3 most frequent repeated lines, but check C5 needs every
@@ -2152,3 +2178,12 @@ sync functions inside a running loop. DEV-007 already uses only
 `run_in_daemon_thread` and `warn`, which stay. The change is the user's own
 request, so the plan stays approved; as with every step, the user reviews
 DEV-001's files before the rework starts.
+
+### Suspended Assignment 7
+
+`Recovery Frame`: `1` `Recovery Reason`:
+`User rework: the survey's model trusts its own reading of the PDF over the measured facts, which become hints; AC-003 requires the profile to agree with the measured rotation and printed page numbers and sends a disagreeing answer back to the model.`
+`Purpose`: `DEVELOPMENT` `Target`: `NONE` `Assessed Inputs`:
+`scope a938118 and design 76e25f0; DEV-001 to DEV-005 and DEV-007 to DEV-015 done and committed (last aa63b6a); the probe change for invisible characters and 1,000 repeated lines done but uncommitted in the working tree; DEV-006 and DEV-016 to DEV-021 not started`
+`Next Action`:
+`Reconcile the survey's prompt and checks (DEV-010, and DEV-011 for how disagreements are recorded) with the reworked scope and design, then list DEV-006's files for the user's review.`
