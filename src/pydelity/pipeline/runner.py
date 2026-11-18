@@ -703,42 +703,43 @@ async def _survey(
         decide=decide_over_max_cost, ledger_path=ledger_path, max_cost=config.max_cost
     )
     survey_settings = config.advanced.survey
-    model = build_model(
+    context = LedgerContext(
+        guard=guard,
+        ledger_path=ledger_path,
+        pdf=run.pdf,
+        run_id=run.run_id,
+        step=_SURVEY_STEP,
+    )
+    async with build_model(
         config=config,
-        context=LedgerContext(
-            guard=guard,
-            ledger_path=ledger_path,
-            pdf=run.pdf,
-            run_id=run.run_id,
-            step=_SURVEY_STEP,
-        ),
+        context=context,
         effort=survey_settings.effort,
         max_output_tokens=survey_settings.max_output_tokens,
         request_timeout_seconds=survey_settings.request_timeout_seconds,
-    )
-    logger.info(
-        "Model ready: {model_id} from {provider}, effort {effort}, {mode} structured "
-        "output",
-        effort=survey_settings.effort,
-        mode=output_mode(model),
-        model_id=config.model_choice.model_id,
-        provider=config.model_choice.provider,
-    )
+    ) as model:
+        logger.info(
+            "Model ready: {model_id} from {provider}, effort {effort}, {mode} "
+            "structured output",
+            effort=survey_settings.effort,
+            mode=output_mode(model),
+            model_id=config.model_choice.model_id,
+            provider=config.model_choice.provider,
+        )
 
-    estimate = _estimate_cost(
-        config=config,
-        page_count=run.pdf.page_count,
-        prompt_chars=_prompt_chars(config=config, facts=run.facts),
-        reused=False,
-    )
-    await _ask_before_spending(confirm=confirm, estimate=estimate, guard=guard)
-    run.survey, run.transport = await run_survey(
-        config=config,
-        facts=run.facts,
-        model=model,
-        output_folder=config.output_folder,
-        pdf=run.pdf,
-    )
+        estimate = _estimate_cost(
+            config=config,
+            page_count=run.pdf.page_count,
+            prompt_chars=_prompt_chars(config=config, facts=run.facts),
+            reused=False,
+        )
+        await _ask_before_spending(confirm=confirm, estimate=estimate, guard=guard)
+        run.survey, run.transport = await run_survey(
+            config=config,
+            facts=run.facts,
+            model=model,
+            output_folder=config.output_folder,
+            pdf=run.pdf,
+        )
     return run.survey
 
 

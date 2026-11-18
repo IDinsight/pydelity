@@ -2,11 +2,14 @@
 
 `build_model` builds the provider's SDK client itself, with the run's retry count and
 request timeout, so one setting governs every retry and pydelity adds none of its own.
-The SDKs read ``ANTHROPIC_BASE_URL`` and ``OPENAI_BASE_URL`` when set. Every model is
-wrapped in `pydelity.providers.ledger_model.LedgerModel`.
+It also closes the client when the step is done with the model. The SDKs read
+``ANTHROPIC_BASE_URL`` and ``OPENAI_BASE_URL`` when set. Every model is wrapped in
+`pydelity.providers.ledger_model.LedgerModel`.
 """
 
 # Standard Library
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from typing import Literal
 
 # Third Party Library
@@ -34,11 +37,43 @@ type OutputMode = Literal["native", "prompted"]
 def _provider_model(
     *,
     choice: ModelChoice,
-    config: Config,
-    request_timeout_seconds: float,
+    client: AsyncAnthropic | AsyncOpenAI,
     settings: ModelSettings,
 ) -> Model:
-    """Build the provider's model with its SDK client.
+    """Build the provider's model on its SDK client.
+
+    Parameters
+    ----------
+    choice
+        The provider and model ID.
+    client
+        The provider's SDK client, from `_sdk_client`.
+    settings
+        The model's request settings.
+
+    Returns
+    -------
+    Model
+        The Anthropic model, or the OpenAI Responses model.
+    """
+
+    if isinstance(client, AsyncAnthropic):
+        return AnthropicModel(
+            choice.model_id,
+            provider=AnthropicProvider(anthropic_client=client),
+            settings=settings,
+        )
+    return OpenAIResponsesModel(
+        choice.model_id,
+        provider=OpenAIProvider(openai_client=client),
+        settings=settings,
+    )
+
+
+def _sdk_client(
+    *, choice: ModelChoice, config: Config, request_timeout_seconds: float
+) -> AsyncAnthropic | AsyncOpenAI:
+    """Build the provider's SDK client with the run's retry count and timeout.
 
     Parameters
     ----------
@@ -48,13 +83,11 @@ def _provider_model(
         The run's settings, for the retry count.
     request_timeout_seconds
         How long one attempt at a request may take.
-    settings
-        The model's request settings.
 
     Returns
     -------
-    Model
-        The Anthropic model, or the OpenAI Responses model.
+    AsyncAnthropic | AsyncOpenAI
+        The client. The caller closes it.
 
     Raises
     ------
@@ -65,33 +98,28 @@ def _provider_model(
     api_key = read_api_key(choice.provider).get_secret_value()
     retries = config.advanced.provider_retries
     if choice.provider == "anthropic":
-        anthropic_client = AsyncAnthropic(
+        return AsyncAnthropic(
             api_key=api_key, max_retries=retries, timeout=request_timeout_seconds
         )
-        return AnthropicModel(
-            choice.model_id,
-            provider=AnthropicProvider(anthropic_client=anthropic_client),
-            settings=settings,
-        )
-    openai_client = AsyncOpenAI(
+    return AsyncOpenAI(
         api_key=api_key, max_retries=retries, timeout=request_timeout_seconds
     )
-    return OpenAIResponsesModel(
-        choice.model_id,
-        provider=OpenAIProvider(openai_client=openai_client),
-        settings=settings,
-    )
 
 
-def build_model(
+@asynccontextmanager
+async def build_model(
     *,
     config: Config,
     context: LedgerContext,
     effort: Effort,
     max_output_tokens: int,
     request_timeout_seconds: float,
-) -> LedgerModel:
+) -> AsyncGenerator[LedgerModel]:
     """Build the selected model for one step, wrapped to check and record requests.
+
+    Use it in an ``async with`` block. The model's SDK client, which uploads use too,
+    is closed when the block ends, also when it ends with an error or is canceled.
+    PydanticAI closes only the clients it creates itself.
 
     Parameters
     ----------
@@ -107,8 +135,8 @@ def build_model(
     request_timeout_seconds
         How long one attempt at a request may take.
 
-    Returns
-    -------
+    Yields
+    ------
     LedgerModel
         The model, ready for a PydanticAI agent. No request has been sent.
 
@@ -116,18 +144,26 @@ def build_model(
     ------
     MissingApiKeyError
         If the provider's API key is not set.
+
+    Examples
+    --------
+    ::
+
+        async with build_model(config=config, context=context, effort="medium",
+                               max_output_tokens=32000,
+                               request_timeout_seconds=600) as model:
+            survey, transport = await run_survey(model=model, ...)
     """
 
     choice = config.model_choice
     settings = choice.profile.effort_settings(effort)
     settings["max_tokens"] = max_output_tokens
-    model = _provider_model(
-        choice=choice,
-        config=config,
-        request_timeout_seconds=request_timeout_seconds,
-        settings=settings,
+    client = _sdk_client(
+        choice=choice, config=config, request_timeout_seconds=request_timeout_seconds
     )
-    return LedgerModel(model, config=config, context=context)
+    async with client:
+        model = _provider_model(choice=choice, client=client, settings=settings)
+        yield LedgerModel(model, config=config, context=context)
 
 
 def output_mode(model: Model) -> OutputMode:

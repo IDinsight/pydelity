@@ -156,7 +156,7 @@ def price_usage(
     ...     output_tokens=0,
     ...     overrides={},
     ... )
-    Decimal('4')
+    Decimal('4.0')
     """
 
     if model in overrides:

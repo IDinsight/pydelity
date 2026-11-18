@@ -838,6 +838,42 @@ arm64, Python 3.13.9, pydantic-ai-slim 2.69.0).
   the caller's code. PydanticAI prints a first-run banner only when a script
   calls an agent itself, not when an installed library does; DEV-011 confirms no
   banner appears when the survey runs from pydelity.
+- Reopened on 2026-11-18 at the user's request, after DEV-006's checks: the SDK
+  client that `build_model` creates is never closed. PydanticAI closes only the
+  HTTP clients it creates itself, not one passed to its provider. Several sync
+  runs in one process that end with `ProviderError` print "Task exception was
+  never retrieved … RuntimeError: Event loop is closed" when an earlier run's
+  client is collected during a later run. The model, and with it the client that
+  uploads use, must be closed when the survey step ends, whether it succeeds,
+  fails or is canceled. The step's goal and acceptance are unchanged.
+  - Files approved by the user (2026-11-18): `src/pydelity/providers/factory.py`
+    and `src/pydelity/pipeline/runner.py`.
+  - `build_model` is now an async context manager. It builds the SDK client
+    (`_sdk_client`, which still raises `MissingApiKeyError` first), builds the
+    PydanticAI model on it (`_provider_model`), yields the `LedgerModel` and
+    closes the client when the `async with` block ends. The runner's survey step
+    runs inside that block: the "Model ready" line, the estimate and spend
+    question, the upload and the survey requests. `build_model` has no other
+    caller, and `uploads.py` still reads the client from the model.
+  - Evidence, 2026-11-18, on `0d21cc1` plus the uncommitted changes, with the
+    mock provider server only (no real key, nothing spent; outside the sandbox
+    for the loopback port):
+    - Scratchpad `dev008_close_check.py`, 9 of 9: for each provider, the client
+      `build_model` created is closed after a completed run, a run that ends
+      with `ProviderError` (a 400 that rejects the PDF), a declined spend
+      question (`SpendDeclinedError`) and a cancellation inside the step
+      (`run.json` `interrupted`); every client the checks created is closed.
+    - `dev006_leak_repro3.py`, 12 failing runs per provider in one process: the
+      "Task exception was never retrieved … Event loop is closed" message now
+      appears 0 times with each provider (1 and 8 times before).
+    - `dev006_check.py` still passes 34 of 34, with none of those messages in
+      its output.
+    - `just lint` and `just test` (2 passed) pass.
+    - `pytest --doctest-modules src` fails 2 doctests, the same 2 as on
+      `0d21cc1` without this change: `resolve_config`'s example needs a
+      `report.pdf` in the working folder, and `price_usage`'s example expects
+      `Decimal('4')` where the code gives `Decimal('4.0')`. `just test` does not
+      run doctests. Fixed afterward with the user's approval; see Plan Notes.
 
 ### DEV-009 — PDF uploads, reuse and in-request fallback
 
@@ -2054,6 +2090,20 @@ constants; regenerating after Markdown formatting is byte-identical, so CI's
 
 ## Plan Notes
 
+- Two docstring examples had gone out of date, unnoticed because `just test`
+  runs only `tests/`. Fixed with the user's approval (2026-11-18), docstrings
+  only:
+  - `src/pydelity/costs/pricing.py`, `price_usage`: the example now expects
+    `Decimal('4.0')`, the form genai-prices 0.2.4 returns ($4.00, as before).
+  - `src/pydelity/config/loading.py`, `resolve_config`: the example called it
+    with a `report.pdf` that does not exist where doctests run. It now shows a
+    call with a missing PDF and the language `zz`, and the one `ConfigError`
+    that lists both problems, which runs anywhere.
+  - Checks: `pytest --doctest-modules src` (17 passed, 1 skipped),
+    `just lint-python` and `just test` pass.
+- For Tester (user request, 2026-11-18): make `just test` run the doctests in
+  `src/` as well as `tests/`, so docstring examples cannot go out of date
+  unnoticed.
 - The user's run on a third PDF of their own (59 pages, bilingual, $0.83, one
   request, 2026-11-18) led to two probe changes in
   `src/pydelity/surveying/probe.py`, approved by the user:

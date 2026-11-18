@@ -15,7 +15,7 @@
 `Development`:
 `.standards/docs/development/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`User go-ahead after DEV-006: whether to reopen DEV-008 first to close the SDK clients, and review of the files the next step will create or change.`
+`User go-ahead to continue with DEV-016, and review of the file and folder names and locations it will create or change.`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

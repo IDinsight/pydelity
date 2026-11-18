@@ -406,9 +406,14 @@ def resolve_config(
 
     Examples
     --------
-    >>> config = resolve_config(pdf="report.pdf", settings={"languages": ["en"]})
-    >>> config.languages, config.model  # doctest: +SKIP
-    (['en'], 'anthropic:claude-opus-5-5')
+    Every invalid setting is reported in one error:
+
+    >>> resolve_config(pdf="missing.pdf", settings={"languages": ["zz"]})
+    Traceback (most recent call last):
+        ...
+    pydelity.errors.ConfigError: 2 invalid settings:
+    - languages[0]: "zz" is not a valid BCP-47 language tag, such as "en" or "ar"
+    - pdf: no such file: missing.pdf
     """
 
     overrides = dict(settings or {})
