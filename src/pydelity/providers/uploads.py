@@ -34,7 +34,8 @@ from pydelity.config.schemas import Config
 from pydelity.errors import ProviderError
 from pydelity.providers.ledger_model import LedgerModel
 from pydelity.providers.profiles import PdfTransport
-from pydelity.providers.schemas import UPLOADS_SCHEMA_VERSION, Upload, Uploads
+from pydelity.providers.schemas import Upload, Uploads
+from pydelity.schema_versions import UPLOADS_SCHEMA_VERSION
 from pydelity.utils.coroutines import warn
 from pydelity.utils.files import load_model, write_model_atomic
 from pydelity.utils.pdf import PdfInfo

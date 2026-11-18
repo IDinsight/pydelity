@@ -1371,7 +1371,7 @@ arm64, Python 3.13.9).
 
 ### DEV-013 — HTML report
 
-`Status`: `PENDING` `Depends On`: `DEV-012` `Acceptance`: `AC-020`
+`Status`: `DONE` `Depends On`: `DEV-012` `Acceptance`: `AC-020`
 
 **Goal**
 
@@ -1399,9 +1399,86 @@ From the command line: the run logs `Report written` with the path of
 Reports for completed and failed runs on PDFs from the set, opened from disk;
 escaping checked with a hostile label; `just lint`.
 
+Evidence, 2026-11-18, on `a5a1c06` plus the uncommitted DEV-012 and DEV-013
+changes (macOS arm64, Python 3.13.9). No model was called and nothing was spent.
+
+- `just lint-python` (Ruff check and format, ty, interrogate 100%), `just test`
+  (2 passed) and the `_short_name` doctest pass. The built wheel contains
+  `pydelity/report/report.css`, and so does the strict editable install.
+- Scratchpad `dev013_check.py`, 26 of 26 checks, with no API key set:
+  - Copies of four real-run folders from DEV-011 were run again with their own
+    settings: the W-9 on Anthropic and on OpenAI, the CAPS extract, and the W-9
+    with a forced check failure. Each run reused the survey, completed, and
+    logged `Report written` and `report.html` in its summary. Each folder has
+    one 1000-pixel-wide JPEG per page and a manifest with the PDF's SHA-256.
+  - Each report is well formed, with no `script` element, no event-handler
+    attribute and no external URL, and every image it names exists. It holds, in
+    order, the cost and review sections, then the profile and facts sections
+    (the facts begin with the summary lines), then one page card per page. The
+    W-9 reports draw 20 or 21 region boxes and 23 form-field boxes; the CAPS
+    report draws 8 region boxes. The report with the forced failure lists its
+    review issue.
+  - A failed run (a model that needs the API key, which is not set) wrote a
+    report with the error, the facts and the pages, and no profile.
+  - Images: after one image was deleted, only that image was rendered again. A
+    manifest naming another PDF made every page render again.
+  - Hostile strings put into a saved survey (a label and a region named
+    `<script>alert("label")</script>`, an `" onmouseover="` description, an
+    `<img ... onerror=...>` note and a `</style><script>` note) appear in the
+    report as text. The report has no `script` element, no event handler and no
+    image but the page images.
+- `dev012_offline.py` (26 of 26) passes, with every run writing `report.html`:
+  completed, reused, failed (provider error, refusal, missing API key), stopped
+  and interrupted (a cancelled `arun` and Ctrl+C in the command).
+- Opened from disk in the browser pane: the W-9 report's header, cost, review
+  and facts sections and its page cards read as intended, with the form-field
+  boxes over page 0. The pane shows a local file as a snapshot without its
+  images, so the images were checked on disk instead. The CAPS page images show
+  each page as displayed, portrait with the table turned. Copies of five reports
+  are in the git-ignored `pydelity-output/dev013-preview/`.
+
 **Implementation Notes**
 
-Loads the Developer HTML and CSS styles.
+- Loads the Developer HTML and CSS styles.
+- Files approved by the user (2026-11-18): `src/pydelity/report/` with
+  `__init__.py`, `schemas.py`, `images.py`, `html.py` and `report.css`, and a
+  change to `src/pydelity/pipeline/runner.py`. The user also approved adding
+  `[tool.setuptools.package-data]` to `pyproject.toml`, since setuptools
+  packages only Python modules and `py.typed` otherwise.
+- Page images are JPEG (quality 80), about 280 KB per W-9 page. Each is written
+  to a temporary file and then moved into place, and leftover temporary files in
+  `report/pages/` are removed. When the manifest is missing, unreadable or names
+  another PDF, the old images are deleted and every page is rendered again.
+- `report.html` holds the run header, cost, warnings, review issues, profile,
+  facts and page cards. Region boxes are solid and form-field boxes dashed, each
+  with its label written in the box, so the two differ by more than color.
+  Form-field boxes show the field's short name, and the facts table gives the
+  full one.
+- The run writes the report after the final `run.json`, off the event loop, for
+  every status. If the report cannot be written, the run logs an error and ends
+  as it would have.
+- The user saw region boxes that did not match the page (2026-11-18). The report
+  draws each box where `pdf_survey.json` puts it: in the browser pane each box
+  sat at its stored fraction of the page image, and PyMuPDF drew the same boxes
+  in the same places. Form-field boxes, measured from the PDF, line up with the
+  form. Region boxes are the model's estimates and are often off: round
+  fractions on the W-9 (its `Sign Here` box covers the certification paragraph),
+  and on page 2 of the CAPS extract a box over the left 30% of a table that
+  spans the page. With the user's approval, the caption under each page now says
+  the region boxes are where the model placed them and can be off, and that the
+  form-field boxes are measured from the PDF. Making region boxes accurate
+  (snapping them to measured content, or a check that rejects boxes over empty
+  areas) is a design question for the Architect when a later step that uses
+  regions is designed.
+- At the user's request (2026-11-18), the six schema versions moved into the new
+  `src/pydelity/schema_versions.py`: `FACTS_SCHEMA_VERSION`,
+  `LEDGER_SCHEMA_VERSION`, `MANIFEST_SCHEMA_VERSION`, `RUN_SCHEMA_VERSION`,
+  `SURVEY_SCHEMA_VERSION` and `UPLOADS_SCHEMA_VERSION`. The schema modules no
+  longer define them, and the modules that write the files import them from
+  there. `PROBE_VERSION` and `PROMPT_VERSION` stay next to the probe and the
+  prompt, which they must follow. After both changes, lint, `just test`, the
+  doctests, `dev010_check.py`, `dev011_offline.py`, `dev012_offline.py` and
+  `dev013_check.py` (26 of 26) pass.
 
 ### DEV-014 — Python API
 

@@ -19,9 +19,9 @@ from pathlib import Path
 from loguru import logger
 
 # Package Library
+from pydelity.schema_versions import FACTS_SCHEMA_VERSION
 from pydelity.surveying.probe import PROBE_VERSION, probe_pdf
 from pydelity.surveying.schemas import (
-    FACTS_SCHEMA_VERSION,
     Facts,
     PageFacts,
     PdfFacts,

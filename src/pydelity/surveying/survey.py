@@ -19,10 +19,10 @@ from pydelity.costs.budget import format_usd
 from pydelity.costs.ledger import LEDGER_FILE_NAME, read_ledger
 from pydelity.providers.ledger_model import LedgerModel
 from pydelity.providers.profiles import PdfTransport
+from pydelity.schema_versions import SURVEY_SCHEMA_VERSION
 from pydelity.surveying.llm import ask_model
 from pydelity.surveying.prompts import PROMPT_VERSION
 from pydelity.surveying.schemas import (
-    SURVEY_SCHEMA_VERSION,
     Facts,
     ItemKind,
     ItemRole,

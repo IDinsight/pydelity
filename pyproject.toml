@@ -171,6 +171,10 @@ convention = "numpy"
 [tool.setuptools]
 package-dir = {"" = "src"}
 
+# Files other than Python modules that the package reads at run time.
+[tool.setuptools.package-data]
+pydelity = ["report/*.css"]
+
 [tool.setuptools.packages.find]
 include = ["pydelity*"]
 where = ["src"]

@@ -13,10 +13,6 @@ from pydantic import BaseModel, ConfigDict
 # Package Library
 from pydelity.providers.profiles import ProviderName
 
-# The version of the uploads file's schema. Additive changes bump the minor version,
-# breaking changes the major version.
-UPLOADS_SCHEMA_VERSION = "1.0"
-
 
 class _Output(BaseModel):
     """Base for the models stored in output files."""

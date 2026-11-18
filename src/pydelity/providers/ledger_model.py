@@ -43,8 +43,9 @@ from pydelity.config.schemas import Config
 from pydelity.costs.budget import PROMPT_CHARS_PER_TOKEN, SpendGuard, format_usd
 from pydelity.costs.ledger import append_entry
 from pydelity.costs.pricing import price_response, price_usage
-from pydelity.costs.schemas import LEDGER_SCHEMA_VERSION, LedgerEntry
+from pydelity.costs.schemas import LedgerEntry
 from pydelity.errors import ProviderError
+from pydelity.schema_versions import LEDGER_SCHEMA_VERSION
 from pydelity.utils.pdf import PdfInfo
 
 # Ledger costs are rounded to this many decimal places of a US dollar.

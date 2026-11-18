@@ -2,9 +2,10 @@
 
 ``run.json`` is written when the run starts, with status ``running``, and again when
 it ends: ``completed``, ``failed``, ``stopped`` (a ``max_cost`` no or a declined
-confirmation) or ``interrupted`` (Ctrl+C, or a cancelled ``arun``). The run writes it
-before the error goes on to the caller, so every file in the folder stays valid. The
-run then logs a summary: how it ended, what it cost and the review issues.
+confirmation) or ``interrupted`` (Ctrl+C, or a cancelled ``arun``). The run writes it,
+and then ``report.html``, before the error goes on to the caller, so every file in the
+folder stays valid. The run then logs a summary of how it ended, what it cost and the
+review issues.
 """
 
 # Standard Library
@@ -18,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from importlib.metadata import version
+from pathlib import Path
 
 # Third Party Library
 from loguru import logger
@@ -35,7 +37,6 @@ from pydelity.costs.ledger import LEDGER_FILE_NAME, Ledger, read_ledger
 from pydelity.costs.schemas import CostEstimate
 from pydelity.errors import BudgetExceededError
 from pydelity.pipeline.schemas import (
-    RUN_SCHEMA_VERSION,
     PdfRecord,
     RunCost,
     RunRecord,
@@ -48,6 +49,9 @@ from pydelity.pipeline.schemas import (
 from pydelity.providers.factory import build_model, output_mode
 from pydelity.providers.ledger_model import LedgerContext
 from pydelity.providers.profiles import PdfTransport
+from pydelity.report.html import write_report
+from pydelity.report.images import render_pages
+from pydelity.schema_versions import RUN_SCHEMA_VERSION
 from pydelity.surveying.facts import FACTS_FILE_NAME, measure_facts
 from pydelity.surveying.prompts import PROMPT_VERSION, survey_pdf
 from pydelity.surveying.schemas import PdfFacts, PdfSurvey, SurveyAnswer
@@ -246,14 +250,14 @@ def _estimate_cost(
     return estimate
 
 
-def _finish(
+async def _finish(
     run: _Run,
     *,
     error: BaseException | None,
     status: RunStatus,
     step_status: StepStatus,
 ) -> RunRecord:
-    """Write the run's final ``run.json`` and log its summary.
+    """Write the run's final ``run.json`` and the report, and log the summary.
 
     Parameters
     ----------
@@ -274,7 +278,8 @@ def _finish(
 
     record = _record(run, error=error, status=status, step_status=step_status)
     write_model_atomic(model=record, path=run.config.output_folder / RUN_FILE_NAME)
-    _log_summary(record, run=run)
+    report = await _write_report(record, run=run)
+    _log_summary(record, report=report, run=run)
     return record
 
 
@@ -314,13 +319,15 @@ def _log_estimate(estimate: CostEstimate) -> None:
     )
 
 
-def _log_summary(record: RunRecord, *, run: _Run) -> None:
+def _log_summary(record: RunRecord, *, report: Path | None, run: _Run) -> None:
     """Log how the run ended, what it cost, its review issues and its files.
 
     Parameters
     ----------
     record
         The run's final record.
+    report
+        The report, if it was written.
     run
         What the run has done, for the output folder.
     """
@@ -371,7 +378,9 @@ def _log_summary(record: RunRecord, *, run: _Run) -> None:
             "Run pydelity again to continue. The saved files are reused, and the "
             "spend so far still counts toward max_cost."
         )
-    files = [RUN_FILE_NAME, *record.steps[0].outputs] if record.steps else []
+    files = [RUN_FILE_NAME, *(record.steps[0].outputs if record.steps else [])]
+    if report is not None:
+        files.append(report.name)
     logger.info(
         "Output folder: {folder} ({files})",
         files=", ".join(files),
@@ -465,6 +474,36 @@ def _record(
         status=status,
         steps=steps,
         warnings=warnings,
+    )
+
+
+def _report_files(record: RunRecord, *, run: _Run) -> Path:
+    """Render the page images that are missing and write ``report.html``.
+
+    Parameters
+    ----------
+    record
+        The run's final record.
+    run
+        What the run has done.
+
+    Returns
+    -------
+    Path
+        The report's path.
+    """
+
+    manifest = render_pages(
+        output_folder=run.config.output_folder,
+        pdf_path=run.pdf.path,
+        pdf_sha256=run.pdf.sha256,
+    )
+    return write_report(
+        facts=run.facts,
+        manifest=manifest,
+        output_folder=run.config.output_folder,
+        record=record,
+        survey=run.survey,
     )
 
 
@@ -587,6 +626,33 @@ def _warn_other_pdf(run: _Run) -> None:
         )
 
 
+async def _write_report(record: RunRecord, *, run: _Run) -> Path | None:
+    """Write the report off the event loop, logging an error instead of raising.
+
+    A report that cannot be written does not change how the run ended.
+
+    Parameters
+    ----------
+    record
+        The run's final record.
+    run
+        What the run has done.
+
+    Returns
+    -------
+    Path | None
+        The report's path, or ``None`` when it could not be written.
+    """
+
+    try:
+        path = await asyncio.to_thread(_report_files, record, run=run)
+    except (OSError, RuntimeError, ValueError) as error:
+        logger.error("The report could not be written: {error}", error=error)
+        return None
+    logger.info("Report written: {path}", path=path)
+    return path
+
+
 async def run_pipeline(
     *,
     config: Config,
@@ -662,15 +728,15 @@ async def run_pipeline(
                 run, confirm=confirm, decide_over_max_cost=decide_over_max_cost
             )
         except (BudgetExceededError, SpendDeclinedError) as error:
-            _finish(run, error=error, status="stopped", step_status="stopped")
+            await _finish(run, error=error, status="stopped", step_status="stopped")
             raise
         except (KeyboardInterrupt, asyncio.CancelledError) as error:
-            _finish(run, error=error, status="interrupted", step_status="stopped")
+            await _finish(run, error=error, status="interrupted", step_status="stopped")
             raise
         except Exception as error:
-            _finish(run, error=error, status="failed", step_status="failed")
+            await _finish(run, error=error, status="failed", step_status="failed")
             raise
-        record = _finish(
+        record = await _finish(
             run, error=None, status="completed", step_status=run.step_status
         )
 

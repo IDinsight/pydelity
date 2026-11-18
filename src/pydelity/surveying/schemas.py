@@ -24,13 +24,6 @@ from pydantic import BaseModel, ConfigDict
 # Package Library
 from pydelity.providers.profiles import Effort
 
-# The version of the facts' schema. Additive changes bump the minor version, breaking
-# changes the major version.
-FACTS_SCHEMA_VERSION = "1.0"
-
-# The version of the survey's schema, versioned the same way.
-SURVEY_SCHEMA_VERSION = "1.0"
-
 # A page angle in degrees, counterclockwise.
 type Angle = Literal[0, 90, 180, 270]
 

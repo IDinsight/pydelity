@@ -18,10 +18,6 @@ from pydelity.errors import WarningCode
 from pydelity.providers.profiles import PdfTransport
 from pydelity.surveying.schemas import PdfFacts, PdfSurvey, ReviewIssue
 
-# The version of the run record's schema. Additive changes bump the minor version,
-# breaking changes the major version.
-RUN_SCHEMA_VERSION = "1.0"
-
 # How a run ended, or ``running`` while it lasts.
 type RunStatus = Literal["running", "completed", "failed", "stopped", "interrupted"]
 

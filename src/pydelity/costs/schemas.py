@@ -11,10 +11,6 @@ from typing import Annotated, Literal
 # Third Party Library
 from pydantic import BaseModel, ConfigDict, PlainSerializer
 
-# The version of the ledger lines' schema. Additive changes bump the minor version,
-# breaking changes the major version.
-LEDGER_SCHEMA_VERSION = "1.0"
-
 # A sum of money in US dollars, written as a JSON number.
 type Money = Annotated[
     Decimal, PlainSerializer(float, return_type=float, when_used="json")
