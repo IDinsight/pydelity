@@ -90,6 +90,10 @@ _SURVEY_STEP = "survey"
 # The run record's file name in the output folder.
 RUN_FILE_NAME = "run.json"
 
+# The loguru ``extra`` key that marks the cost estimate and the end-of-run summary,
+# which the ``pydelity`` command shows even when it hides other progress.
+SUMMARY_LOG_KEY = "summary"
+
 # Asks whether to go ahead and spend, given the cost estimate.
 type SpendConfirmation = Callable[[CostEstimate], bool]
 
@@ -343,20 +347,23 @@ def _load_part[ModelT: BaseModel](
 def _log_estimate(estimate: CostEstimate) -> None:
     """Log the cost estimate, the folder's spend so far and ``max_cost``.
 
+    The lines are marked with `SUMMARY_LOG_KEY`.
+
     Parameters
     ----------
     estimate
         The estimate.
     """
 
+    summary = logger.bind(**{SUMMARY_LOG_KEY: True})
     for step in estimate.steps:
         if step.reused:
-            logger.info(
+            summary.info(
                 "{name}: the saved output would be reused, nothing to spend",
                 name=step.name.capitalize(),
             )
         elif step.expected_usd is None or step.max_usd is None:
-            logger.info(
+            summary.info(
                 "{name} cost estimate: unknown, no price is known for {model} "
                 "(at most {requests} requests)",
                 model=step.model,
@@ -364,7 +371,7 @@ def _log_estimate(estimate: CostEstimate) -> None:
                 requests=step.requests_max,
             )
         else:
-            logger.info(
+            summary.info(
                 "{name} cost estimate: about {expected}, at most {maximum} "
                 "(up to {requests} requests to {model})",
                 expected=format_usd(step.expected_usd),
@@ -374,7 +381,7 @@ def _log_estimate(estimate: CostEstimate) -> None:
                 requests=step.requests_max,
             )
     limit = "not set" if estimate.max_cost is None else format_usd(estimate.max_cost)
-    logger.info(
+    summary.info(
         "Spent so far in this output folder: {spent}; max_cost: {limit}",
         limit=limit,
         spent=format_usd(estimate.spent_usd),
@@ -383,6 +390,8 @@ def _log_estimate(estimate: CostEstimate) -> None:
 
 def _log_summary(record: RunRecord, *, report: Path | None, run: _Run) -> None:
     """Log how the run ended, what it cost, its review issues and its files.
+
+    The lines are marked with `SUMMARY_LOG_KEY`.
 
     Parameters
     ----------
@@ -394,18 +403,20 @@ def _log_summary(record: RunRecord, *, report: Path | None, run: _Run) -> None:
         What the run has done, for the output folder.
     """
 
+    summary = logger.bind(**{SUMMARY_LOG_KEY: True})
     cost = record.cost
     steps = ", ".join(f"{step.name} {step.status}" for step in record.steps)
     by_step = ", ".join(
         f"{name} {format_usd(usd)}" for name, usd in cost.by_step.items()
     )
+    count = cost.unpriced_requests
     unpriced = (
-        f", plus {cost.unpriced_requests} requests without a known price"
-        if cost.unpriced_requests
+        f", plus {count} request{'' if count == 1 else 's'} without a known price"
+        if count
         else ""
     )
     issues = len(record.review)
-    logger.info(
+    summary.info(
         "Run {status}: {steps}; cost {run_usd} this run{by_step}{unpriced}, "
         "{folder} in the output folder; {issues} review issue{plural}",
         by_step=f" ({by_step})" if by_step else "",
@@ -419,31 +430,31 @@ def _log_summary(record: RunRecord, *, report: Path | None, run: _Run) -> None:
     )
     if record.review:
         counts = Counter(issue.check for issue in record.review)
-        logger.info(
+        summary.info(
             "Review issues by check: {counts}",
             counts=", ".join(f"{check} {count}" for check, count in counts.items()),
         )
         for issue in record.review[:_REVIEW_ISSUES_LISTED]:
             page = "-" if issue.page_index is None else str(issue.page_index)
-            logger.info(
+            summary.info(
                 "  {step}, page {page}: {message}",
                 message=issue.message,
                 page=page,
                 step=issue.step,
             )
         if issues > _REVIEW_ISSUES_LISTED:
-            logger.info(
+            summary.info(
                 "  ...and {more} more in run.json", more=issues - _REVIEW_ISSUES_LISTED
             )
     if record.status == "stopped":
-        logger.info(
+        summary.info(
             "Run pydelity again to continue. The saved files are reused, and the "
             "spend so far still counts toward max_cost."
         )
     files = [RUN_FILE_NAME, *(record.steps[0].outputs if record.steps else [])]
     if report is not None:
         files.append(report.name)
-    logger.info(
+    summary.info(
         "Output folder: {folder} ({files})",
         files=", ".join(files),
         folder=run.config.output_folder,

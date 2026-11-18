@@ -1600,7 +1600,7 @@ arm64, Python 3.13.9).
 
 ### DEV-015 — CLI
 
-`Status`: `PENDING` `Depends On`: `DEV-014` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-014` `Acceptance`:
 `AC-007, AC-008, AC-009, AC-015, AC-019, AC-037, AC-038, AC-040`
 
 **Goal**
@@ -1625,6 +1625,82 @@ review issues grouped by check, a count per check before the list; the
 
 The installed `pydelity` with real providers: `--yes`, piped stdin without
 `--yes`, a declined prompt, invalid settings and `--version`; `just lint`.
+
+Evidence, 2026-11-18, on `e9cb796` plus the uncommitted DEV-015 changes (macOS
+arm64, Python 3.13.9).
+
+- `just lint-python` (Ruff check and format, ty, interrogate 100%) and
+  `just test` (2 passed) pass. `dev012_offline.py` (26 of 26) still passes.
+- Scratchpad `dev015_offline.py`, 14 of 14 checks, with no API key. Runs that
+  reach the model use the command with a stand-in model, and questions are
+  answered through a pseudo-terminal. That check ran outside the sandbox, which
+  allows no pseudo-terminals, and made no network calls.
+  - `--version` prints `pydelity 0.0.1`, and `python -m pydelity --version`
+    prints the same.
+  - `--help` lists the options in the design's order, ending `--verbose`,
+    `--quiet`, `--version`, with the default output folder and model shown.
+  - Three invalid settings (`--max-cost -1`, `--language zz`,
+    `--model nope:model`) give exit 2 and one error naming all three, with
+    nothing written. No PDF gives exit 2 naming `pdf`. `--quiet` with
+    `--verbose` gives exit 2.
+  - No API key: exit 2 naming `ANTHROPIC_API_KEY`, with `pdf_facts.json` saved
+    and `run.json` `failed`.
+  - `--quiet` logs only WARNING lines, the `max_cost` warning among them.
+    `--verbose` adds DEBUG lines with the settings and the prompt. The default
+    level logs INFO lines, the summary and the report path.
+  - Input that is not a terminal, without `--yes`: exit 3, "pass --yes",
+    `run.json` `stopped`, nothing sent.
+  - On a terminal: answering no exits 3 with nothing sent; yes completes. Over
+    `max_cost`, the only question is the `max_cost` one: no exits 3, and yes
+    completes with the warning recorded as allowed.
+- Real runs of the command installed from a wheel in a fresh virtual environment
+  (`dev015_real.py`, `claude-opus-5-5`, one request of at most 10,000 output
+  tokens per run; $0.25 recorded):
+  - `--version` and two invalid settings (exit 2, nothing written);
+  - input that is not a terminal without `--yes`, and a terminal question
+    answered no: both exit 3, `stopped`, nothing spent;
+  - a terminal question answered yes: exit 0, completed, report written ($0.19);
+  - `--yes`: exit 0, completed, with no PydanticAI banner and no Python warning
+    output ($0.06).
+
+**Implementation Notes**
+
+- File approved by the user (2026-11-18): `src/pydelity/cli.py`.
+- Rework at the user's request (2026-11-18), with
+  `src/pydelity/pipeline/runner.py` also approved:
+  - `--quiet` is gone. By default the command shows only warnings, errors, the
+    cost estimate (with the folder's spend and `max_cost`) and the end-of-run
+    summary. The runner marks those lines with the loguru `extra` key
+    `SUMMARY_LOG_KEY`, and the command's log filter lets them through.
+    `--verbose` shows every message, progress and details included.
+  - Every option has a short form: `-c` config, `-i` instructions, `-l`
+    language, `-d` output folder, `-m` model, `-mc` max cost, `-o` overwrite,
+    `-y` yes, `-v` verbose, `-V` version and `-h` help. Click reads `-mc` as one
+    option before trying `-m` with a value, so `-m` and `-mc` work together.
+  - The summary now says "1 request" rather than "1 requests".
+  - Evidence: `dev015_offline.py`, 16 of 16 (outside the sandbox, for
+    pseudo-terminals, with no network calls):
+    - `--help` lists every short form and no `--quiet`, `-h` and `-V` work, and
+      `--quiet` is an unknown option (exit 2).
+    - By default only the estimate, the `max_cost` warning and the summary
+      appear, with no progress or DEBUG lines. `--verbose` adds progress, the
+      settings, the prompt and the report path.
+    - `-o`, `-i`, `-l`, `-m` and `-mc` reach the run's settings, and `-d` sets
+      the output folder.
+    - The earlier checks (version, invalid settings, missing API key, piped
+      input, questions on a terminal) still pass.
+
+    Lint, `just test`, `dev012_offline.py` and `dev014_offline.py` pass too.
+- The help text had lost its two defaults, because Typer reads `[default: …]` in
+  help text as markup. They now use Typer's `show_default`, which prints
+  `[default: (pydelity-output/<PDF name>)]` and
+  `[default: (anthropic:claude-opus-5-5)]`. The model default comes from
+  `DEFAULT_MODEL`.
+- The rest of the design's contract was already in place from DEV-001, DEV-007,
+  DEV-011 and DEV-012: the options, the questions and the mid-run `max_cost`
+  question, the provider's message printed unchanged, exit codes 0, 1, 2, 3 and
+  130, warnings printed once as they occur, and the summary with review issues
+  counted by check.
 
 ### DEV-006 — Mock provider server
 
@@ -1831,6 +1907,10 @@ constants; regenerating after Markdown formatting is byte-identical, so CI's
 
 ## Plan Notes
 
+- A deviation from the design's CLI contract, approved by the user on
+  2026-11-18: the command has no `--quiet`. By default it shows warnings,
+  errors, the cost estimate and the summary, and `--verbose` shows everything.
+  Every option also has a short form, `-mc` for `--max-cost` among them.
 - Deviations from the design's decision 2, approved by the user on 2026-11-18:
   the survey prompt is built in a function that returns a `PromptPair` rather
   than kept in string constants, and the report's stylesheet ships as package

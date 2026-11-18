@@ -11,7 +11,7 @@ import warnings
 
 from functools import partial
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 # Third Party Library
 import pydantic_ai
@@ -33,11 +33,21 @@ from pydelity.errors import (
     PydelityError,
     PydelityWarning,
 )
+from pydelity.pipeline.runner import SUMMARY_LOG_KEY
+from pydelity.providers.profiles import DEFAULT_MODEL
+
+if TYPE_CHECKING:
+    # Third Party Library
+    from loguru import Record
 
 _LOG_FORMAT = "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}"
 
 # Hide local variables in tracebacks because they can hold API keys.
-app = typer.Typer(add_completion=False, pretty_exceptions_show_locals=False)
+app = typer.Typer(
+    add_completion=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
+    pretty_exceptions_show_locals=False,
+)
 
 
 def _ask(*, question: str, yes: bool) -> bool:
@@ -111,14 +121,30 @@ def _decide_over_max_cost(warning: MaxCostWarning, *, yes: bool) -> bool:
 def _enable_logging(*, verbose: bool) -> None:
     """Send pydelity's log messages to stderr.
 
+    By default only warnings, errors, the cost estimate and the end-of-run summary
+    are shown. With ``--verbose`` every message is shown, including progress and
+    details such as the settings and the prompt.
+
     Parameters
     ----------
     verbose
-        Whether to log details (DEBUG level) as well as progress (INFO level).
+        Whether to show every message.
     """
 
+    warning = logger.level("WARNING").no
+
+    def shown(record: "Record") -> bool:
+        """Tell whether a message is shown when ``--verbose`` is not given."""
+
+        return record["level"].no >= warning or bool(
+            record["extra"].get(SUMMARY_LOG_KEY)
+        )
+
     logger.remove()
-    logger.add(sys.stderr, format=_LOG_FORMAT, level="DEBUG" if verbose else "INFO")
+    if verbose:
+        logger.add(sys.stderr, format=_LOG_FORMAT, level="DEBUG")
+    else:
+        logger.add(sys.stderr, filter=shown, format=_LOG_FORMAT, level="INFO")
     logger.enable("pydelity")
 
 
@@ -163,6 +189,8 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
     instructions: Annotated[
         str | None,
         typer.Option(
+            "--instructions",
+            "-i",
             help="Extra instructions for the model about this PDF.",
             metavar="TEXT",
             show_default=False,
@@ -171,6 +199,8 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
     language: Annotated[
         list[str] | None,
         typer.Option(
+            "--language",
+            "-l",
             help="A language of the PDF as a BCP-47 tag, such as en; repeat for more.",
             metavar="TAG",
             show_default=False,
@@ -179,23 +209,29 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
     output_dir: Annotated[
         Path | None,
         typer.Option(
-            help="The output folder [default: pydelity-output/<PDF name>].",
+            "--output-dir",
+            "-d",
+            help="The output folder.",
             metavar="DIR",
-            show_default=False,
+            show_default="pydelity-output/<PDF name>",
         ),
     ] = None,
     model: Annotated[
         str | None,
         typer.Option(
+            "--model",
+            "-m",
             help="The model, as <provider>:<model-id> with provider anthropic or "
-            "openai [default: anthropic:claude-opus-5-5].",
+            "openai.",
             metavar="MODEL",
-            show_default=False,
+            show_default=DEFAULT_MODEL,
         ),
     ] = None,
     max_cost: Annotated[
         str | None,
         typer.Option(
+            "--max-cost",
+            "-mc",
             help="The most the output folder's model requests may cost, in US dollars.",
             metavar="USD",
             show_default=False,
@@ -205,6 +241,7 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
         bool | None,
         typer.Option(
             "--overwrite",
+            "-o",
             help="Redo steps whose outputs could be reused.",
             show_default=False,
         ),
@@ -220,13 +257,16 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
     verbose: Annotated[
         bool,
         typer.Option(
-            "--verbose", "-v", help="Also log details, such as the settings in use."
+            "--verbose",
+            "-v",
+            help="Also show progress and details, such as the settings in use.",
         ),
     ] = False,
     version: Annotated[
         bool,
         typer.Option(
             "--version",
+            "-V",
             callback=_show_version,
             help="Show the version and exit.",
             is_eager=True,
@@ -258,7 +298,8 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
     yes
         Whether to go ahead without asking.
     verbose
-        Whether to log details as well as progress.
+        Whether to show progress and details as well as warnings, errors, the cost
+        estimate and the summary.
     version
         Whether to print the version and exit instead (handled by `_show_version`).
 
