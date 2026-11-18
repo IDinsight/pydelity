@@ -14,14 +14,15 @@ proposal and projection. This cycle builds step 1, the survey, and ships it as
 pydelity's first working release, version 0.1.0.
 
 The survey reads a whole PDF once, measures what Python can measure without a
-model, and asks a model for a profile of the document that later steps rely on:
-its labels, languages, writing direction, rotated pages, and how content
-continues across pages. Every later step depends on that profile, so it comes
-first. Because a survey run calls a paid model, the cycle also delivers the run
-features any paid step needs: configuration, a CLI and a Python API, clear
-errors when a provider rejects a PDF, cost reporting and spend controls, resume,
-and review output. People on Windows, macOS and Linux install the release from
-PyPI and learn to use it from an official, versioned docs site.
+model, and asks a model, given those facts as hints, for a profile of the
+document that later steps rely on: its labels, languages, writing direction,
+rotated pages, and how content continues across pages. Every later step depends
+on that profile, so it comes first. Because a survey run calls a paid model, the
+cycle also delivers the run features any paid step needs: configuration, a CLI
+and a Python API, clear errors when a provider rejects a PDF, cost reporting and
+spend controls, resume, and review output. People on Windows, macOS and Linux
+install the release from PyPI and learn to use it from an official, versioned
+docs site.
 
 ## Constraints
 
@@ -91,8 +92,8 @@ PyPI and learn to use it from an official, versioned docs site.
   large.
 - A second model that verifies or corrects the survey's profile (a
   producer-verifier pass like KGForEdGlobal's page extraction). The survey's
-  checks are Python checks against the measured facts; a verifier may come with
-  a later step such as page extraction.
+  checks are Python checks; a verifier may come with a later step such as page
+  extraction.
 - Shipping or maintaining per-model PDF input limits, or checking a PDF against
   such limits before the model call.
 - A default spending limit.
@@ -125,12 +126,19 @@ so that no step needs hand-written per-document rules.
   each mapped to one role and its allowed kinds and always including `other`;
   languages; writing direction; rotation per page range; continuation notes; and
   start markers.
-- `AC-003`: The profile is checked against the measured facts before it is
-  accepted: labels map to valid roles and kinds, rotation agrees with the
-  measured text direction, the printed-page offset agrees with the printed page
-  numbers, and proposed artifacts account for the repeated lines. A failed check
-  is sent back to the model; a check that still fails after the retries is
-  recorded on the review list.
+- `AC-045`: Before the profile is accepted, Python checks that it is well formed
+  and complete: labels map to valid roles and kinds, regions, page ranges and
+  language tags are valid, and the answer says for every repeated line whether
+  it is a proposed artifact or content. A failed check is sent back to the
+  model; a check that still fails after the retries is recorded on the review
+  list.
+- `AC-046`: The survey's model treats the measured facts as hints and trusts its
+  own reading of the PDF where they differ, for printed page numbers, rotation
+  and every other fact. An answer is never sent back to the model only because
+  it disagrees with the measured facts: the profile keeps the model's reading,
+  and each disagreement with the measured rotation or printed page numbers is
+  recorded on the review list with the page, the measured value and the
+  profile's value.
 - `AC-004`: Optional user instructions and document languages add to the profile
   but never bypass its checks.
 - `AC-005`: The measured facts are correct on test PDFs that cover two-column
@@ -346,6 +354,11 @@ mocked tests cannot show.
 
 ## Retired Acceptance Identifiers
 
+- `AC-003`: Retired on 2026-11-18 by user rework. The profile no longer has to
+  agree with the measured rotation and printed page numbers, because the
+  survey's model trusts its own reading over the measured facts; replaced by
+  `AC-045` for the checks that still send an answer back and `AC-046` for
+  disagreements with the facts.
 - `AC-012`: Retired on 2026-11-17 by user rework. pydelity no longer checks the
   PDF against per-model input limits before the call; replaced by `AC-037`.
 - `AC-013`: Retired on 2026-11-17 by user rework. pydelity no longer ships or
