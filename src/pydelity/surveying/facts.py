@@ -385,19 +385,6 @@ def _unreadable_lines(facts: Facts) -> list[str]:
     ]
 
 
-def _warn(message: str) -> None:
-    """Log a warning and issue it as a `pydelity.errors.PydelityWarning`.
-
-    Parameters
-    ----------
-    message
-        The warning's text.
-    """
-
-    logger.warning(message)
-    warn(message)
-
-
 def facts_fingerprint(pdf_sha256: str) -> str:
     """Return the fingerprint of what the facts depend on.
 
@@ -450,7 +437,11 @@ async def measure_facts(
     expected = facts_fingerprint(pdf.sha256)
     saved = load_model(model_type=PdfFacts, path=path)
     if saved.damage is not None:
-        _warn(f"{saved.damage}; measuring the PDF again")
+        warn(
+            f"{saved.damage}; measuring the PDF again",
+            code="damaged_output",
+            details={"file": FACTS_FILE_NAME},
+        )
 
     if (
         saved.model is not None
@@ -482,7 +473,11 @@ async def measure_facts(
     for line in result.summary:
         logger.info("  {line}", line=line)
     for error in result.facts.probe_errors:
-        _warn(f"Could not read the PDF's {error.fact}: {error.message}")
+        warn(
+            f"Could not read the PDF's {error.fact}: {error.message}",
+            code="probe_unavailable",
+            details={"fact": error.fact},
+        )
     for page in result.facts.pages:
         logger.debug("  {page}", page=_page_line(page))
     return result

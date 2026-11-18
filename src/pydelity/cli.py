@@ -7,6 +7,7 @@ library does the rest.
 # Standard Library
 import asyncio
 import sys
+import warnings
 
 from functools import partial
 from pathlib import Path
@@ -26,20 +27,12 @@ from pydelity.costs.schemas import CostEstimate, MaxCostWarning
 from pydelity.errors import (
     BudgetExceededError,
     ConfigError,
+    ExitCode,
     MissingApiKeyError,
     PdfError,
     PydelityError,
+    PydelityWarning,
 )
-
-# Exit code for a run that failed.
-_EXIT_FAILED = 1
-
-# Exit code for an invalid setting, API key or PDF.
-_EXIT_INVALID_INPUT = 2
-
-# Exit code for a run the user declined, or that could not ask because input is not a
-# terminal and --yes was not given.
-_EXIT_STOPPED = 3
 
 _LOG_FORMAT = "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}"
 
@@ -273,7 +266,8 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
     ------
     typer.Exit
         With exit code 2 when a setting, the API key or the PDF is invalid, 3 when the
-        run stops at an answer or because it cannot ask, or 1 when the run fails.
+        run stops at an answer or because it cannot ask, 1 when the run fails, or 130
+        when it is interrupted with Ctrl+C.
     """
 
     _enable_logging(verbose=verbose)
@@ -281,6 +275,9 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
     # people who write their own agents, stays off. PydanticAI documents setting this
     # flag, but declares it without a type, so ty reads it as always true.
     pydantic_ai.BANNER_ENABLED = False  # ty: ignore[invalid-assignment]
+    # Each warning is logged when it is issued, so Python's own warning output would
+    # print it a second time.
+    warnings.filterwarnings("ignore", category=PydelityWarning)
     given = {
         "instructions": instructions,
         "languages": language or None,
@@ -302,13 +299,16 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
         )
     except (ConfigError, MissingApiKeyError, PdfError) as error:
         logger.error(str(error))
-        raise typer.Exit(code=_EXIT_INVALID_INPUT) from error
+        raise typer.Exit(code=ExitCode.INVALID_INPUT) from error
     except (BudgetExceededError, SpendDeclinedError) as error:
         logger.error(str(error))
-        raise typer.Exit(code=_EXIT_STOPPED) from error
+        raise typer.Exit(code=ExitCode.STOPPED) from error
     except PydelityError as error:
         logger.error(str(error))
-        raise typer.Exit(code=_EXIT_FAILED) from error
+        raise typer.Exit(code=ExitCode.FAILED) from error
+    except KeyboardInterrupt as error:
+        logger.error("Interrupted")
+        raise typer.Exit(code=ExitCode.INTERRUPTED) from error
 
 
 def main() -> None:

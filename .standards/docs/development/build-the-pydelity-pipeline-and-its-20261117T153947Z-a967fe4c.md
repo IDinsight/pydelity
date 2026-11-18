@@ -1234,7 +1234,7 @@ arm64, Python 3.13.9, PydanticAI 2.69.0).
 
 ### DEV-012 — Run orchestration
 
-`Status`: `PENDING` `Depends On`: `DEV-004, DEV-007, DEV-011` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-004, DEV-007, DEV-011` `Acceptance`:
 `AC-014, AC-018, AC-019, AC-037, AC-038, AC-039, AC-040`
 
 **Goal**
@@ -1272,6 +1272,102 @@ From the command line: every run writes `run.json` and ends with a summary line
 
 Real runs covering completion, a budget stop then a resume with a higher
 `max_cost`, an injected error and a Ctrl+C during the model call; `just lint`.
+
+Evidence, 2026-11-18, on `a5a1c06` plus the uncommitted DEV-012 changes (macOS
+arm64, Python 3.13.9).
+
+- `just lint-python` (Ruff check and format, ty, interrogate 100%) and
+  `just test` (2 passed) pass.
+- Scratchpad `dev012_offline.py`, 26 of 26 checks, no network. `build_model` is
+  patched to wrap PydanticAI's `FunctionModel` in `LedgerModel`, and the command
+  runs in a child process with the same patch.
+  - Completed run: `run.json` is `completed`, with one survey step (`completed`,
+    outputs `pdf_facts.json` and `pdf_survey.json`, 1 request, transport
+    `upload`). `cost.by_step`, `run_usd` and the step's `cost_usd` equal this
+    run's ledger lines, and `output_folder_usd` the whole ledger. The record
+    holds the PDF, the settings (no API key), the version and the times. `run()`
+    returns the `RunResult` as written. The summary gives the status, the steps,
+    the cost by step and the folder total, and the output files.
+  - A failing answer then a rerun: the rerun has a new run ID and a `reused`
+    step with no request, no transport, no cost this run and the same 9 review
+    issues. The summary counts them by check (`rotation 8, languages 1`) and
+    lists them.
+  - `max_cost` stop: `BudgetExceededError`; `run.json` `stopped` with the error,
+    the step `stopped` with `pdf_facts.json` only, nothing sent. One
+    `max_cost_exceeded` warning (step `survey`, check `plan`, `allowed` false,
+    `projected_usd` set) and one `PydelityWarning`. The summary says how to
+    continue. A rerun with a higher `max_cost` completes and reuses the facts.
+    With `allow_over_max_cost=True` the run completes and the warning has
+    `allowed` true.
+  - Failures: a provider rejection (`ProviderError`), a refusal (`SurveyError`)
+    and a missing API key (`MissingApiKeyError`) each leave `run.json` `failed`
+    with the error, the step `failed`, and a valid `pdf_facts.json`.
+  - Warnings, each in `run.json` once with its code, step and details, as one
+    `PydelityWarning` and one log line:
+    - `other_pdf_in_folder` (no step, naming `run.json` and `pdf_facts.json`);
+    - `damaged_output` for `pdf_survey.json` and for a damaged last `cost.jsonl`
+      line;
+    - `upload_fallback` (provider and upload error, step transport `request`);
+    - `unpriced_model` (with the unpriced request counted);
+    - `probe_unavailable` (the fact).
+  - A cancelled `arun` during the model request: `CancelledError` reaches the
+    caller, `run.json` is `interrupted`, the step `stopped`, and there is no
+    `pdf_survey.json`.
+  - The command: `--yes` over `max_cost` completes and prints the warning once,
+    with no Python warning output. Without `--yes` and no terminal it exits 3
+    with `run.json` `stopped`. Ctrl+C during the model request exits 130 with
+    `run.json` `interrupted` and logs `Run interrupted` and `Interrupted`.
+- `dev011_offline.py` (30 of 30), `dev010_check.py` (30 of 30) and
+  `dev001_rework_check.py` (12 of 12) still pass.
+- Real runs from the command line (`dev012_real.py`, `claude-opus-5-5`, a config
+  file setting `check_retries` 0 and `max_output_tokens` 16,000; $0.25 recorded
+  in total):
+  - completion: exit 0, `run.json` `completed` by upload; `run_usd`, `by_step`
+    and the folder total all equal the one ledger line ($0.19);
+  - budget stop: `--max-cost 0.01` without a terminal logged the
+    `max_cost_exceeded` warning and the "pass --yes" message, then exited 3 with
+    `run.json` `stopped`, nothing spent and the hint to run again. The rerun
+    with `--max-cost 1 --yes` reused the facts and completed ($0.06);
+  - injected error: `--model anthropic:claude-does-not-exist-1` logged the
+    `unpriced_model` warning, then exited 1 with `run.json` `failed` and the
+    provider's message;
+  - Ctrl+C four seconds into the model request: exit 130, `run.json`
+    `interrupted`, the step `stopped`, no `pdf_survey.json`. The interrupted
+    request has no `cost.jsonl` line, since no response came back; the provider
+    may still bill it.
+
+**Implementation Notes**
+
+- Files approved by the user (2026-11-18): `src/pydelity/pipeline/` with
+  `schemas.py` and `runner.py` (plus its `__init__.py`), and changes to
+  `src/pydelity/api.py`, `src/pydelity/cli.py`,
+  `src/pydelity/utils/coroutines.py`, `src/pydelity/surveying/facts.py`,
+  `src/pydelity/surveying/survey.py`, `src/pydelity/providers/uploads.py`,
+  `src/pydelity/costs/budget.py` and, for the codes below,
+  `src/pydelity/errors.py`.
+- `warn` now takes the warning's code and details. It logs the warning, issues
+  the `PydelityWarning` and adds it to the run's list (`collect_warnings`, a
+  context variable, so tasks PydanticAI starts add to the same list). The
+  modules' own `_warn` helpers are gone. The `max_cost_exceeded` item gets
+  `allowed` after the decision.
+- Warnings issued before the survey step (only `other_pdf_in_folder`) have no
+  step; the rest belong to the survey step, which covers the facts.
+- `run.json` is written at the start (`running`, no steps) and at the end. An
+  interrupted step is recorded as `stopped`. `error` is the error's type and
+  message as one string.
+- `run_survey` also returns how the last request carried the PDF, for the step's
+  `pdf_transport`.
+- The run's summary is logged by the runner, so Python callers who enable
+  pydelity's log see it too. It lists the first 10 review issues.
+- The command hides Python's own output for `PydelityWarning`, since each
+  warning is already logged, and exits 130 on Ctrl+C.
+- At the user's request (2026-11-18), the codes that are part of pydelity's
+  contract live in `src/pydelity/errors.py`: `WarningCode`, the `run.json`
+  warning codes, and `ExitCode`, an `IntEnum` of the command's exit status
+  (`COMPLETED` 0, `FAILED` 1, `INVALID_INPUT` 2, `STOPPED` 3, `INTERRUPTED`
+  130). The command and `utils/coroutines.py` import them from there. After the
+  move, lint, `just test`, `dev012_offline.py` (26 of 26) and
+  `dev011_offline.py` (30 of 30) pass.
 
 ### DEV-013 — HTML report
 

@@ -1,8 +1,24 @@
-"""Exceptions and the warning category that pydelity raises.
+"""Exceptions, the warning category, and the codes for warnings and exit status.
 
 Every error pydelity raises deliberately is a `PydelityError`, so callers can catch
-all of them with one ``except`` clause, or each kind separately.
+all of them with one ``except`` clause, or each kind separately. `WarningCode` names
+each kind of `PydelityWarning` as ``run.json`` records it, and `ExitCode` gives the
+``pydelity`` command's exit status.
 """
+
+# Standard Library
+from enum import IntEnum
+from typing import Literal
+
+# The kinds of user-facing warning, as ``run.json`` records them.
+type WarningCode = Literal[
+    "damaged_output",
+    "max_cost_exceeded",
+    "other_pdf_in_folder",
+    "probe_unavailable",
+    "unpriced_model",
+    "upload_fallback",
+]
 
 
 class PydelityError(Exception):
@@ -15,6 +31,26 @@ class BudgetExceededError(PydelityError):
 
 class ConfigError(PydelityError):
     """One or more settings are invalid."""
+
+
+class ExitCode(IntEnum):
+    """The ``pydelity`` command's exit status."""
+
+    COMPLETED = 0
+    """The run completed, with or without review issues."""
+
+    FAILED = 1
+    """The run failed: a provider error, a survey error or an unexpected error."""
+
+    INTERRUPTED = 130
+    """The run was interrupted with Ctrl+C."""
+
+    INVALID_INPUT = 2
+    """A setting, the API key or the PDF is invalid."""
+
+    STOPPED = 3
+    """The run stopped at the user's answer, or because input is not a terminal and
+    ``--yes`` was not given."""
 
 
 class MissingApiKeyError(PydelityError):

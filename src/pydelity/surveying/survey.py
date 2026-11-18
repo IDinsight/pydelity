@@ -18,6 +18,7 @@ from pydelity.config.schemas import Config, is_language_tag, standard_language_t
 from pydelity.costs.budget import format_usd
 from pydelity.costs.ledger import LEDGER_FILE_NAME, read_ledger
 from pydelity.providers.ledger_model import LedgerModel
+from pydelity.providers.profiles import PdfTransport
 from pydelity.surveying.llm import ask_model
 from pydelity.surveying.prompts import PROMPT_VERSION
 from pydelity.surveying.schemas import (
@@ -216,19 +217,6 @@ def _spent_since(*, entries_before: int, ledger_path: Path) -> str:
     return f"{format_usd(total)} for {count}"
 
 
-def _warn(message: str) -> None:
-    """Log a warning and issue it as a `pydelity.errors.PydelityWarning`.
-
-    Parameters
-    ----------
-    message
-        The warning's text.
-    """
-
-    logger.warning(message)
-    warn(message)
-
-
 def build_survey(
     *, answer: SurveyAnswer, attempts: int, config: Config, facts: PdfFacts
 ) -> PdfSurvey:
@@ -288,7 +276,7 @@ async def run_survey(
     model: LedgerModel,
     output_folder: Path,
     pdf: PdfInfo,
-) -> PdfSurvey:
+) -> tuple[PdfSurvey, PdfTransport]:
     """Ask the model to survey the PDF and write ``pdf_survey.json`` atomically.
 
     Parameters
@@ -306,8 +294,9 @@ async def run_survey(
 
     Returns
     -------
-    PdfSurvey
-        The survey, as written to ``pdf_survey.json``.
+    tuple[PdfSurvey, PdfTransport]
+        The survey, as written to ``pdf_survey.json``, and how the last request
+        carried the PDF.
 
     Raises
     ------
@@ -340,9 +329,7 @@ async def run_survey(
         description=_describe(survey),
         path=path,
     )
-    for issue in survey.issues:
-        logger.info("  Review: {message}", message=issue.message)
-    return survey
+    return survey, surveyed.attachment.transport
 
 
 def saved_survey(
@@ -371,7 +358,11 @@ def saved_survey(
     path = output_folder / SURVEY_FILE_NAME
     saved = load_model(model_type=PdfSurvey, path=path)
     if saved.damage is not None:
-        _warn(f"{saved.damage}; running the survey again")
+        warn(
+            f"{saved.damage}; running the survey again",
+            code="damaged_output",
+            details={"file": SURVEY_FILE_NAME},
+        )
     expected = survey_fingerprint(survey_inputs(config=config, facts=facts))
     if saved.model is None or saved.model.fingerprint != expected or config.overwrite:
         return None

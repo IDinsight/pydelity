@@ -12,117 +12,19 @@ spending money on model requests.
 """
 
 # Standard Library
-import asyncio
 import json
 import os
-import secrets
-
-from collections.abc import Callable
-from datetime import UTC, datetime
-from pathlib import Path
 
 # Third Party Library
 from loguru import logger
 
 # Package Library
 from pydelity.config.loading import ConfigSource, resolve_config
-from pydelity.config.schemas import Config
-from pydelity.costs.budget import (
-    OverMaxCostDecision,
-    SpendDeclinedError,
-    SpendGuard,
-    estimate_survey,
-    format_usd,
-)
-from pydelity.costs.ledger import LEDGER_FILE_NAME, read_ledger
-from pydelity.costs.schemas import CostEstimate, MaxCostWarning
-from pydelity.providers.factory import build_model, output_mode
-from pydelity.providers.ledger_model import LedgerContext
-from pydelity.surveying.facts import measure_facts
-from pydelity.surveying.prompts import PROMPT_VERSION, survey_pdf
-from pydelity.surveying.schemas import PdfFacts, SurveyAnswer
-from pydelity.surveying.survey import run_survey, saved_survey
-from pydelity.utils.coroutines import run_in_daemon_thread, run_sync, warn
-from pydelity.utils.files import remove_stale_temp_files
-from pydelity.utils.pdf import PdfInfo, open_pdf
-
-# Asks whether to go ahead and spend, given the cost estimate.
-type SpendConfirmation = Callable[[CostEstimate], bool]
-
-
-async def _ask_before_spending(
-    *, confirm: SpendConfirmation | None, estimate: CostEstimate, guard: SpendGuard
-) -> None:
-    """Check the estimate against ``max_cost`` and ask whether to continue.
-
-    If the estimate exceeds ``max_cost``, only the guard's over-``max_cost`` question
-    is asked. Otherwise ``confirm`` is called, if given.
-
-    Parameters
-    ----------
-    confirm
-        Returns whether to continue. ``None`` continues without asking.
-    estimate
-        The cost estimate, already logged.
-    guard
-        The run's ``max_cost`` guard.
-
-    Raises
-    ------
-    BudgetExceededError
-        If the run could go over ``max_cost`` and the decision is no.
-    SpendDeclinedError
-        If ``confirm`` answers no.
-    """
-
-    if estimate.over_max_cost:
-        await guard.check(check="plan", upper_bound_usd=estimate.max_usd)
-    elif confirm is not None and not await run_in_daemon_thread(
-        lambda: confirm(estimate)
-    ):
-        raise SpendDeclinedError(
-            "Stopped before any model request, so nothing was spent. The measured "
-            "facts are saved and will be reused next time."
-        )
-
-
-def _estimate_cost(
-    *, config: Config, ledger_path: Path, page_count: int, prompt_chars: int
-) -> CostEstimate:
-    """Estimate the run's cost, counting what the output folder has already spent.
-
-    Parameters
-    ----------
-    config
-        The run's settings.
-    ledger_path
-        The output folder's ``cost.jsonl``.
-    page_count
-        The PDF's page count.
-    prompt_chars
-        The survey prompt's length in characters, without the PDF.
-
-    Returns
-    -------
-    CostEstimate
-        The estimate, also logged with any warnings.
-    """
-
-    ledger = read_ledger(ledger_path)
-    if ledger.damage is not None:
-        _warn(ledger.damage)
-
-    estimate = estimate_survey(
-        config=config,
-        page_count=page_count,
-        prompt_chars=prompt_chars,
-        reused=False,
-        spent_usd=ledger.spent_usd,
-    )
-    for message in estimate.warnings:
-        _warn(message)
-    _log_estimate(estimate)
-    return estimate
+from pydelity.costs.budget import OverMaxCostDecision
+from pydelity.costs.schemas import MaxCostWarning
+from pydelity.pipeline.runner import SpendConfirmation, run_pipeline
+from pydelity.pipeline.schemas import RunResult
+from pydelity.utils.coroutines import run_sync
 
 
 def _fixed_decision(allowed: bool) -> OverMaxCostDecision:
@@ -147,178 +49,13 @@ def _fixed_decision(allowed: bool) -> OverMaxCostDecision:
     return decide
 
 
-def _log_estimate(estimate: CostEstimate) -> None:
-    """Log the cost estimate, the folder's spend so far and ``max_cost``.
-
-    Parameters
-    ----------
-    estimate
-        The estimate.
-    """
-
-    for step in estimate.steps:
-        if step.reused:
-            logger.info(
-                "{name}: reusing the saved output, nothing to spend", name=step.name
-            )
-        elif step.expected_usd is None or step.max_usd is None:
-            logger.info(
-                "{name} cost estimate: unknown, no price is known for {model} "
-                "(at most {requests} requests)",
-                model=step.model,
-                name=step.name.capitalize(),
-                requests=step.requests_max,
-            )
-        else:
-            logger.info(
-                "{name} cost estimate: about {expected}, at most {maximum} "
-                "(up to {requests} requests to {model})",
-                expected=format_usd(step.expected_usd),
-                maximum=format_usd(step.max_usd),
-                model=step.model,
-                name=step.name.capitalize(),
-                requests=step.requests_max,
-            )
-    limit = "not set" if estimate.max_cost is None else format_usd(estimate.max_cost)
-    logger.info(
-        "Spent so far in this output folder: {spent}; max_cost: {limit}",
-        limit=limit,
-        spent=format_usd(estimate.spent_usd),
-    )
-
-
-def _new_run_id() -> str:
-    """Return a new run ID: the UTC time and a random suffix.
-
-    Returns
-    -------
-    str
-        Such as ``20261118T141500Z-9f86d081``.
-    """
-
-    return f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{secrets.token_hex(4)}"
-
-
-async def _survey(
-    *,
-    config: Config,
-    confirm: SpendConfirmation | None,
-    decide_over_max_cost: OverMaxCostDecision,
-    facts: PdfFacts,
-    pdf: PdfInfo,
-) -> None:
-    """Check the API key and the cost, then survey the PDF and save the survey.
-
-    Parameters
-    ----------
-    config
-        The run's settings.
-    confirm
-        Called with the cost estimate; returns whether to continue. ``None``
-        continues without asking.
-    decide_over_max_cost
-        Called with the warning's details when the run could exceed ``max_cost``;
-        returns whether to continue.
-    facts
-        The measured facts.
-    pdf
-        The PDF.
-
-    Raises
-    ------
-    BudgetExceededError
-        If the run could go over ``max_cost`` and the decision is no.
-    MissingApiKeyError
-        If the selected provider's API key is not set.
-    ProviderError
-        If the provider rejects the upload for an invalid API key or as too large, or
-        a request fails after the provider retries.
-    SpendDeclinedError
-        If ``confirm`` answers no.
-    SurveyError
-        If the model refuses, runs out of output tokens, or never gives an answer that
-        matches the survey's answer format.
-    """
-
-    ledger_path = config.output_folder / LEDGER_FILE_NAME
-    guard = SpendGuard(
-        decide=decide_over_max_cost, ledger_path=ledger_path, max_cost=config.max_cost
-    )
-    survey_settings = config.advanced.survey
-    model = build_model(
-        config=config,
-        context=LedgerContext(
-            guard=guard,
-            ledger_path=ledger_path,
-            pdf=pdf,
-            run_id=_new_run_id(),
-            step="survey",
-        ),
-        effort=survey_settings.effort,
-        max_output_tokens=survey_settings.max_output_tokens,
-        request_timeout_seconds=survey_settings.request_timeout_seconds,
-    )
-    choice = config.model_choice
-    logger.info(
-        "Model ready: {model_id} from {provider}, effort {effort}, {mode} structured "
-        "output",
-        effort=survey_settings.effort,
-        mode=output_mode(model),
-        model_id=choice.model_id,
-        provider=choice.provider,
-    )
-
-    prompts = survey_pdf(
-        facts_summary=facts.summary,
-        instructions=config.instructions,
-        languages=config.languages,
-        page_count=pdf.page_count,
-    )
-    logger.debug(
-        "Survey instructions (prompt version {version}):\n{instructions}",
-        instructions=prompts.system_message,
-        version=PROMPT_VERSION,
-    )
-    logger.debug("Survey text sent with the PDF:\n{text}", text=prompts.user_message)
-    # The prompt is the two messages and the answer's JSON schema.
-    schema = json.dumps(SurveyAnswer.model_json_schema())
-    prompt_chars = len(prompts.system_message) + len(prompts.user_message)
-    estimate = _estimate_cost(
-        config=config,
-        ledger_path=ledger_path,
-        page_count=pdf.page_count,
-        prompt_chars=prompt_chars + len(schema),
-    )
-    await _ask_before_spending(confirm=confirm, estimate=estimate, guard=guard)
-    await run_survey(
-        config=config,
-        facts=facts,
-        model=model,
-        output_folder=config.output_folder,
-        pdf=pdf,
-    )
-
-
-def _warn(message: str) -> None:
-    """Log a warning and issue it as a `pydelity.errors.PydelityWarning`.
-
-    Parameters
-    ----------
-    message
-        The warning's text.
-    """
-
-    logger.warning(message)
-    warn(message)
-
-
 async def arun(
     pdf: str | os.PathLike[str] | None = None,
     *,
     allow_over_max_cost: bool = False,
     config: ConfigSource | None = None,
     **settings: object,
-) -> None:
+) -> RunResult:
     """Run pydelity on a PDF.
 
     The run validates the settings, opens the PDF and measures it, or reuses the facts
@@ -326,7 +63,8 @@ async def arun(
     in ``pdf_survey.json`` when its inputs are unchanged. Otherwise it checks the
     provider's API key and the cost estimate against ``max_cost``, uploads the PDF (or
     reuses its upload from ``uploads.json``), asks the model to survey it and saves
-    ``pdf_survey.json``. It does not prompt for input.
+    ``pdf_survey.json``. It records the run in ``run.json``, also when it fails or
+    stops, and does not prompt for input.
 
     Parameters
     ----------
@@ -341,6 +79,11 @@ async def arun(
     **settings
         Settings by name, such as ``model="openai:gpt-6.2-astra"`` or
         ``advanced={"survey": {"effort": "medium"}}``. They override ``config``.
+
+    Returns
+    -------
+    RunResult
+        The run's record, facts, survey and the output folder's ledger.
 
     Raises
     ------
@@ -360,7 +103,7 @@ async def arun(
         matches the survey's answer format.
     """
 
-    await arun_with_questions(
+    return await arun_with_questions(
         pdf,
         config=config,
         confirm=None,
@@ -376,7 +119,7 @@ async def arun_with_questions(
     confirm: SpendConfirmation | None,
     decide_over_max_cost: OverMaxCostDecision,
     **settings: object,
-) -> None:
+) -> RunResult:
     """Run pydelity on a PDF, calling the given functions to ask before spending.
 
     The ``pydelity`` command uses this to ask its questions on the terminal. `arun`
@@ -397,6 +140,11 @@ async def arun_with_questions(
         returns whether to continue.
     **settings
         Settings by name. They override ``config``.
+
+    Returns
+    -------
+    RunResult
+        The run's record, facts, survey and the output folder's ledger.
 
     Raises
     ------
@@ -429,32 +177,9 @@ async def arun_with_questions(
         ),
     )
 
-    info = await asyncio.to_thread(open_pdf, resolved.pdf)
-    logger.info(
-        "Opened {name}: {pages}, {size:,} bytes, SHA-256 {sha256}",
-        name=info.name,
-        pages=f"{info.page_count} page" + ("" if info.page_count == 1 else "s"),
-        sha256=info.sha256,
-        size=info.bytes,
+    return await run_pipeline(
+        config=resolved, confirm=confirm, decide_over_max_cost=decide_over_max_cost
     )
-    output_folder = resolved.output_folder
-    output_folder.mkdir(exist_ok=True, parents=True)
-    for leftover in remove_stale_temp_files(output_folder):
-        logger.debug("Removed {path}, left by an interrupted write", path=leftover)
-
-    facts = await measure_facts(
-        output_folder=output_folder, overwrite=resolved.overwrite, pdf=info
-    )
-
-    if saved_survey(config=resolved, facts=facts, output_folder=output_folder) is None:
-        await _survey(
-            config=resolved,
-            confirm=confirm,
-            decide_over_max_cost=decide_over_max_cost,
-            facts=facts,
-            pdf=info,
-        )
-    logger.info("Run finished")
 
 
 def run(
@@ -463,7 +188,7 @@ def run(
     allow_over_max_cost: bool = False,
     config: ConfigSource | None = None,
     **settings: object,
-) -> None:
+) -> RunResult:
     """Run pydelity on a PDF (the sync version of `arun`).
 
     Parameters
@@ -479,6 +204,11 @@ def run(
     **settings
         Settings by name, such as ``model="openai:gpt-6.2-astra"`` or
         ``advanced={"survey": {"effort": "medium"}}``. They override ``config``.
+
+    Returns
+    -------
+    RunResult
+        The run's record, facts, survey and the output folder's ledger.
 
     Raises
     ------
@@ -501,7 +231,7 @@ def run(
         matches the survey's answer format.
     """
 
-    run_sync(
+    return run_sync(
         arun,
         allow_over_max_cost=allow_over_max_cost,
         config=config,

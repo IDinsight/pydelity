@@ -324,9 +324,11 @@ async def _upload_or_fall_back(
         failure = _provider_error(error, config=config, pdf=pdf)
         if failure.status_code in _STOP_STATUS_CODES:
             raise failure from error
-        _warn(
+        warn(
             f"Uploading {pdf.name} to {choice.provider} failed, so the PDF is sent "
-            f"inside each request instead. {failure}"
+            f"inside each request instead. {failure}",
+            code="upload_fallback",
+            details={"provider": choice.provider, "upload_error": str(failure)},
         )
         return PdfAttachment(
             content=BinaryContent(data=data, media_type=_PDF_MEDIA_TYPE),
@@ -352,19 +354,6 @@ async def _upload_or_fall_back(
         provider=choice.provider,
     )
     return PdfAttachment.uploaded(upload)
-
-
-def _warn(message: str) -> None:
-    """Log a warning and issue it as a `pydelity.errors.PydelityWarning`.
-
-    Parameters
-    ----------
-    message
-        The warning's text.
-    """
-
-    logger.warning(message)
-    warn(message)
 
 
 @dataclass(frozen=True)
@@ -441,7 +430,11 @@ async def attach_pdf(
 
     records, damage = _read_uploads(output_folder / UPLOADS_FILE_NAME)
     if damage is not None:
-        _warn(f"{damage}; uploading the PDF again")
+        warn(
+            f"{damage}; uploading the PDF again",
+            code="damaged_output",
+            details={"file": UPLOADS_FILE_NAME},
+        )
     provider = config.model_choice.provider
     now = datetime.now(UTC)
     for record in records:

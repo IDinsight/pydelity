@@ -8,6 +8,9 @@ instead.
 Blocking calls that wait for a person, such as a question on the terminal, go through
 `run_in_daemon_thread`. This keeps the event loop free and lets Ctrl+C end the program
 immediately.
+
+Each user-facing warning goes through `warn`, which logs it, issues it as a
+`PydelityWarning` and, inside `collect_warnings`, keeps it for ``run.json``.
 """
 
 # Standard Library
@@ -17,7 +20,10 @@ import os
 import threading
 import warnings
 
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Generator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
@@ -26,8 +32,15 @@ import anyio
 import pydantic_ai
 import pydantic_graph
 
+from loguru import logger
+
 # Package Library
-from pydelity.errors import PydelityWarning
+from pydelity.errors import PydelityWarning, WarningCode
+
+# The list that keeps the warnings issued in this context, inside `collect_warnings`.
+_COLLECTED: ContextVar["list[IssuedWarning] | None"] = ContextVar(
+    "pydelity_warnings", default=None
+)
 
 # Warnings point at the first stack frame outside this package, asyncio, PydanticAI and
 # the libraries PydanticAI runs its agent with (pydantic_graph and anyio). Model
@@ -66,6 +79,46 @@ def _settle[ResultT](
         future.set_exception(error)
     else:
         future.set_result(cast("ResultT", result))
+
+
+@dataclass(frozen=True)
+class IssuedWarning:
+    """A user-facing warning pydelity issued.
+
+    Attributes
+    ----------
+    code
+        The kind of warning.
+    details
+        The values the warning is about, such as the damaged file's name.
+    message
+        The warning's text.
+    """
+
+    code: WarningCode
+    message: str
+    details: dict[str, object] = field(default_factory=dict)
+
+
+@contextmanager
+def collect_warnings() -> Generator[list[IssuedWarning]]:
+    """Keep every warning that `warn` issues in this context, such as during a run.
+
+    Tasks started inside the context, such as those PydanticAI starts, add their
+    warnings to the same list.
+
+    Yields
+    ------
+    list[IssuedWarning]
+        The warnings issued so far, in order. The list grows while the context lasts.
+    """
+
+    collected: list[IssuedWarning] = []
+    token = _COLLECTED.set(collected)
+    try:
+        yield collected
+    finally:
+        _COLLECTED.reset(token)
 
 
 async def run_in_daemon_thread[ResultT](function: Callable[[], ResultT]) -> ResultT:
@@ -164,17 +217,39 @@ def run_sync[**ParamsT, ResultT](
     )
 
 
-def warn(message: str) -> None:
-    """Issue a `PydelityWarning` attributed to the caller's code.
+def warn(
+    message: str,
+    *,
+    code: WarningCode,
+    details: Mapping[str, object] | None = None,
+) -> IssuedWarning:
+    """Log a warning, issue it as a `PydelityWarning`, and keep it for the run.
+
+    The `PydelityWarning` is attributed to the caller's code.
 
     Parameters
     ----------
     message
         The warning's text.
+    code
+        The kind of warning.
+    details
+        The values the warning is about.
+
+    Returns
+    -------
+    IssuedWarning
+        The warning as kept, whose ``details`` the caller may still complete.
     """
 
+    issued = IssuedWarning(code=code, details=dict(details or {}), message=message)
+    logger.warning(message)
+    collected = _COLLECTED.get()
+    if collected is not None:
+        collected.append(issued)
     warnings.warn(
         category=PydelityWarning,
         message=message,
         skip_file_prefixes=_SKIPPED_PREFIXES,
     )
+    return issued

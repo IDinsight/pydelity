@@ -19,9 +19,6 @@ from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 
-# Third Party Library
-from loguru import logger
-
 # Package Library
 from pydelity.config.schemas import Config
 from pydelity.costs.ledger import read_ledger
@@ -153,8 +150,6 @@ class SpendGuard:
             message = _over_message(
                 max_cost=self._max_cost, projected=projected, spent=spent
             )
-            logger.warning(message)
-            warn(message)
             warning = MaxCostWarning(
                 allowed=None,
                 check=check,
@@ -162,7 +157,13 @@ class SpendGuard:
                 projected_usd=projected,
                 spent_usd=spent,
             )
+            issued = warn(
+                message,
+                code="max_cost_exceeded",
+                details=warning.model_dump(mode="json"),
+            )
             allowed = await run_in_daemon_thread(lambda: self._decide(warning))
+            issued.details["allowed"] = allowed
             self.warnings.append(warning.model_copy(update={"allowed": allowed}))
             if not allowed:
                 raise BudgetExceededError(
