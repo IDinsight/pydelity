@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -27,20 +27,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `USER_REWORK` `From`: `DEVELOPING` `FailureType`: `ARCHITECTURE`
-`Reason`:
-`User rework: check BCP-47 language tags (the languages setting and survey check C7) with the langcodes library, a new runtime dependency, instead of a hand-written pattern.`
+`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Design corrected (decision 15): language tags are checked with langcodes.tag_is_valid and kept in langcodes.standardize_tag form in settings, fingerprints and outputs; C7 rejects each unregistered model tag, which is left out of the profile after the check retries. Developer reconciles DEV-004 and DEV-010.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `DEVELOPING` `Owner`: `ARCHITECTING` `FailureType`: `ARCHITECTURE`
-`Reason`:
-`User rework: check BCP-47 language tags (the languages setting and survey check C7) with the langcodes library, a new runtime dependency, instead of a hand-written pattern.`
-`ResumeAt`: `DEVELOPING` `RerunThrough`: `NONE`
+`Active`: `false`
 
 ## Outstanding Obligations
 

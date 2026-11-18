@@ -51,6 +51,9 @@ inherit, and builds step 1 (survey) on them.
   prefix; the survey keeps Python checks only, with no verifier model. The scope
   leaves to Architect the default retry count, how the checks work and whether
   `load` gets an async version (decisions 5, 13 and 14).
+- User rework recorded 2026-11-17 during development: language tags (the
+  `languages` setting and check C7) are checked with the `langcodes` library, a
+  new runtime dependency, instead of a hand-written pattern (decision 15).
 - Test PDFs are real public-domain documents the user approves, not generated
   ones (user decision recorded in the development plan, 2026-11-17).
 - No project references exist under `.standards/project-references/`; none is
@@ -69,9 +72,10 @@ inherit, and builds step 1 (survey) on them.
    `pydantic`, `pydantic-settings[yaml]`, `pydantic-ai-slim[anthropic,openai]`
    (the slim distribution, so installs pull only the two supported providers; it
    brings `genai-prices`, whose bundled price data PydanticAI's cost calculation
-   uses), `loguru`, `typer`, `pymupdf`. No templating library: prompts and the
-   HTML report template are Python string constants, so the wheel needs no
-   package data beyond `py.typed`.
+   uses), `langcodes` (MIT, no runtime dependencies; decision 15), `loguru`,
+   `typer`, `pymupdf`. No templating library: prompts and the HTML report
+   template are Python string constants, so the wheel needs no package data
+   beyond `py.typed`.
 3. **Models.** A model setting is `<provider>:<model-id>` with provider
    `anthropic` or `openai`; any other provider is an invalid setting. Default:
    `anthropic:claude-opus-5-5`. OpenAI models run through PydanticAI's Responses
@@ -260,6 +264,19 @@ inherit, and builds step 1 (survey) on them.
     from a worker thread. `load` stays sync only: it reads a few local files,
     and code inside an event loop can call it directly or through
     `asyncio.to_thread`.
+15. **Language tags are checked with `langcodes`.** A language tag, from the
+    `languages` setting or from the model, is valid when
+    `langcodes.tag_is_valid` accepts it. That checks the tag against the IANA
+    language subtag registry bundled with `langcodes`, so a well-formed but
+    unregistered tag such as `zz` is rejected; special and private-use tags
+    (`zxx`, `und`, `mul`, `qaa`, `x-…`) are valid. pydelity keeps every valid
+    tag in its standard form (`langcodes.standardize_tag` with default
+    arguments): `en_US` and `EN-us` become `en-US`, deprecated codes become
+    their replacements (`iw` becomes `he`), and three-letter codes with a
+    two-letter equivalent become two-letter (`eng` becomes `en`). Settings,
+    fingerprints, prompts and stored outputs all use the standard form, so two
+    spellings of one tag are the same tag. pydelity uses only these two
+    functions and does not need the optional `language-data` extra.
 
 ### Reuse from KGForEdGlobal
 
@@ -415,7 +432,9 @@ script, the Astro site under `docs/`, and CI, docs and release workflows under
   `advanced` is config- or Python-only):
   - `pdf` (path; required from somewhere, must exist and be a file).
   - `instructions` (string or null).
-  - `languages` (list of BCP-47 tags, syntax-validated; default empty).
+  - `languages` (list of BCP-47 tags, checked and kept in standard form as in
+    decision 15; default empty). A rejected tag is an invalid setting named by
+    its position and value (`languages[1]: "zz"`).
   - `output_dir` (path; default `./pydelity-output/<pdf stem>/`).
   - `model` (`<provider>:<model-id>`; default `anthropic:claude-opus-5-5`).
   - `max_cost` (positive decimal USD or null; no default).
@@ -643,7 +662,8 @@ it (atomically).
     (role `body`, all kinds), which Python adds and owns; a model-made `other`
     is replaced.
   - `languages[]` — user languages first, then model languages not already
-    present (case-insensitive).
+    present, all in standard form (decision 15), so the comparison is exact.
+    Model tags that C7 still rejects after the check retries are left out.
   - `writing_direction`: `default` (`ltr` | `rtl` | `ttb`) and `ranges[]`, each
     `first_page_index`, `last_page_index` (inclusive), `direction` (`ltr` |
     `rtl` | `ttb`); pages no range covers use `default`.
@@ -687,7 +707,10 @@ it (atomically).
 - `artifacts` (C5): every probe repeated-line ID appears exactly once, in an
   artifact or in `non_artifact_lines`; no unknown IDs.
 - `writing_direction` (C6): ranges inside the PDF and non-overlapping.
-- `languages` (C7): at least one syntactically valid BCP-47 tag (`zxx` allowed).
+- `languages` (C7): the model's list has at least one tag, and `langcodes`
+  accepts every tag (decision 15; `zxx` allowed). One failure item per rejected
+  tag (`details`: `{"proposed": "<tag>"}`), or one for an empty list
+  (`{"proposed": []}`); `page_index` is null.
 
 ### `run.json`
 
@@ -959,8 +982,15 @@ it (atomically).
   the checks run identically with and without them; no setting skips a check.
 - `AC-006`: Core code, prompts, schema field names, defaults and checks contain
   no document-type or domain words and no natural-language word lists; language
-  handling uses Unicode properties only. Prompt examples, if any, use neutral
-  placeholders.
+  handling uses Unicode properties only, and language tags are checked against
+  the IANA registry that `langcodes` bundles. Prompt examples, if any, use
+  neutral placeholders.
+- `AC-003`, `AC-004`, `AC-009`: The `languages` values `en_US`, `EN-us` and
+  `en-US` all resolve to `en-US` in the resolved settings, the survey
+  fingerprint and the profile; `zz` or `en-` in the setting raises `ConfigError`
+  naming its position and value before any model call. A model answer whose
+  languages include `zz` fails C7 for that tag; after the last check retry, `zz`
+  is absent from the stored profile and a review issue names it.
 - `AC-007`, `AC-010`: `import pydelity` performs no file, network or environment
   reads and produces no output on stdout, stderr or loguru sinks.
 - `AC-041`: With the mock provider answering a model request with temporary
@@ -1158,6 +1188,10 @@ Developer proposes its name and place and waits for the user's sign-off.
 - A request that times out on pydelity's side may still finish, and be billed,
   at the provider. pydelity sees no usage for it, so it has no ledger line; with
   provider retries, each timed-out attempt can add such unseen cost.
+- The IANA registry inside `langcodes` is fixed per release: a tag registered
+  later is rejected until `langcodes` is upgraded, and a release that changes a
+  tag's standard form changes the survey fingerprint for runs that use it, so
+  the survey runs again.
 - A sync call from inside a running event loop blocks that loop's thread until
   the worker thread finishes (as any sync call would); async callers should use
   the `a` functions.
@@ -1231,5 +1265,8 @@ Developer proposes its name and place and waits for the user's sign-off.
   make; the gate job keeps the existing required check name.
 - npm instead of pnpm for the docs: departs from IDinsight/standards and
   produces a larger lock file.
+- A hand-written BCP-47 pattern for language tags (the earlier design): no
+  dependency, but it accepts well-formed tags that no registry defines (such as
+  `zz`) and leaves spelling variants unmerged; the user chose `langcodes`.
 - Hand-written reference pages: drift from the code; generation makes AC-032
   checkable.
