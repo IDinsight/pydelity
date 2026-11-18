@@ -59,10 +59,14 @@ def _describe_input(value: object) -> str:
     Returns
     -------
     str
-        Its ``repr``, cut to `_INPUT_SHOWN_CHARS` characters.
+        The value as JSON (its ``repr`` if it has no JSON form), cut to
+        `_INPUT_SHOWN_CHARS` characters.
     """
 
-    shown = repr(value)
+    try:
+        shown = json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        shown = repr(value)
     if len(shown) > _INPUT_SHOWN_CHARS:
         shown = shown[: _INPUT_SHOWN_CHARS - 3] + "..."
     return shown
@@ -248,7 +252,7 @@ def _problems(error: ValidationError) -> list[tuple[str, str]]:
 
     problems = []
     for detail in error.errors(include_url=False):
-        path = ".".join(str(key) for key in detail["loc"] if key != "[key]")
+        path = _setting_path(detail["loc"])
         kind = detail["type"]
         if kind == "missing" and path == "pdf":
             problem = "required: give the PDF as an argument or set pdf"
@@ -285,6 +289,32 @@ def _raw_expiry_hours(data: Mapping[str, object]) -> object:
     if not isinstance(uploads, Mapping):
         return None
     return uploads.get("expiry_hours")
+
+
+def _setting_path(location: tuple[int | str, ...]) -> str:
+    """Write a validation error's location as a setting path.
+
+    Parameters
+    ----------
+    location
+        The location Pydantic reports, such as ``("languages", 1)``.
+
+    Returns
+    -------
+    str
+        The setting's path, such as ``languages[1]`` or
+        ``advanced.survey.check_retries``.
+    """
+
+    path = ""
+    for key in location:
+        if key == "[key]":
+            continue
+        if isinstance(key, int):
+            path += f"[{key}]"
+        else:
+            path += f".{key}" if path else key
+    return path
 
 
 def _source_settings(config: ConfigSource | None) -> dict[str, object]:

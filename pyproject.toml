@@ -32,6 +32,7 @@ classifiers = [
 # Macs, Windows ARM, 32-bit Windows or musl Linux.
 dependencies = [
     "genai-prices>=0.2.4",
+    "langcodes>=3.5.1",
     "loguru>=0.8.0",
     "pydantic>=2.14.3",
     "pydantic-ai-slim[anthropic,openai]>=2.69.0",

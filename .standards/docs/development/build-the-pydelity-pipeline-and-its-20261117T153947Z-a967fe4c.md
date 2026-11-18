@@ -350,17 +350,20 @@ JSON or YAML file, and CLI options or Python keywords.
 
 **Affected Area**
 
-Candidates `src/pydelity/config/{schemas,loading}.py`.
+Candidates `src/pydelity/config/{schemas,loading}.py`; `pyproject.toml` and
+`uv.lock` (`uv add` langcodes).
 
 **Expected Outcome**
 
 `Config` (`pdf`, `instructions`, `languages`, `output_dir`, `model`, `max_cost`,
 `overwrite`, `advanced`) and `AdvancedConfig` (`provider_retries` 0–10, default
 2; `survey` with `check_retries`; `uploads`; and `models` holding prices only)
-with `extra="forbid"` and the design's defaults and bounds; BCP-47 syntax
-validation; `.json`, `.yaml` and `.yml` loading with relative paths resolved
-against the config file's folder; precedence keywords or CLI over file over
-defaults, with the CLI `PDF` winning; `expiry_hours` checked against the
+with `extra="forbid"` and the design's defaults and bounds; language tags
+checked with `langcodes.tag_is_valid` and kept in `langcodes.standardize_tag`
+form (design decision 15), a rejected tag named by position and value
+(`languages[1]: "zz"`); `.json`, `.yaml` and `.yml` loading with relative paths
+resolved against the config file's folder; precedence keywords or CLI over file
+over defaults, with the CLI `PDF` winning; `expiry_hours` checked against the
 selected provider's range; one `ConfigError` listing every invalid setting by
 dotted path. `ProviderEnv` (pydantic-settings, environment only, no `.env`,
 `SecretStr`) built per run, and `MissingApiKeyError` for the selected provider's
@@ -414,6 +417,25 @@ Evidence, 2026-11-17, repo root, uncommitted on top of `274b41a`:
   passed. `env -i` `import pydelity` printed nothing, took 0.18 s and loaded no
   `pydantic_ai`.
 
+Rework evidence, 2026-11-17, after design `117eafe` (decision 15), uncommitted
+on top of it:
+
+- `langcodes` 3.5.1 added (`uv add`; no other package came with it). Probe of
+  its two functions: `en_US` and `EN-us` → `en-US`, `iw` → `he`, `eng` → `en`;
+  `zxx`, `und`, `mul`, `qaa`, `x-private`, `zh-Hant-TW` and `ar-EG-u-nu-latn`
+  valid; `zz`, `en-`, `e`, `123`, `english` and `en US` rejected.
+- Scratchpad `tools/dev004_check.py`, updated for decision 15: 48 of 48 checks
+  passed, the earlier 37 included. `languages: [en_US, EN-us, en-US, ar]`
+  resolves to `[en-US, en-US, en-US, ar]`; `[en, zz, en-]` gives one
+  `ConfigError` naming `languages[1]: "zz"` and `languages[2]: "en-"`; the
+  10-problem file now names `languages[1]` for its `zz`.
+- CLI: `--language en_US --language EN-us --language iw -v` logged
+  `["en-US", "en-US", "he"]`; `--language ar --language zz --language en-`
+  listed both bad tags by position and exited 2.
+- `just lint-python` and `just test` (2 passed) passed. `env -i`
+  `import pydelity` printed nothing and took 0.25 s (it loads `langcodes`, not
+  `pydantic_ai`).
+
 **Implementation Notes**
 
 - Files approved by the user (2026-11-17):
@@ -428,6 +450,13 @@ Evidence, 2026-11-17, repo root, uncommitted on top of `274b41a`:
 - `is_language_tag` checks BCP-47 syntax only (RFC 5646 well-formed tags,
   without grandfathered tags) and is public, so the survey's language check
   (DEV-010) can reuse it.
+- Language tags (design decision 15): `is_language_tag` is
+  `langcodes.tag_is_valid` and `standard_language_tag` is
+  `langcodes.standardize_tag`; both are public in `config/schemas.py` so DEV-010
+  and DEV-011 reuse them. The setting keeps duplicates after standardizing
+  (`en_US` and `en-US` both stay); DEV-011's merge, which compares exact
+  standard forms, is where repeated tags meet. Error paths write list items by
+  position (`languages[1]`) and show values as JSON.
 - CLI options default to `None`, so an option left out never overrides the
   config file. `--quiet` and `--yes` come with DEV-015 and DEV-007.
 
@@ -643,10 +672,12 @@ with `PROMPT_VERSION` carrying the `pdf_facts.json` summary lines (which say
 which facts were unavailable), user instructions and languages; checks C1–C7,
 each returning failure items (`page_index` or null, `message` naming the check
 with the proposed and measured values, `details`), one item per affected page,
-and the `checks[]` and `issues[]` records built from them in C1–C7 order. Unlike
-KGForEdGlobal's validators, which raise on the first problem, each check returns
-all its failures, so one retry message names every problem and the last attempt
-can record them all.
+and the `checks[]` and `issues[]` records built from them in C1–C7 order. C7
+checks the model's languages with `langcodes` (design decision 15): one failure
+item per rejected tag (`details`: `{"proposed": "<tag>"}`) or one for an empty
+list, `page_index` null. Unlike KGForEdGlobal's validators, which raise on the
+first problem, each check returns all its failures, so one retry message names
+every problem and the last attempt can record them all.
 
 From the command line: `--verbose` logs the prompt and facts summary the survey
 will send. No model call happens yet.
@@ -685,8 +716,9 @@ records still-failing checks as review issues. `pdf_survey.json` copies the
 facts it used and records `inputs.facts_fingerprint`. It uses PydanticAI's retry
 count and last-attempt flag in place of KGForEdGlobal's hand-kept attempt
 counter, and drops its raw-attempt files and `ExtractionUsageTracker` (the
-ledger replaces it). Python adds `other`, merges languages, stores
-`user_instructions`, converts region boxes to points and writes
+ledger replaces it). Python adds `other`, merges languages (user tags first, all
+in standard form, leaving out model tags C7 still rejects after the check
+retries), stores `user_instructions`, converts region boxes to points and writes
 `pdf_survey.json` atomically. A refusal or an answer that never parses raises
 `SurveyError`.
 
@@ -1202,3 +1234,10 @@ added, removed or reordered.
 `scope a938118 and design 2e96832; DEV-001 to DEV-003 committed (121f87d, ed70f71, 274b41a); DEV-004 done but uncommitted in the working tree`
 `Next Action`:
 `Reconcile DEV-004 (replace the BCP-47 pattern in config/schemas.py with langcodes and add the dependency) and DEV-010 (C7) with the corrected design, then list DEV-005's files for the user's review.`
+
+Restored on the `RESUME` from `ARCHITECTING` (design `117eafe`, decision 15) and
+reconciled without changing the plan's steps or their order: DEV-004 is reopened
+to check language tags with `langcodes` and keep them in standard form, with the
+`languages[n]` error naming; DEV-010's C7 and DEV-011's language merge follow
+decision 15. The change is the user's own request and touches no other step, so
+the plan stays approved.

@@ -6,13 +6,15 @@ the environment only when a run needs a provider.
 """
 
 # Standard Library
-import re
+import json
 
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Literal
 
 # Third Party Library
+import langcodes
+
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -22,21 +24,6 @@ from pydelity.providers.profiles import DEFAULT_MODEL, ModelChoice, parse_model
 # Where outputs go when no output folder is set: this folder in the current
 # directory, then one folder per PDF, named after the PDF.
 _DEFAULT_OUTPUT_PARENT = "pydelity-output"
-
-# A well-formed BCP-47 language tag (RFC 5646, section 2.1): language with up to
-# three extended subtags, then optional script, region, variants, extensions and
-# private use; or a private-use tag on its own. Grandfathered tags are not accepted.
-_LANGUAGE_TAG = re.compile(
-    r"(?:"
-    r"(?:[A-Za-z]{2,3}(?:-[A-Za-z]{3}){0,3}|[A-Za-z]{4}|[A-Za-z]{5,8})"
-    r"(?:-[A-Za-z]{4})?"
-    r"(?:-(?:[A-Za-z]{2}|[0-9]{3}))?"
-    r"(?:-(?:[A-Za-z0-9]{5,8}|[0-9][A-Za-z0-9]{3}))*"
-    r"(?:-[0-9A-WY-Za-wy-z](?:-[A-Za-z0-9]{2,8})+)*"
-    r"(?:-[Xx](?:-[A-Za-z0-9]{1,8})+)?"
-    r"|[Xx](?:-[A-Za-z0-9]{1,8})+"
-    r")"
-)
 
 
 def _absolute(path: Path) -> Path:
@@ -59,7 +46,7 @@ def _absolute(path: Path) -> Path:
 
 
 def _check_language_tag(tag: str) -> str:
-    """Accept a well-formed BCP-47 language tag.
+    """Accept a registered BCP-47 language tag, in its standard form.
 
     Parameters
     ----------
@@ -69,17 +56,20 @@ def _check_language_tag(tag: str) -> str:
     Returns
     -------
     str
-        The tag, unchanged.
+        The tag in standard form (see `standard_language_tag`).
 
     Raises
     ------
     ValueError
-        If the tag is not well-formed.
+        If the tag is not a valid BCP-47 language tag.
     """
 
     if not is_language_tag(tag):
-        raise ValueError(f"{tag!r} is not a BCP-47 language tag, such as 'en' or 'ar'")
-    return tag
+        raise ValueError(
+            f"{json.dumps(tag, ensure_ascii=False)} is not a valid BCP-47 language "
+            'tag, such as "en" or "ar"'
+        )
+    return standard_language_tag(tag)
 
 
 def _check_model_setting(setting: str) -> str:
@@ -239,7 +229,7 @@ class Config(BaseModel):
     languages: list[Annotated[str, AfterValidator(_check_language_tag)]] = Field(
         default_factory=list
     )
-    """The PDF's languages as BCP-47 tags, such as ``en`` or ``ar``."""
+    """The PDF's languages as BCP-47 tags such as ``en`` or ``ar``, in standard form."""
 
     max_cost: Annotated[Decimal, Field(gt=0)] | None = None
     """The most the output folder's model requests may cost, in US dollars."""
@@ -294,11 +284,12 @@ class ProviderEnv(BaseSettings):
 
 
 def is_language_tag(tag: str) -> bool:
-    """Tell whether a string is a well-formed BCP-47 language tag.
+    """Tell whether a string is a valid BCP-47 language tag.
 
-    Only the syntax is checked (RFC 5646, section 2.1): ``en``, ``zh-Hant-TW`` and
-    ``zxx`` pass; ``en_US`` and ``e`` do not. Grandfathered tags such as
-    ``i-klingon`` are not accepted.
+    The tag must be well-formed and every subtag must be in the IANA language subtag
+    registry that `langcodes` bundles. Special and private-use tags (``zxx``,
+    ``und``, ``mul``, ``qaa``, ``x-...``) are valid; spelling variants such as
+    ``en_US`` are valid and become ``en-US`` in standard form.
 
     Parameters
     ----------
@@ -308,12 +299,38 @@ def is_language_tag(tag: str) -> bool:
     Returns
     -------
     bool
-        Whether the tag is well-formed.
+        Whether the tag is valid.
 
     Examples
     --------
-    >>> is_language_tag("zh-Hant-TW"), is_language_tag("en_US")
+    >>> is_language_tag("zh-Hant-TW"), is_language_tag("zz")
     (True, False)
     """
 
-    return _LANGUAGE_TAG.fullmatch(tag) is not None
+    return langcodes.tag_is_valid(tag)
+
+
+def standard_language_tag(tag: str) -> str:
+    """Return a valid language tag in its standard form.
+
+    Case and separators are normalized, deprecated codes become their replacements
+    and three-letter codes with a two-letter equivalent become two-letter, so two
+    spellings of one language compare equal.
+
+    Parameters
+    ----------
+    tag
+        A tag that `is_language_tag` accepts.
+
+    Returns
+    -------
+    str
+        The tag in standard form.
+
+    Examples
+    --------
+    >>> standard_language_tag("EN_us"), standard_language_tag("iw")
+    ('en-US', 'he')
+    """
+
+    return langcodes.standardize_tag(tag)
