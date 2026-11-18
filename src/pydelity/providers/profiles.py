@@ -1,9 +1,9 @@
-"""Provider profiles: the few provider-level facts pydelity needs, and model settings.
+"""Provider profiles and model settings.
 
-pydelity keeps no per-model data (no page, size or context-window limits and no list
-of models), because none of it could be kept current. It keeps only facts that hold
-for every model of a provider, and sends any model ID as given: the provider decides
-whether the model exists and accepts the PDF and the settings.
+pydelity stores no per-model data, such as page, size or context-window limits or a
+list of models, because it would go out of date. A profile holds only facts that apply
+to every model from a provider. Model IDs are sent to the provider unchanged, and the
+provider decides whether the model exists and accepts the PDF and the settings.
 """
 
 # Future Library
@@ -58,7 +58,7 @@ _OPENAI_UPLOAD_EXPIRY_HOURS = (1, 720)
 def _anthropic_effort_settings(effort: Effort) -> ModelSettings:
     """Return the Anthropic request settings for an effort level.
 
-    Anthropic models think adaptively, with the effort level setting how much.
+    Anthropic models use adaptive thinking, and the effort level sets how much.
 
     Parameters
     ----------
@@ -126,7 +126,7 @@ class ModelChoice:
 
 @dataclass(frozen=True)
 class ProviderProfile:
-    """The facts pydelity needs about a provider, the same for all its models.
+    """Facts about a provider that apply to all of its models.
 
     Attributes
     ----------
@@ -164,7 +164,7 @@ class ProviderProfile:
         return self.pdf_image_tokens_per_page + self.pdf_text_tokens_per_page
 
 
-# The model pydelity uses unless told otherwise.
+# The model used when the model setting is not given.
 DEFAULT_MODEL = "anthropic:claude-opus-5-5"
 
 PROFILES: dict[ProviderName, ProviderProfile] = {

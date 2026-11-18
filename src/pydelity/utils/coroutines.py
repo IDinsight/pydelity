@@ -1,15 +1,19 @@
 """Running pydelity's coroutines from synchronous code, and issuing its warnings.
 
-pydelity's logic is written once, as coroutines (``arun`` and the like). The sync API
-functions call them through `run_coroutine`, which uses `asyncio.run` when the calling
-thread has no running event loop (a script), and otherwise runs the coroutine on a
-worker thread with its own event loop (a Jupyter cell, or async code that calls a sync
-function).
+pydelity's functions are written as coroutines, such as ``arun``. The sync API
+functions call them through `run_coroutine`. It uses `asyncio.run` when the calling
+thread has no running event loop, as in a script. Otherwise, as in a Jupyter cell or
+async code that calls a sync function, it runs the coroutine on a worker thread with
+its own event loop.
 
-pydelity issues its warnings through `warn`. On such a worker thread, `warn` records
-them instead, and `run_coroutine` issues them again in the calling thread when the
-coroutine ends, so the caller's warning filters and ``warnings.catch_warnings`` blocks
-see them exactly as they would for the async function.
+Blocking calls that wait for a person, such as a question on the terminal, go through
+`run_in_daemon_thread`. This keeps the event loop free and lets Ctrl+C end the program
+immediately.
+
+pydelity issues warnings through `warn`. On a worker thread, `warn` records them
+instead, and `run_coroutine` issues them again in the calling thread when the
+coroutine ends. The caller's warning filters and ``warnings.catch_warnings`` blocks
+then handle them the same way as warnings from the async function.
 """
 
 # Standard Library
@@ -19,7 +23,7 @@ import os
 import threading
 import warnings
 
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,10 +36,10 @@ from pydelity.errors import PydelityWarning
 # reaches it on every platform (an unbounded join is not interruptible everywhere).
 _JOIN_POLL_SECONDS = 0.2
 
-# A warning points at the first stack frame outside this package: the caller's code.
+# Warnings point at the first stack frame outside this package, in the caller's code.
 _PACKAGE_PREFIX = str(Path(__file__).parent.parent) + os.sep
 
-# Set only on a worker thread: the list `warn` appends to instead of issuing.
+# On a worker thread, the list that `warn` appends to instead of issuing warnings.
 _recorded_warnings: ContextVar[list[str] | None] = ContextVar(
     "_recorded_warnings", default=None
 )
@@ -82,7 +86,8 @@ def _cancel(state: _WorkerState[Any]) -> None:
     state.started.wait()
     if state.loop is None or state.task is None:
         return
-    # The loop is closed if the coroutine finished in the meantime: nothing to cancel.
+    # If the coroutine already finished, its loop is closed and there is nothing to
+    # cancel.
     with contextlib.suppress(RuntimeError):
         state.loop.call_soon_threadsafe(state.task.cancel)
 
@@ -127,8 +132,8 @@ def _run_on_worker_thread[ResultT](
     try:
         _wait_for(caller=asyncio.current_task(), state=state, thread=thread)
     except BaseException:
-        # Ctrl+C in the calling thread: cancel the coroutine so it can record the
-        # interruption and leave its files valid, wait for it, then re-raise.
+        # On Ctrl+C in the calling thread, cancel the coroutine so it can record the
+        # interruption and leave its files valid. Wait for it to finish, then re-raise.
         _cancel(state)
         _wait_for(caller=None, state=state, thread=thread)
         raise
@@ -139,6 +144,32 @@ def _run_on_worker_thread[ResultT](
     if state.error is not None:
         raise state.error
     return cast("ResultT", state.result)
+
+
+def _settle[ResultT](
+    *,
+    error: BaseException | None,
+    future: asyncio.Future[ResultT],
+    result: ResultT | None,
+) -> None:
+    """Give a future its result or exception, unless it was canceled meanwhile.
+
+    Parameters
+    ----------
+    error
+        The exception to set, or ``None`` to set the result.
+    future
+        The future to settle.
+    result
+        The result to set when there is no error.
+    """
+
+    if future.done():
+        return
+    if error is not None:
+        future.set_exception(error)
+    else:
+        future.set_result(cast("ResultT", result))
 
 
 async def _track[ResultT](
@@ -173,11 +204,11 @@ def _wait_for(
 ) -> None:
     """Wait for the worker thread, in short joins that Ctrl+C can interrupt.
 
-    While the calling thread waits, its own event loop cannot run, so a cancellation of
+    While the calling thread waits, its event loop cannot run, so a cancellation of
     the calling task cannot take effect. Under `asyncio.run`, the first Ctrl+C arrives
-    exactly that way: as a cancellation of the main task. So when the calling task gets
-    a new cancellation request, the coroutine is canceled too; its `CancelledError`
-    then reaches the caller like any other error of the coroutine.
+    as a cancellation of the main task. When the calling task gets a new cancellation
+    request, this function cancels the coroutine too. The coroutine's
+    `CancelledError` then reaches the caller like any other exception it raises.
 
     Parameters
     ----------
@@ -189,7 +220,8 @@ def _wait_for(
         The worker thread.
     """
 
-    # Cancellations requested before the call (in a cleanup handler, say) do not count.
+    # Ignore cancellation requests made before the call, for example in a cleanup
+    # handler.
     requests_before = caller.cancelling() if caller is not None else 0
     forwarded = False
     while thread.is_alive():
@@ -259,6 +291,45 @@ def run_coroutine[ResultT](coroutine: Coroutine[Any, Any, ResultT]) -> ResultT:
     except RuntimeError:
         return asyncio.run(coroutine)
     return _run_on_worker_thread(coroutine)
+
+
+async def run_in_daemon_thread[ResultT](function: Callable[[], ResultT]) -> ResultT:
+    """Run a blocking call, such as a question on the terminal, on a daemon thread.
+
+    Unlike with `asyncio.to_thread`, the thread does not keep the program from
+    exiting, so Ctrl+C during a question on the terminal ends the run immediately.
+
+    Parameters
+    ----------
+    function
+        The call to run, with no arguments.
+
+    Returns
+    -------
+    ResultT
+        What the call returned.
+    """
+
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[ResultT] = loop.create_future()
+
+    def target() -> None:
+        """Run the call and hand its outcome back to the event loop."""
+
+        error: BaseException | None = None
+        result: ResultT | None = None
+        try:
+            result = function()
+        except BaseException as caught:  # the awaiting coroutine re-raises it
+            error = caught
+        # If the run already ended, its loop is closed and nothing awaits the result.
+        with contextlib.suppress(RuntimeError):
+            loop.call_soon_threadsafe(
+                lambda: _settle(error=error, future=future, result=result)
+            )
+
+    threading.Thread(daemon=True, name="pydelity-question", target=target).start()
+    return await future
 
 
 def warn(message: str) -> None:

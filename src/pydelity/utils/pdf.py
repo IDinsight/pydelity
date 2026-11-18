@@ -68,7 +68,7 @@ def _sha256(path: Path) -> str:
 
 @dataclass(frozen=True)
 class PdfInfo:
-    """What pydelity knows about a PDF once it has opened it.
+    """A PDF's identity and size, read when it is opened.
 
     Attributes
     ----------

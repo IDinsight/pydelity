@@ -1,12 +1,13 @@
 """The ``pydelity`` command.
 
-The command only parses its options, turns on logging and calls the Python API; all
-behavior lives in the library.
+The command parses its options, sets up logging and calls the Python API. The
+library does the rest.
 """
 
 # Standard Library
 import sys
 
+from functools import partial
 from pathlib import Path
 from typing import Annotated
 
@@ -17,17 +18,100 @@ from loguru import logger
 
 # Package Library
 from pydelity import __version__
-from pydelity.api import run
-from pydelity.errors import ConfigError, MissingApiKeyError, PdfError, PydelityError
+from pydelity.api import arun_with_questions
+from pydelity.costs.budget import SpendDeclinedError
+from pydelity.costs.schemas import CostEstimate, MaxCostWarning
+from pydelity.errors import (
+    BudgetExceededError,
+    ConfigError,
+    MissingApiKeyError,
+    PdfError,
+    PydelityError,
+)
+from pydelity.utils.coroutines import run_coroutine
 
-# Exit codes: the run failed; the input (settings, API key or PDF) is invalid.
+# Exit code for a run that failed.
 _EXIT_FAILED = 1
+
+# Exit code for an invalid setting, API key or PDF.
 _EXIT_INVALID_INPUT = 2
+
+# Exit code for a run the user declined, or that could not ask because input is not a
+# terminal and --yes was not given.
+_EXIT_STOPPED = 3
 
 _LOG_FORMAT = "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}"
 
-# Local variables are never shown in tracebacks: they can hold API keys.
+# Hide local variables in tracebacks because they can hold API keys.
 app = typer.Typer(add_completion=False, pretty_exceptions_show_locals=False)
+
+
+def _ask(*, question: str, yes: bool) -> bool:
+    """Ask a yes-or-no question on the terminal, with no as the default.
+
+    Parameters
+    ----------
+    question
+        The question.
+    yes
+        Whether ``--yes`` was given, which answers yes without asking.
+
+    Returns
+    -------
+    bool
+        The answer. ``False`` without asking when input is not a terminal and
+        ``--yes`` was not given.
+    """
+
+    if yes:
+        return True
+    if not sys.stdin.isatty():
+        logger.error(
+            "Input is not a terminal, so pydelity cannot ask; pass --yes to go ahead "
+            "without asking"
+        )
+        return False
+    return typer.confirm(question, default=False, err=True)
+
+
+def _confirm_spend(estimate: CostEstimate, *, yes: bool) -> bool:
+    """Ask whether to go ahead and spend, after the estimate has been logged.
+
+    Parameters
+    ----------
+    estimate
+        The cost estimate, already shown in the log.
+    yes
+        Whether ``--yes`` was given.
+
+    Returns
+    -------
+    bool
+        Whether to go ahead.
+    """
+
+    return _ask(question="Go ahead with the model requests?", yes=yes)
+
+
+def _decide_over_max_cost(warning: MaxCostWarning, *, yes: bool) -> bool:
+    """Ask whether to go over ``max_cost``, after the warning has been logged.
+
+    Parameters
+    ----------
+    warning
+        The warning's details, already shown in the log.
+    yes
+        Whether ``--yes`` was given.
+
+    Returns
+    -------
+    bool
+        Whether the run may go over ``max_cost``.
+    """
+
+    return _ask(
+        question="Go ahead, even though this run could go over max_cost?", yes=yes
+    )
 
 
 def _enable_logging(*, verbose: bool) -> None:
@@ -131,6 +215,14 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
             show_default=False,
         ),
     ] = None,
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="Go ahead without asking, even over max_cost (after its warning).",
+        ),
+    ] = False,
     verbose: Annotated[
         bool,
         typer.Option(
@@ -169,6 +261,8 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
         The spending limit in US dollars, checked when settings are validated.
     overwrite
         Whether to redo steps whose outputs could be reused.
+    yes
+        Whether to go ahead without asking.
     verbose
         Whether to log details as well as progress.
     version
@@ -177,8 +271,8 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
     Raises
     ------
     typer.Exit
-        With exit code 2 when a setting, the API key or the PDF is invalid, or 1 when
-        the run fails.
+        With exit code 2 when a setting, the API key or the PDF is invalid, 3 when the
+        run stops at an answer or because it cannot ask, or 1 when the run fails.
     """
 
     _enable_logging(verbose=verbose)
@@ -192,10 +286,21 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
     }
     settings = {name: value for name, value in given.items() if value is not None}
     try:
-        run(pdf, config=config, **settings)
+        run_coroutine(
+            arun_with_questions(
+                pdf,
+                config=config,
+                confirm=partial(_confirm_spend, yes=yes),
+                decide_over_max_cost=partial(_decide_over_max_cost, yes=yes),
+                **settings,
+            )
+        )
     except (ConfigError, MissingApiKeyError, PdfError) as error:
         logger.error(str(error))
         raise typer.Exit(code=_EXIT_INVALID_INPUT) from error
+    except (BudgetExceededError, SpendDeclinedError) as error:
+        logger.error(str(error))
+        raise typer.Exit(code=_EXIT_STOPPED) from error
     except PydelityError as error:
         logger.error(str(error))
         raise typer.Exit(code=_EXIT_FAILED) from error

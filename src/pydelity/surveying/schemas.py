@@ -109,7 +109,7 @@ class FormInfo(_Output):
 
 
 class ItemKind(StrEnum):
-    """What kind of content an item is; later steps treat each kind differently."""
+    """The kind of content an item holds. Later steps handle each kind differently."""
 
     CODE = "code"
     """Code and other preformatted text, whose whitespace and line breaks matter."""
@@ -134,7 +134,7 @@ class ItemKind(StrEnum):
 
 
 class ItemRole(StrEnum):
-    """What role an item plays in the document; later steps treat each differently."""
+    """The role an item plays in the document. Later steps handle each differently."""
 
     ARTIFACT = "artifact"
     """Page furniture, such as running headers, footers and page numbers."""
@@ -336,7 +336,7 @@ class PageFacts(_Output):
 
 
 class Facts(_Output):
-    """Everything the probe measured, with no model involved.
+    """Everything the probe measured.
 
     A fact that could not be read is ``None`` and has a ``probe_errors`` item; an
     empty list means the PDF has none.

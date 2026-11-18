@@ -1,12 +1,12 @@
 """Exceptions and the warning category that pydelity raises.
 
-Every error pydelity raises on purpose is a `PydelityError`, so callers can catch them
-all with one ``except`` clause, or one kind at a time.
+Every error pydelity raises deliberately is a `PydelityError`, so callers can catch
+all of them with one ``except`` clause, or each kind separately.
 """
 
 
 class PydelityError(Exception):
-    """Base class for every error pydelity raises on purpose."""
+    """Base class for every error pydelity raises deliberately."""
 
 
 class BudgetExceededError(PydelityError):
@@ -38,4 +38,4 @@ class SurveyError(PydelityError):
 
 
 class PydelityWarning(UserWarning):
-    """A problem worth the user's attention that does not stop the run."""
+    """A problem the user should know about that does not stop the run."""

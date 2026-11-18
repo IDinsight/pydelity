@@ -1,8 +1,8 @@
 """The settings pydelity accepts, with their defaults and bounds.
 
-Every model forbids unknown keys, so a misspelled setting is an error rather than
-being silently ignored. The API keys are not settings: `ProviderEnv` reads them from
-the environment only when a run needs a provider.
+Every model rejects unknown keys, so a misspelled setting raises an error. API keys
+are not settings. `ProviderEnv` reads them from environment variables when a run
+needs a provider.
 """
 
 # Standard Library
@@ -21,8 +21,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Package Library
 from pydelity.providers.profiles import DEFAULT_MODEL, ModelChoice, parse_model
 
-# Where outputs go when no output folder is set: this folder in the current
-# directory, then one folder per PDF, named after the PDF.
+# The default parent of the output folders, in the current directory. Each PDF gets
+# its own folder inside it, named after the PDF.
 _DEFAULT_OUTPUT_PARENT = "pydelity-output"
 
 
@@ -211,11 +211,11 @@ class AdvancedConfig(BaseModel):
 
 
 class Config(BaseModel):
-    """Everything a pydelity run is set up with.
+    """All the settings for a pydelity run.
 
-    Settings come from keywords (or command-line options), then an optional JSON or
-    YAML file, then these defaults; `pydelity.config.loading.resolve_config` combines
-    them and checks the result.
+    Keywords (or command-line options) override an optional JSON or YAML file, which
+    overrides these defaults. `pydelity.config.loading.resolve_config` merges and
+    validates them.
     """
 
     model_config = ConfigDict(extra="forbid", use_attribute_docstrings=True)
@@ -268,8 +268,8 @@ class Config(BaseModel):
 class ProviderEnv(BaseSettings):
     """The provider API keys, read from environment variables only.
 
-    No ``.env`` file is loaded. Built only when a run needs a provider, never at
-    import.
+    No ``.env`` file is loaded. pydelity creates this only when a run needs a
+    provider, not at import time.
     """
 
     model_config = SettingsConfigDict(

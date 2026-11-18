@@ -489,10 +489,10 @@ async def measure_facts(
 
 
 def summarize(facts: Facts) -> list[str]:
-    """Describe the facts as plain-text lines, the same way every time.
+    """Describe the facts as plain-text lines.
 
-    The lines are logged, sent to the model with the survey request and head the
-    report's facts section.
+    The same facts always give the same lines. They are logged, sent to the model with
+    the survey request and placed at the top of the report's facts section.
 
     Parameters
     ----------

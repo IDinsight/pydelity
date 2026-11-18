@@ -1,6 +1,6 @@
 """Combining settings from keywords, a config file and defaults, and checking them.
 
-Keywords (or command-line options) win over the config file, which wins over the
+Keywords (or command-line options) override the config file, which overrides the
 defaults. Relative paths in a config file are relative to the file's folder; relative
 paths given as keywords or options are relative to the current directory. Every
 problem is collected and reported in one `ConfigError`, before any work starts.
@@ -390,9 +390,9 @@ def resolve_config(
     config
         A JSON or YAML config file, a `Config`, or a mapping of settings.
     pdf
-        The PDF, which wins over a ``pdf`` in ``config``.
+        The PDF. Overrides a ``pdf`` in ``config``.
     settings
-        Settings by name (``advanced`` as a mapping), which win over ``config``.
+        Settings by name (``advanced`` as a mapping). They override ``config``.
 
     Returns
     -------
@@ -423,8 +423,9 @@ def resolve_config(
     except ValidationError as error:
         problems = _problems(error)
 
-    # The expiry range depends on the selected provider, so it is checked against the
-    # model setting after both are known; on its own it is already checked above.
+    # The allowed expiry range depends on the provider, so Pydantic cannot check it.
+    # Check it here against the model setting, using the raw values if validation
+    # failed, unless Pydantic already reported a problem with the expiry.
     expiry_path = "advanced.uploads.expiry_hours"
     if resolved is not None:
         expiry = _expiry_problem(

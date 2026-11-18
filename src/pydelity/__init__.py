@@ -1,8 +1,9 @@
 """pydelity: PDF to structured JSON, faithfully.
 
-Importing pydelity builds no settings, reads no environment variables and logs nothing.
-Its log messages go through loguru and stay off until the caller turns them on with
-``loguru.logger.enable("pydelity")``; the ``pydelity`` command turns them on itself.
+Importing pydelity does not read settings or environment variables, and does not log.
+pydelity logs through loguru, with its messages disabled by default. Call
+``loguru.logger.enable("pydelity")`` to see them. The ``pydelity`` command enables
+them itself.
 """
 
 # Standard Library
@@ -42,5 +43,5 @@ __all__ = [
 
 __version__ = _distribution_version("pydelity")
 
-# A library logs nothing unless its caller asks.
+# Keep pydelity's log messages off until the caller enables them.
 _logger.disable("pydelity")

@@ -1,10 +1,11 @@
-"""The survey's probe: everything measurable about a PDF without a model.
+"""The survey's probe: the facts about a PDF that can be measured without a model.
 
 The probe reads the text layer, page labels, bookmarks, form fields and structure tags
-with PyMuPDF. It uses Unicode properties and PDF structure only, never word lists, so
-it works the same for any language or kind of document. Every threshold is a named
-constant below. Reading bookmarks, the form or the structure tree can fail on a
-malformed PDF; that fact is then ``None`` with a `ProbeError`, and the probe goes on.
+with PyMuPDF. It relies on Unicode properties and PDF structure, not word lists, so it
+works the same way for any language or type of document. Every threshold is a named
+constant below. On a malformed PDF, reading the bookmarks, the form or the structure
+tree can fail. The probe then sets that fact to ``None``, records a `ProbeError` and
+continues.
 """
 
 # Standard Library
@@ -56,27 +57,29 @@ DIRECTION_DOMINANT_SHARE = 0.7
 # characters together reach this share of its characters.
 GARBLED_SHARE = 0.1
 
-# The measured orientation is confident when the dominant angle has at least this
-# share of the characters on horizontal lines...
+# The measured orientation is confident when the most common angle has at least this
+# share of the characters on horizontal lines, and the page has at least
+# `ORIENTATION_MIN_CHARS` of them.
 ORIENTATION_DOMINANT_SHARE = 0.8
 
-# ...and the page has at least this many such characters.
+# The fewest characters on horizontal lines that a confident orientation needs.
 ORIENTATION_MIN_CHARS = 20
 
-# Bumped whenever a measurement rule, a measurement constant or the summary format
-# changes, so an upgraded pydelity measures again instead of reusing old facts.
+# Increase this whenever a measurement rule, a measurement constant or the summary
+# format changes, so an upgraded pydelity measures again instead of reusing old facts.
 PROBE_VERSION = 1
 
 # At most this many repeated lines are kept, most frequent first.
 REPEATED_MAX_LINES = 200
 
-# A line is repeated when it appears on at least this many pages...
+# A line is repeated when it appears on at least this many pages and on at least
+# `REPEATED_MIN_SHARE` of the pages.
 REPEATED_MIN_PAGES = 3
 
-# ...and on at least this share of the pages...
+# The share of the pages a repeated line must appear on.
 REPEATED_MIN_SHARE = 0.05
 
-# ...except that in a PDF of 2 or 3 pages, this many pages are enough.
+# In a PDF of 2 or 3 pages, a line on this many pages is repeated.
 REPEATED_SMALL_PDF_MIN_PAGES = 2
 
 # The structure tree is counted up to this many elements; beyond it, `truncated` is set.
@@ -236,10 +239,10 @@ def _choose_text_numbers(
     """Find printed page numbers in the text of pages that have no page label.
 
     A candidate is a line in the top or bottom band that is a single number with
-    only non-letter decoration around it. When a page has several, the one whose
-    style and offset (printed number minus page index) the most pages share wins,
-    so a list marker near the top loses to the page numbers at the bottom; the
-    line nearest the page's edge breaks a tie.
+    only non-letter decoration around it. When a page has several candidates, the
+    one chosen has the style and offset (printed number minus page index) that the
+    most pages share. This way, page numbers at the bottom are chosen over a list
+    marker near the top. On a tie, the line nearest the page's edge is chosen.
 
     Parameters
     ----------
@@ -745,7 +748,7 @@ def _page(
         height_pt=round(page.rect.height, 2),
         index=index,
         orientation=_orientation(lines),
-        # A page label wins; otherwise `_choose_text_numbers` fills this in later.
+        # Use the page label if there is one. Otherwise `_choose_text_numbers` sets it.
         printed_number=_label_number(label) if label else None,
         rotation_attribute=page.rotation,
         text=_text_facts(text),
@@ -822,7 +825,7 @@ def _read_fact[T](
 
     try:
         return read()
-    # Malformed PDFs fail in ways no narrower exception type covers.
+    # Malformed PDFs raise many kinds of exceptions, so catch them all.
     except Exception as error:
         errors.append(ProbeError(fact=fact, message=_error_message(error)))
         return None
@@ -1275,7 +1278,7 @@ def _walk_structure(*, document: pymupdf.Document, root: int) -> _StructureWalk:
 
 
 def probe_pdf(path: Path) -> Facts:
-    """Measure everything the survey can know about a PDF without a model.
+    """Measure the facts about a PDF that need no model.
 
     This reads the whole PDF, so async code should call it with `asyncio.to_thread`.
 

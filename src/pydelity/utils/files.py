@@ -1,7 +1,8 @@
 """Atomic writes, validated loads and temp-file cleanup for pydelity's output files.
 
 Every text file is read and written as UTF-8. A file is written to a temporary file in
-the same folder and then moved over the target, so no reader ever sees it half written.
+the same folder and then moved over the target, so readers never see a partly written
+file.
 """
 
 # Standard Library
@@ -21,8 +22,8 @@ _MAX_PROBLEMS_SHOWN = 3
 # A temporary file is named `<target name>.tmp-<16 hex digits>`.
 _TEMP_INFIX = ".tmp-"
 
-# Matches the temporary files `write_text_atomic` creates, and nothing else, so cleanup
-# never touches a user's file that merely has ".tmp-" in its name.
+# Matches only the temporary files that `write_text_atomic` creates, so cleanup does
+# not delete a user's file that happens to have ".tmp-" in its name.
 _TEMP_NAME = re.compile(rf"{re.escape(_TEMP_INFIX)}[0-9a-f]{{16}}$")
 
 
@@ -55,7 +56,7 @@ def _describe(error: ValidationError) -> str:
 class LoadResult[ModelT: BaseModel]:
     """The outcome of loading an output file into a Pydantic model.
 
-    A file that does not exist gives neither a model nor damage: it is simply absent.
+    A missing file gives neither a model nor damage.
 
     Attributes
     ----------

@@ -333,8 +333,9 @@ Evidence, 2026-11-17, repo root, uncommitted on top of `ed70f71`:
   recommends as the default ("If you're not sure where to start"). It takes
   image input (so PDF text plus page images) and reasoning effort low to max.
 - `genai-prices>=0.2.4` (latest) is now a direct runtime dependency. 0.2.4
-  prices `claude-opus-5-5` ($4 / $20 per million tokens) and `gpt-6.2-astra`
-  ($16 / $60), so the default model stays as designed.
+  prices `claude-opus-5-5` ($4 / $20 per million tokens) and `gpt-6.2-astra` ($8
+  / $40 up to 272,000 input tokens per request, $16 / $60 above; corrected
+  during DEV-007), so the default model stays as designed.
 - Until DEV-004 adds the full configuration, `arun`/`run` take `model` as a
   keyword argument, checked before the PDF is opened.
 
@@ -579,7 +580,7 @@ commit:
 
 ### DEV-007 — Cost ledger, pricing, estimate and `max_cost` guard
 
-`Status`: `PENDING` `Depends On`: `DEV-003, DEV-004` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-003, DEV-004` `Acceptance`:
 `AC-014, AC-015, AC-038, AC-039`
 
 **Goal**
@@ -622,6 +623,68 @@ Scratchpad script writing and reading a ledger (including a damaged last line),
 pricing responses from small real provider calls against the provider's reported
 usage, estimate figures, and the guard's warning and both answers with spend
 already in the folder; `just lint`.
+
+Evidence, 2026-11-17, repo root, uncommitted on top of the DEV-005 commit:
+
+- Scratchpad `tools/dev007_check.py` (no network): 36 of 36 checks passed.
+  - Ledger: `cost_usd` written as a JSON number; spend and unpriced count read
+    back; a damaged last line skipped with a note; the next append removes the
+    unfinished line (3 valid lines after); a damaged middle line (edited by
+    hand) raises `OutputError` naming the line; 50 concurrent appends give 50
+    valid lines; a missing ledger reads as empty.
+  - Pricing and estimate: 1M input tokens on `claude-opus-5-5` = $4; an unknown
+    model is unpriced; `advanced.models` prices apply. Estimate for 7 pages and
+    4,000 prompt characters: expected $0.381952 and maximum $2.969856 (3
+    requests), equal to the formulas by hand. Over `max_cost` at $1, and at $2
+    with $1.90 already spent; an unpriced model with `max_cost` is over (no
+    price) and warns, and without `max_cost` only warns; a reused survey costs
+    nothing.
+  - Guard: within `max_cost` no question; 5 concurrent request checks over it
+    ask once, record `spent_usd` 0.5 and `projected_usd` 1.1, issue one
+    `PydelityWarning`, then allow; a no raises `BudgetExceededError` naming the
+    three ways to continue; no `max_cost` never asks.
+  - Python API: over `max_cost` raises `BudgetExceededError` after a
+    `PydelityWarning`; `allow_over_max_cost=True` completes; no `max_cost`
+    completes without a question.
+  - CLI with piped input: no `--yes` exits 3 and says to pass `--yes`; `--yes`
+    completes; over `max_cost` without `--yes` warns then exits 3; with `--yes`
+    warns then completes.
+  - CLI in a pseudo-terminal (run outside the sandbox, which has no pty
+    devices): answer `n` exits 3; `y` completes; over `max_cost` asks once,
+    after the warning; Ctrl+C at the question ends the run in 0.03 s (exit 130).
+- Scratchpad `tools/dev007_real.py` (real requests, keys loaded from the user's
+  `.env` into that process only, run outside the sandbox because its proxy broke
+  TLS): one tiny request each to `anthropic:claude-opus-5-5` (18 input, 4 output
+  tokens, $0.000152) and `openai:gpt-6.2-astra` (13 input, 5 output, $0.000304).
+  Each price equals the list price by hand ($4 / $20; $8 / $40),
+  `advanced.models` prices apply to the same responses, and the two ledger lines
+  sum to $0.000456. Total spend on these checks: about $0.001.
+- `just lint` and `just test` (2 passed) passed; `env -i` `import pydelity`
+  printed nothing and loaded no `pydantic_ai`.
+
+**Implementation Notes**
+
+- Files approved by the user (2026-11-17):
+  `src/pydelity/costs/{__init__,schemas,ledger,pricing,budget}.py`, plus changes
+  to `api.py` and `cli.py`. `utils/coroutines.py` gains `run_in_daemon_thread`,
+  a helper inside an approved file.
+- Questions run on a daemon thread (`run_in_daemon_thread`), not
+  `asyncio.to_thread`: `asyncio.run` waits for its executor's threads on exit,
+  so Ctrl+C at a question would otherwise wait for an answer.
+- `append_entry` removes an unfinished last line before appending. Without it,
+  an interrupted append followed by a later run left a damaged line in the
+  middle of `cost.jsonl`, and every later read failed.
+- The CLI runs through `pydelity.api.arun_with_questions` (confirmation and
+  over-`max_cost` decision as callables); `arun` passes none and decides with
+  `allow_over_max_cost`. DEV-012 moves the run into the orchestration component.
+  `SpendDeclinedError` (a `PydelityError` in `costs/budget.py`, not exported)
+  marks a declined confirmation; the CLI exits 3 for it and for
+  `BudgetExceededError`.
+- Until DEV-010 builds the prompt, the estimate counts the facts summary and the
+  instructions as the prompt. `TYPICAL_OUTPUT_TOKENS` (8,000) and the
+  tokens-per-page figures are to be compared with real survey usage in DEV-011.
+- `gpt-6.2-astra` has tiered prices in `genai-prices` (see the DEV-003 note);
+  pydelity prices each request through `genai-prices`, which applies the tier.
 
 ### DEV-008 — Model factory and LedgerModel
 
@@ -1317,3 +1380,12 @@ to check language tags with `langcodes` and keep them in standard form, with the
 `languages[n]` error naming; DEV-010's C7 and DEV-011's language merge follow
 decision 15. The change is the user's own request and touches no other step, so
 the plan stays approved.
+
+### Suspended Assignment 6
+
+`Recovery Frame`: `1` `Recovery Reason`:
+`User rework: sync Python API functions use asyncio.run only; called while an event loop is already running (Jupyter, async code), they raise an error saying to await the async version instead of running the coroutine on a worker thread.`
+`Purpose`: `DEVELOPMENT` `Target`: `NONE` `Assessed Inputs`:
+`scope a938118 and design 117eafe; DEV-001 to DEV-005 committed (DEV-005 e2c02cf); DEV-007 done and a plain-language pass over the package's docstrings and comments (wording only, lint and tests pass) both uncommitted in the working tree`
+`Next Action`:
+`Reconcile DEV-001 (reduce utils/coroutines.py and the sync wrappers to the corrected design, dropping the worker thread and its warning replay; keep run_in_daemon_thread for terminal questions) and any other step the corrected design changes, then list DEV-008's files for the user's review.`
