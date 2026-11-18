@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
-`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
+`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -27,18 +27,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
-`Design rerun for AC-047: two hand-written example config files in examples/ (JSON and YAML) with every Config key at its default, a placeholder pdf path and price entry, and a test that keeps them complete and readable (Build Plan step 8). Development reruns before testing resumes.`
+`Kind`: `RESUME` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
+`AC-047 rerun complete: DEV-023 added the example config files; recovery frame 1 closed, testing resumes with full verification.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `TESTING` `Owner`: `SCOPING` `FailureType`: `SCOPING` `Reason`:
-`User rework: add a root-level examples/ folder with JSON and YAML config files users can copy as a starting template; the scope has no condition for it.`
-`ResumeAt`: `TESTING` `RerunThrough`: `DEVELOPING`
+`Active`: `false`
 
 ## Outstanding Obligations
 
