@@ -539,6 +539,7 @@ def _prompt_chars(*, config: Config, facts: PdfFacts) -> int:
         instructions=config.instructions,
         languages=config.languages,
         page_count=facts.pdf.page_count,
+        repeated_lines=facts.facts.repeated_lines,
     )
     logger.debug(
         "Survey instructions (prompt version {version}):\n{instructions}",

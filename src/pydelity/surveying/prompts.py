@@ -2,11 +2,15 @@
 
 The prompt names no document type and holds no word lists, so it reads the same for
 any PDF in any language. The facts summary tells the model what was measured and which
-facts could not be read.
+facts could not be read, and every repeated line is listed so the model can say which
+are page furniture.
 """
 
+# Standard Library
+import json
+
 # Package Library
-from pydelity.surveying.schemas import ItemKind, ItemRole
+from pydelity.surveying.schemas import ItemKind, ItemRole, RepeatedLine
 from pydelity.utils.prompts import PromptPair
 
 # The version of the prompt. Increase it whenever the text of either message changes,
@@ -20,6 +24,7 @@ def survey_pdf(
     instructions: str | None,
     languages: list[str],
     page_count: int,
+    repeated_lines: list[RepeatedLine],
 ) -> PromptPair:
     """Write the survey's messages: the instructions, and the text sent with the PDF.
 
@@ -33,17 +38,21 @@ def survey_pdf(
         The user's languages, as BCP-47 tags in standard form.
     page_count
         The PDF's number of pages.
+    repeated_lines
+        The measured repeated lines, each listed with its ID, text, page count and
+        band, such as ``R1: "Section A", on 12 pages, usually in the top band``.
 
     Returns
     -------
     PromptPair
         The instructions as the system message. The user message has the page count,
-        the facts summary, and the user's instructions and languages when given.
+        the facts summary, the repeated lines, and the user's instructions and
+        languages when given.
 
     Examples
     --------
     >>> prompts = survey_pdf(facts_summary=["Text: good on every page."],
-    ...     instructions=None, languages=["en"], page_count=2)
+    ...     instructions=None, languages=["en"], page_count=2, repeated_lines=[])
     >>> print(prompts.user_message)
     The PDF has 2 pages, with indexes 0 to 1.
     <BLANKLINE>
@@ -111,11 +120,12 @@ agree with the printed numbers the facts measure. Give the numbers you see print
 on the pages even where the facts found none.
 
 Artifacts. Page furniture is not part of the content: running headers and footers, \
-page numbers, logos, watermarks, stamps and the like. The facts list lines that \
-repeat across pages, with IDs (R1, R2 and so on). Account for every repeated line ID \
-exactly once: in an artifact's repeated_line_ids, or in non_artifact_lines with the \
-reason it is content. An artifact may have no repeated lines, such as a logo or a \
-stamp.
+page numbers, logos, watermarks, stamps and the like. The text sent with the PDF \
+lists every line that repeats across pages, with its ID (R1, R2 and so on), its text, \
+how many pages it is on and the band of the page it usually sits in. Account for \
+every repeated line ID exactly once: in an artifact's repeated_line_ids, or in \
+non_artifact_lines with the reason it is content. An artifact may have no repeated \
+lines, such as a logo or a stamp.
 
 Continuation notes. Say how content continues across page breaks, such as text, \
 lists or tables that run onto the next page.
@@ -142,6 +152,16 @@ to fix if it does not match them."""
         f"The PDF has {pages}.",
         "Measured facts:\n" + "\n".join(facts_summary),
     ]
+    if repeated_lines:
+        sections.append(
+            "Repeated lines:\n"
+            + "\n".join(
+                f"{line.id}: {json.dumps(line.text, ensure_ascii=False)}, on "
+                f"{len(line.pages)} page{'' if len(line.pages) == 1 else 's'}, "
+                f"usually in the {line.band} band"
+                for line in repeated_lines
+            )
+        )
     if instructions:
         sections.append(f"The user's instructions:\n{instructions}")
     if languages:

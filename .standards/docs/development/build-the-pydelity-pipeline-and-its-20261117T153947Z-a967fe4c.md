@@ -1907,6 +1907,28 @@ constants; regenerating after Markdown formatting is byte-identical, so CI's
 
 ## Plan Notes
 
+- The user's run on a second PDF of their own (142 pages, $1.91, 2026-11-18)
+  showed why every survey so far needed a second request. The facts summary
+  names only the 3 most frequent repeated lines, but check C5 needs every
+  repeated line ID accounted for (58 here). The model could not classify lines
+  it could not see, so its first answer failed C5, and it learned the missing
+  texts from the retry message. With the user's approval, the text sent with the
+  PDF now lists every repeated line (ID, text, page count, band; the probe keeps
+  at most 200), and the artifacts paragraph of the prompt says so.
+  - Changed: `src/pydelity/surveying/prompts.py` (`survey_pdf` takes
+    `repeated_lines`), `src/pydelity/surveying/llm.py` and
+    `src/pydelity/pipeline/runner.py` (the prompt length for the estimate). On
+    that PDF the list adds about 5,600 characters (about 1,400 tokens).
+  - Checks: lint, `just test`, the doctests, `dev010_check.py` (still no
+    document-type words in the prompt), `dev011_offline.py` (31 of 31, now
+    checking that every repeated line is in the request text),
+    `dev012_offline.py` and `dev014_offline.py` pass.
+  - Not changed: the same run showed that this PDF's page labels number pages
+    0-4 (cover to a blank page) 1-5, and the back cover 137, though those pages
+    print no number. The design takes the page label as the printed number
+    whenever labels exist, and check C4 makes the model agree. Taking printed
+    numbers from the page text, with labels as a separate fact, would change the
+    design and the facts schema; it is left for the Architect.
 - The user's own run on a 94-page PDF of their own (2026-11-18, $1.35) found two
   general gaps. The fixes changed `src/pydelity/surveying/probe.py` and
   `src/pydelity/surveying/prompts.py`, with the user's approval, and hold no

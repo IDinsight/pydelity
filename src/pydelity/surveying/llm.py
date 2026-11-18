@@ -162,6 +162,7 @@ async def ask_model(
         instructions=config.instructions,
         languages=config.languages,
         page_count=pdf.page_count,
+        repeated_lines=facts.facts.repeated_lines,
     )
     survey_settings = config.advanced.survey
     agent = create_survey_agent(
