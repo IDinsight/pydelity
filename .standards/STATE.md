@@ -15,7 +15,7 @@
 `Development`:
 `.standards/docs/development/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`User go-ahead to continue with DEV-017 and approval of its plan, files and Python 3.14 download.`
+`User go-ahead to continue with DEV-018 and approval of its plan, files and the release-please source download.`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

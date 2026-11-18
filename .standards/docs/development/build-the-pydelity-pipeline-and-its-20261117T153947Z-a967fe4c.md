@@ -1990,7 +1990,7 @@ arm64). No real key was used and nothing was spent.
 
 ### DEV-017 — CI jobs for Python 3.14, wheels and the gate
 
-`Status`: `PENDING` `Depends On`: `DEV-016` `Acceptance`: `AC-022, AC-023`
+`Status`: `DONE` `Depends On`: `DEV-016` `Acceptance`: `AC-022, AC-023`
 
 **Goal**
 
@@ -2012,6 +2012,41 @@ privilege, timeouts and concurrency as the repo already does.
 
 `just lint-workflows`; a local Python 3.14 test run through uv. The workflow
 itself runs only once pushed, so it stays unverified until then.
+
+Evidence, 2026-11-18, on `613b7af` plus the uncommitted `ci.yml` (macOS arm64).
+
+- `just lint-workflows` (zizmor, auditor persona) reports nothing for any
+  workflow, and `prek run --files .github/workflows/ci.yml` passes every hook,
+  `check-yaml` and zizmor included. Locally zizmor ran without `GH_TOKEN`, so
+  its online audits run only in CI.
+- The workflow parses to four jobs: `gate` "Lint and test" (needs
+  `lint-and-test`, `test-py314` and `wheel`), `lint-and-test` "Lint and test
+  (Python 3.13)", `test-py314` "Test (Python 3.14)" and `wheel` "Wheel install
+  (`<os>`)" on `macos-latest`, `ubuntu-latest` and `windows-latest`.
+- Python 3.14, with the user's approval of the download: CPython 3.14.10
+  (`cpython-3.14.10+20261110-aarch64-apple-darwin-install_only_stripped.tar.gz`,
+  26,970,375 bytes, from the python-build-standalone GitHub release) installed
+  into the scratchpad, plus the cp314 wheels of nine compiled packages from
+  PyPI. In an environment of its own (`UV_PYTHON=3.14`, `UV_PROJECT_ENVIRONMENT`
+  in the scratchpad), so the dev `.venv` stays on 3.13:
+  - `just test`: 2 passed on CPython 3.14.10;
+  - DEV-006's `dev006_check.py`: 34 of 34, with no "Event loop is closed" or
+    other traceback in its output;
+  - `pytest --doctest-modules src`: 17 passed, 1 skipped.
+- Not verified: the workflow runs only once pushed. The `wheel` job on Windows
+  runs `just build` under Git Bash, whose `bash` the recipe's shell setting
+  needs; that and the gate's handling of a failed job are first seen in CI.
+
+**Implementation Notes**
+
+- File approved by the user (2026-11-18): `.github/workflows/ci.yml`.
+- The jobs are in alphabetical order. The gate keeps the required check's name,
+  "Lint and test", and runs with `if: ${{ !cancelled() }}`, because a ruleset
+  counts a skipped check as passed. It reads the needed jobs' results through
+  `env`, not inside the script.
+- Each `wheel` job builds its own wheel with `uv run --locked just build` and
+  runs `scripts/smoke_installed_wheel.py` with the dev environment's Python
+  3.13. No new actions: the three jobs reuse the pinned checkout and setup-uv.
 
 ### DEV-018 — Release workflow, package metadata and 0.1.0 evidence
 
