@@ -28,6 +28,10 @@ export default defineConfig({
           label: "Overview",
           slug: "index",
         },
+        {
+          label: "Reference",
+          items: [{ autogenerate: { directory: "reference" } }],
+        },
       ],
     }),
   ],

@@ -35,13 +35,17 @@ docs-build:
     pnpm run build
     pnpm run check-links
 
+# Regenerate the docs site's reference pages from the code (`lint` formats them)
+docs-reference:
+    uv run --locked python scripts/generate_reference_docs.py
+
 # Create the dev environment from uv.lock (fails if the lock is out of date) and install the git hooks
 install:
     uv sync --locked
     uv run --locked prek install
 
-# Run every lint recipe
-lint: lint-markdown lint-python lint-workflows
+# Regenerate the docs site's reference pages, then run every lint recipe
+lint: docs-reference lint-markdown lint-python lint-workflows
 
 # Format every Markdown file with Prettier, then lint it with markdownlint
 lint-markdown:

@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
-`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
+`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -14,8 +14,7 @@
 `.standards/docs/specs/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
 `Development`:
 `.standards/docs/development/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`User go-ahead to continue with DEV-021 and approval of its plan and files.`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
@@ -28,8 +27,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
-`Design rerun for AC-045 and AC-046 (decision 5): checks C1-C7 test only form and completeness, C3 and C4 keep only range rules, and a comparison after acceptance records rotation_differs and page_number_differs review issues without retrying. Approved survey deviations (1,000 repeated lines, Cf removal, label numbers, every repeated line in the request) folded in.`
+`Kind`: `FORWARD` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
+`Developer complete: DEV-001 to DEV-021 done; full verification of the current implementation.`
 
 ## Recovery
 
