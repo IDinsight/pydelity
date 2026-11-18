@@ -62,6 +62,11 @@ coverage.xml
 dmypy.json
 htmlcov/
 
+# Docs site (Astro): installed packages, build output and generated types
+docs/.astro/
+docs/dist/
+docs/node_modules/
+
 # Sphinx documentation
 docs/_build/
 

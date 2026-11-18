@@ -18,8 +18,22 @@ build:
 # Remove the dev environment, caches and build output (run `just install` afterwards)
 clean:
     rm -rf .venv build dist .cache .coverage .coverage.* htmlcov .pytest_cache .ruff_cache .mypy_cache
+    rm -rf docs/.astro docs/dist docs/node_modules
     find . -name __pycache__ -type d -prune -exec rm -rf {} +
     find . -name '*.egg-info' -type d -prune -exec rm -rf {} +
+
+# Install the docs site's packages from its lock file and serve the site with live reload
+[working-directory: 'docs']
+docs:
+    pnpm install --frozen-lockfile
+    pnpm run dev
+
+# Build the docs site from the current tree, then check its internal links and fragments
+[working-directory: 'docs']
+docs-build:
+    pnpm install --frozen-lockfile
+    pnpm run build
+    pnpm run check-links
 
 # Create the dev environment from uv.lock (fails if the lock is out of date) and install the git hooks
 install:

@@ -1,0 +1,62 @@
+---
+const { siteTitle, siteTitleHref } = Astro.locals.starlightRoute;
+---
+
+<div class="pydelity-title" translate="no">
+  <a class="brand" href={siteTitleHref}>
+    <span class="mark" aria-hidden="true"></span>{siteTitle}
+  </a>
+  <a class="credit" href="https://www.idinsight.org/">Built by IDinsight</a>
+</div>
+
+<style>
+  .pydelity-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    line-height: 1.2;
+  }
+
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--sl-color-white);
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  /* A small square in the brand's light blue, like the dot over the logo's "i". */
+  .mark {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 0.15rem;
+    background: var(--pydelity-light-blue);
+  }
+
+  .credit {
+    padding: 0.2rem 0.7rem;
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 999px;
+    color: var(--sl-color-white);
+    font-size: 0.875rem;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .credit:hover {
+    border-color: var(--sl-color-text-accent);
+    color: var(--sl-color-text-accent);
+  }
+
+  @media (max-width: 40rem) {
+    .credit {
+      display: none;
+    }
+  }
+</style>

@@ -2136,7 +2136,7 @@ arm64).
 
 ### DEV-019 — Docs site scaffold and versioned build
 
-`Status`: `PENDING` `Depends On`: `NONE` `Acceptance`: `AC-027, AC-028, AC-030`
+`Status`: `DONE` `Depends On`: `NONE` `Acceptance`: `AC-027, AC-028, AC-030`
 
 **Goal**
 
@@ -2163,10 +2163,121 @@ and each release under `/v/<version>/`, with `versions.json` and a selector.
 `just docs-build`; a deliberately broken link fails it; the versioned build in a
 scratch clone with a local, never-pushed test tag; `just lint`.
 
+Evidence, 2026-11-18, on `bb8e1e3` plus the uncommitted DEV-019 files (macOS
+arm64, Node 23.10.0, pnpm 10.34.5). Downloads were approved by the user.
+
+- IDinsight/standards `docs/` at `7ae6cad`, read through the GitHub API (48 KB
+  of text, MIT, © IDinsight like pydelity). Ported and adapted: the link
+  checker, the versioned build, `src/versioning/`, the version selector, notice
+  and robots components. Not ported: its sidebar reshuffle, roadmap page,
+  reference sync, page title and sidebar overrides, styles and favicon.
+- `pnpm install`: 269 packages (211 from the local pnpm store, 72 downloaded),
+  166 MB in `docs/node_modules/`; `docs/pnpm-lock.yaml` is 110 KB.
+- `just docs-build`: the frozen install, the build (2 pages) and the link check
+  pass. Astro warns that the `i18n` collection is empty and that there is no
+  `404` entry: Starlight's notes for a one-language site without a custom 404
+  page.
+- A link to a missing page and to a missing `#fragment`, added on purpose, fail
+  the link check with exit 1, naming both; with them removed it passes.
+- Versioned build in a scratch clone (no remote) with local tags `v0.1.0` and
+  `v0.2.0` (each with `pyproject.toml` at that version and a section only 0.2.0
+  has), `v0.0.1` and `v0.3.0-rc.1`, installed offline from the pnpm store:
+  - 2 versions built; `v0.0.1` (below 0.1.0) and the release candidate were
+    skipped. v0.2.0 is at `/pydelity/` and `/pydelity/v/0.2.0/`, v0.1.0 at
+    `/pydelity/v/0.1.0/`; `versions.json` lists both with their pages, and the
+    link check passes on all 6 pages.
+  - `/pydelity/` has no notice and can be indexed; `/pydelity/v/0.2.0/` is
+    `noindex`; `/pydelity/v/0.1.0/` is `noindex`, shows the older-version
+    notice, preselects v0.1.0 and lacks the 0.2.0-only section.
+  - A tag `v0.3.0` on a commit whose `pyproject.toml` says 0.2.0 stops the build
+    with "Tag v0.3.0 holds pyproject.toml version 0.2.0" and leaves the earlier
+    output in place.
+  - Served on 127.0.0.1 and opened in a browser: choosing v0.1.0 in the selector
+    on `/pydelity/#what-is-new-in-020` goes to `/pydelity/v/0.1.0/` (without the
+    fragment, which that version lacks) and shows the notice. The pages load
+    Inter from the site itself and make no request to another host; light and
+    dark themes render, and at 375 px wide the page does not scroll sideways.
+- `just lint` passes.
+- The `detect-secrets` hook flagged all 364 `integrity: sha512-…` checksum lines
+  in `docs/pnpm-lock.yaml`. A baseline rescan (`detect-secrets scan`) changed
+  only its timestamp, since it reads tracked files only, and listing the
+  checksums in the baseline would break on every lock update. The user chose to
+  exclude the lock file from the hook, as IDinsight/standards does. After that,
+  `prek run --files` on every new and changed file passes all hooks,
+  `detect-secrets` and `check-added-large-files` included.
+- Rerun after the exclusion: `just lint`, `just docs-build` and `just test` (2
+  passed) pass.
+
 **Implementation Notes**
 
-Reads IDinsight/standards from GitHub. Has no dependency, so it can be taken
-earlier if the user prefers.
+- Files approved by the user (2026-11-18): `docs/` (`package.json`,
+  `pnpm-lock.yaml`, `astro.config.mjs`, `tsconfig.json`, `versioning.mjs`,
+  `public/favicon.svg`, `scripts/check-links.mjs`, `scripts/build-versions.mjs`,
+  `src/content.config.ts`, `src/content/docs/index.md`, `src/components/`,
+  `src/styles/custom.css`, `src/versioning/`), `justfile` (`docs`, `docs-build`,
+  and `clean` now removing the docs site's folders), `.gitignore`,
+  `.github/dependabot.yml` (npm for `/docs`) and `.pre-commit-config.yaml`
+  (`detect-secrets` skips `docs/pnpm-lock.yaml`, the user's choice on
+  2026-11-18).
+- Versions: `astro` 7.4.10, `@astrojs/starlight` 0.42.10 (needs astro ^7.2.10),
+  `sharp` 0.35.5, `@fontsource-variable/inter` 5.3.0 and pnpm 10.34.5, each
+  released at least 7 days earlier, the cooldown Dependabot uses here.
+  IDinsight/standards pins astro 7.4.12 and Starlight 0.43.1, which were 5 days
+  old.
+- At the user's request (2026-11-18) the site does not copy standards' look. It
+  uses IDinsight's brand: the blue pair (`#1C2F62`, `#A8CCEB`) with the cool
+  greys (`#212E38`, `#F2F2F5`), navy in dark mode, Inter served with the site, a
+  dark blue bar under the header, a left bar on the current page, and a blue "p"
+  favicon.
+- `build-versions.mjs` checks each tag against the `[project]` version in its
+  `pyproject.toml`, keeps its scratch builds under `docs/node_modules/.cache`,
+  and passes the version context in `PYDELITY_DOCS_CONTEXT`.
+- The overview page is a placeholder; its prose is the Documenter's.
+- Reopened on 2026-11-18 at the user's request, after they reviewed the site
+  locally: the side panel should be resizable as on the IDinsight/standards site
+  (its `Sidebar.astro`), the title credit should read "Built by IDinsight", and
+  both color schemes should be warmer (dark less dark, light less bright). The
+  user also asked where the version selector is: it lists release tags, and
+  pydelity has none yet, so a current-tree build shows none. The step's goal and
+  acceptance are unchanged; the user reviews the rework's files first.
+  - Approved by the user (2026-11-18): `docs/src/components/Sidebar.astro` (new,
+    adapted from IDinsight/standards), `docs/astro.config.mjs`,
+    `docs/src/components/SiteTitle.astro` and `docs/src/styles/custom.css`. The
+    version selector stays as it is (the user's choice): it appears once a
+    release tag exists, and current-tree builds show none.
+  - The side panel can be dragged between 224 and 480 pixels, moved 16 pixels
+    per arrow key, set to its ends with Home and End and reset with a
+    double-click; the browser keeps the width under `pydelity-sidebar-width`.
+    The credit reads "Built by IDinsight". Light: page `#FAF7F2`, side panel
+    `#F3EEE6`, text `#2B2F36`, links `#264D96`, headings `#1C2F62`. Dark: page
+    `#24272E`, side panel `#2A2E36`, text `#DCD8D0`, headings `#F3F0EA`, links
+    `#A8CCEB`.
+  - Evidence, 2026-11-18: `just docs-build` passes (2 pages, links checked). The
+    scratch clone, rebuilt from the current files with the same local tags,
+    passes the versioned build and the link check on all 6 pages; each copy has
+    the resize handle and the new credit, and the notice and `noindex` rules are
+    unchanged. In the in-app browser on 127.0.0.1: dragging the edge widened the
+    panel from 300 to 425 pixels and saved it; two left-arrow presses gave 393;
+    Home 224 and End 480; the width carried to `/pydelity/v/0.1.0/`; a
+    double-click reset it to 300. The computed colors match the values above in
+    both schemes. `just lint` and `prek run --files` on the changed files pass.
+  - Two more changes at the user's request (2026-11-18), in the same approved
+    files: the "Built by IDinsight" credit is 14 pixels instead of 12, and from
+    72rem (1,152 pixels) wide the header's columns are equal on both sides of a
+    22rem search box, as on the IDinsight/standards site, so the search box is
+    centered in the window; narrower windows keep Starlight's layout. Measured
+    in the in-app browser: the search box's center is at the window's center at
+    1,440 and 1,280 pixels (720 and 640), and at 1,000 pixels it lines up with
+    the page text; no width scrolls sideways. `just docs-build`, the versioned
+    build in the scratch clone (6 pages, links checked), `just lint` and the
+    hooks pass.
+  - At the user's request (2026-11-18), the credit takes the title's color
+    (`--sl-color-white`): `#F3F0EA` in dark mode and `#1F242B` in light mode,
+    both measured equal to the title's in the in-app browser. `just docs-build`,
+    `just lint` and the hooks pass.
+  - At the user's request (2026-11-18), the credit is bold (weight 700, which
+    the built stylesheet shows). `just docs-build`, `just lint` and the hooks
+    pass.
 
 ### DEV-020 — Docs workflow
 

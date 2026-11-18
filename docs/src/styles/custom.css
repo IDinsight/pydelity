@@ -1,0 +1,95 @@
+/* Warm off-white by day and soft charcoal by night, with IDinsight's blues, in Inter. */
+:root {
+  --sl-font: "Inter Variable", Inter, Arial, sans-serif;
+  --pydelity-dark-blue: #1c2f62;
+  --pydelity-light-blue: #a8cceb;
+
+  --sl-color-white: #f3f0ea;
+  --sl-color-gray-1: #ece9e3;
+  --sl-color-gray-2: #dcd8d0;
+  --sl-color-gray-3: #ada9a2;
+  --sl-color-gray-4: #7e7a74;
+  --sl-color-gray-5: #555a63;
+  --sl-color-gray-6: #2f333c;
+  --sl-color-black: #24272e;
+  --sl-color-accent-low: #33405a;
+  --sl-color-accent: #7fa3df;
+  --sl-color-accent-high: #a8cceb;
+  --sl-color-bg-nav: #2a2e36;
+  --sl-color-bg-sidebar: #2a2e36;
+  --sl-color-bg-inline-code: #323743;
+  --sl-color-hairline-light: #3b404a;
+  --sl-color-hairline: #353a44;
+  --sl-color-hairline-shade: #1c1f25;
+  --pydelity-bar: var(--pydelity-light-blue);
+  --pydelity-heading: #f3f0ea;
+}
+
+:root[data-theme="light"] {
+  --sl-color-white: #1f242b;
+  --sl-color-gray-1: #262a31;
+  --sl-color-gray-2: #2b2f36;
+  --sl-color-gray-3: #5f6670;
+  --sl-color-gray-4: #8e949b;
+  --sl-color-gray-5: #cfc8bc;
+  --sl-color-gray-6: #e9e3d9;
+  --sl-color-gray-7: #f3eee6;
+  --sl-color-black: #faf7f2;
+  --sl-color-accent-low: #e4e9f3;
+  --sl-color-accent: #264d96;
+  --sl-color-accent-high: #1c2f62;
+  --sl-color-bg-nav: #faf7f2;
+  --sl-color-bg-sidebar: #f3eee6;
+  --sl-color-bg-inline-code: #efe9df;
+  --sl-color-hairline-light: #e8e1d6;
+  --sl-color-hairline: #e4ddd2;
+  --sl-color-hairline-shade: #d8d0c3;
+  --pydelity-bar: var(--pydelity-dark-blue);
+  --pydelity-heading: #1c2f62;
+}
+
+/* A solid bar under the header, after the accent rectangle in IDinsight's layouts. */
+header.header {
+  border-bottom: 3px solid var(--pydelity-bar);
+}
+
+/* Center the search box in the window once the title and the right-hand controls fit
+   beside it. Narrower windows keep Starlight's layout. */
+@media (min-width: 72rem) {
+  header.header > .header {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 22rem) minmax(0, 1fr);
+  }
+
+  header.header > .header > :nth-child(2) {
+    justify-self: stretch;
+  }
+
+  header.header > .header > .right-group {
+    justify-self: end;
+  }
+}
+
+.sl-markdown-content :is(h1, h2, h3),
+h1#_top {
+  color: var(--pydelity-heading);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+/* The current page gets a bar on its left rather than a filled background. */
+.sidebar-content a {
+  border-left: 3px solid transparent;
+  border-radius: 0 0.25rem 0.25rem 0;
+}
+
+.sidebar-content a:hover {
+  background-color: var(--sl-color-accent-low);
+  color: var(--sl-color-text-accent);
+}
+
+.sidebar-content a[aria-current="page"] {
+  border-left-color: var(--pydelity-bar);
+  background-color: var(--sl-color-accent-low);
+  color: var(--sl-color-text-accent);
+  font-weight: 600;
+}
