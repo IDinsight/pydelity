@@ -2281,7 +2281,7 @@ arm64, Node 23.10.0, pnpm 10.34.5). Downloads were approved by the user.
 
 ### DEV-020 — Docs workflow
 
-`Status`: `PENDING` `Depends On`: `DEV-019` `Acceptance`: `AC-027, AC-029`
+`Status`: `DONE` `Depends On`: `DEV-019` `Acceptance`: `AC-027, AC-029`
 
 **Goal**
 
@@ -2302,6 +2302,49 @@ runs only when `v<pyproject version>` exists; zizmor clean.
 **Self-Check**
 
 `just lint-workflows`; the tag-existence logic exercised in the scratch clone.
+
+Evidence, 2026-11-18, on `08f08c8` plus the uncommitted `docs.yml` (macOS
+arm64).
+
+- `just lint-workflows` (zizmor, auditor persona) reports nothing for any
+  workflow, and `prek run --files .github/workflows/docs.yml` passes
+  `check-yaml` and zizmor. zizmor ran offline locally; CI runs its online
+  audits.
+- The workflow's "Choose the build and whether to publish" script, taken from
+  the YAML file and run in the scratch clone with `EVENT` set as GitHub would:
+  - push, tag `v0.1.0`, version 0.1.0: `build:versions`, publish;
+  - push, tags `v0.1.0` and `v0.2.0`, version 0.2.0: `build:versions`, publish;
+  - push, only `v0.1.0` tagged, version 0.2.0: `build:versions`, no publish,
+    notice "published once v0.2.0 exists";
+  - push, no tags, and push with only `v0.0.1` and `v0.3.0-rc.1`: `build`, no
+    publish, with the notice;
+  - manual run, with or without `v0.2.0`: `build:versions`, no publish;
+  - pull request with tags: `build`, no publish.
+- A first version printed the "published once" notice on a manual run whose tag
+  existed; the notice now appears only on pushes.
+- Both build commands the workflow runs (`pnpm run build` and
+  `pnpm run build:versions`, each followed by `pnpm run check-links`) passed in
+  DEV-019's checks.
+- Not verified: the workflow runs only when pushed. A pull request shows the
+  build job; publishing first happens when `v0.1.0` is pushed.
+
+**Implementation Notes**
+
+- File approved by the user (2026-11-18): `.github/workflows/docs.yml`.
+- New actions, each pinned to the commit of its latest release at least 7 days
+  old: `withastro/action` v6.1.4 (`a8b97df…`), which sets up pnpm from
+  `packageManager` and Node 24.22.3, installs from the lock file, runs the build
+  command in `docs/` and packages `docs/dist` for Pages; and
+  `actions/deploy-pages` v5.0.1 (`368f825…`). The Astro cache is off.
+- The workflow starts with no permissions; the build job reads contents, and
+  only the deploy job holds `pages: write` and `id-token: write`, in the
+  `github-pages` environment. Pull request runs replace each other; runs that
+  can publish queue and are never canceled.
+- As the design says, only pushes publish; a manual run builds without
+  publishing. A tag push builds from `main`.
+- Before the first release the user sets GitHub Pages' source to GitHub Actions
+  and lets the `github-pages` environment deploy from `main` and tags matching
+  `v*`.
 
 ### DEV-021 — Generated reference pages
 

@@ -1,0 +1,100 @@
+name: Docs
+
+# Builds the docs site and checks its internal links. Pull requests build the current
+# tree. Pushes to main, release tags and manual runs build every released version once a
+# release tag of 0.1.0 or later exists. The site is published to GitHub Pages from a push
+# only when the package version on main has its release tag, so unreleased work is never
+# published as a release.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions: {}
+
+# A newer push to a pull request cancels its run still going. Runs that can publish
+# queue up instead, so a publish is never cut off partway.
+concurrency:
+  group: docs-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build the docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Every tag and its history, for the versioned build.
+          fetch-depth: 0
+          persist-credentials: false
+          # A tag push builds from main, so every version gets the current version
+          # selector, side panel and styles.
+          ref: ${{ startsWith(github.ref, 'refs/tags/') && 'main' || '' }}
+
+      # The versioned build needs a release tag of 0.1.0 or later; the check uses the
+      # same rule as the build. Only a push publishes, and only once the package
+      # version on the built commit has its tag.
+      - name: Choose the build and whether to publish
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          script=build
+          if [[ "$EVENT" != "pull_request" ]] && node --input-type=module --eval '
+            import { releaseVersions } from "./docs/src/versioning/versions.mjs";
+            releaseVersions(process.argv[1].split("\n"));
+          ' "$(git tag --list 'v*')" 2>/dev/null; then
+            script=build:versions
+          fi
+
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          publish=false
+          if [[ "$EVENT" == "push" ]]; then
+            if [[ "$script" == "build:versions" ]] \
+              && git rev-parse --verify --quiet "refs/tags/v$version" > /dev/null; then
+              publish=true
+            else
+              echo "::notice::The docs site is published once v$version exists."
+            fi
+          fi
+
+          echo "Build: $script. Publish: $publish (package version $version)."
+          echo "script=$script" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+      - name: Build, check the links and package the site
+        uses: withastro/action@a8b97df764791eb61fbf3338ef713b0e61ae05c5 # v6.1.4
+        with:
+          build-cmd: pnpm run ${{ steps.plan.outputs.script }} && pnpm run check-links
+          # No Astro cache: a published build never reuses files another run wrote.
+          cache: false
+          # Kept by hand: the repo's one Node version, as in the hooks.
+          node-version: "24.22.3"
+          path: docs
+
+  deploy:
+    name: Publish to GitHub Pages
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write # lets GitHub Pages confirm the site comes from this workflow
+      pages: write # publishes the site to GitHub Pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish the packaged site
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
