@@ -294,27 +294,3 @@ def format_usd(amount: Decimal) -> str:
     if 0 < amount < Decimal("0.01"):
         return f"${amount:.4f}"
     return f"${amount:,.2f}"
-
-
-def request_upper_bound(*, config: Config, input_tokens: int) -> Decimal | None:
-    """Return the most one request can cost, with the longest answer allowed.
-
-    Parameters
-    ----------
-    config
-        The run's settings.
-    input_tokens
-        The request's input tokens, or an upper bound on them.
-
-    Returns
-    -------
-    Decimal | None
-        The cost in US dollars, or ``None`` when no price is known for the model.
-    """
-
-    return price_usage(
-        input_tokens=input_tokens,
-        model=config.model,
-        output_tokens=config.advanced.survey.max_output_tokens,
-        overrides=config.advanced.models,
-    )

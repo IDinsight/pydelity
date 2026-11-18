@@ -38,8 +38,10 @@ from pydelity.costs.ledger import LEDGER_FILE_NAME, read_ledger
 from pydelity.costs.schemas import CostEstimate, MaxCostWarning
 from pydelity.providers.factory import build_model, output_mode
 from pydelity.providers.ledger_model import LedgerContext
+from pydelity.providers.uploads import attach_pdf
 from pydelity.surveying.facts import measure_facts
-from pydelity.surveying.schemas import PdfFacts
+from pydelity.surveying.prompts import PROMPT_VERSION, survey_pdf
+from pydelity.surveying.schemas import SurveyAnswer
 from pydelity.utils.coroutines import run_in_daemon_thread, run_sync, warn
 from pydelity.utils.files import remove_stale_temp_files
 from pydelity.utils.pdf import open_pdf
@@ -85,7 +87,7 @@ async def _ask_before_spending(
 
 
 def _estimate_cost(
-    *, config: Config, facts: PdfFacts, ledger_path: Path, page_count: int
+    *, config: Config, ledger_path: Path, page_count: int, prompt_chars: int
 ) -> CostEstimate:
     """Estimate the run's cost, counting what the output folder has already spent.
 
@@ -93,12 +95,12 @@ def _estimate_cost(
     ----------
     config
         The run's settings.
-    facts
-        The measured facts.
     ledger_path
         The output folder's ``cost.jsonl``.
     page_count
         The PDF's page count.
+    prompt_chars
+        The survey prompt's length in characters, without the PDF.
 
     Returns
     -------
@@ -110,9 +112,6 @@ def _estimate_cost(
     if ledger.damage is not None:
         _warn(ledger.damage)
 
-    # Approximate the prompt's length by the facts summary plus the user's instructions.
-    prompt_chars = sum(len(line) + 1 for line in facts.summary)
-    prompt_chars += len(config.instructions or "")
     estimate = estimate_survey(
         config=config,
         page_count=page_count,
@@ -224,7 +223,9 @@ async def arun(
 
     The run validates the settings, opens the PDF, measures it (or reuses the facts
     saved in ``pdf_facts.json`` in the output folder), checks the provider's API key
-    and checks the cost estimate against ``max_cost``. It does not prompt for input.
+    and checks the cost estimate against ``max_cost``. Then it uploads the PDF to the
+    provider, or reuses its upload from ``uploads.json``. It does not prompt for
+    input.
 
     Parameters
     ----------
@@ -250,6 +251,9 @@ async def arun(
         If the selected provider's API key is not set.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
+    ProviderError
+        If the provider rejects the PDF's upload for an invalid API key or as too
+        large.
     """
 
     await arun_with_questions(
@@ -300,6 +304,9 @@ async def arun_with_questions(
         If the selected provider's API key is not set.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
+    ProviderError
+        If the provider rejects the PDF's upload for an invalid API key or as too
+        large.
     SpendDeclinedError
         If ``confirm`` answers no.
     """
@@ -360,13 +367,31 @@ async def arun_with_questions(
         provider=choice.provider,
     )
 
-    estimate = _estimate_cost(
-        config=resolved,
-        facts=facts,
-        ledger_path=ledger_path,
+    prompts = survey_pdf(
+        facts_summary=facts.summary,
+        instructions=resolved.instructions,
+        languages=resolved.languages,
         page_count=info.page_count,
     )
+    logger.debug(
+        "Survey instructions (prompt version {version}):\n{instructions}",
+        instructions=prompts.system_message,
+        version=PROMPT_VERSION,
+    )
+    logger.debug("Survey text sent with the PDF:\n{text}", text=prompts.user_message)
+    # The prompt is the two messages and the answer's JSON schema.
+    schema = json.dumps(SurveyAnswer.model_json_schema())
+    prompt_chars = len(prompts.system_message) + len(prompts.user_message)
+    estimate = _estimate_cost(
+        config=resolved,
+        ledger_path=ledger_path,
+        page_count=info.page_count,
+        prompt_chars=prompt_chars + len(schema),
+    )
     await _ask_before_spending(confirm=confirm, estimate=estimate, guard=guard)
+    await attach_pdf(
+        config=resolved, model=model, output_folder=output_folder, pdf=info
+    )
     logger.info("Run finished")
 
 
@@ -403,6 +428,9 @@ def run(
         If the selected provider's API key is not set.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
+    ProviderError
+        If the provider rejects the PDF's upload for an invalid API key or as too
+        large.
     RuntimeError
         If called while an event loop is running, as in Jupyter or async code. Use
         ``await pydelity.arun(...)`` there instead.

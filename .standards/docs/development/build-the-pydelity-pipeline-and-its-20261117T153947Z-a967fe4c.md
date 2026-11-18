@@ -832,16 +832,16 @@ arm64, Python 3.13.9, pydantic-ai-slim 2.69.0).
   `unpriced_model` before the run spends.
 - `api.py` makes a run ID (`_new_run_id`) for the ledger context until DEV-012
   moves the run into its own module.
-- For DEV-010: a `PydelityWarning` raised inside PydanticAI's agent loop (the
+- For DEV-011: a `PydelityWarning` raised inside PydanticAI's agent loop (the
   per-request `max_cost` warning) points at PydanticAI's own file, because
-  `warn` skips only pydelity and asyncio frames; DEV-010 should make it point at
+  `warn` skips only pydelity and asyncio frames; DEV-011 should make it point at
   the caller's code. PydanticAI prints a first-run banner only when a script
-  calls an agent itself, not when an installed library does; DEV-010 confirms no
+  calls an agent itself, not when an installed library does; DEV-011 confirms no
   banner appears when the survey runs from pydelity.
 
 ### DEV-009 — PDF uploads, reuse and in-request fallback
 
-`Status`: `PENDING` `Depends On`: `DEV-008` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-008` `Acceptance`:
 `AC-011, AC-018, AC-021, AC-037, AC-041`
 
 **Goal**
@@ -881,9 +881,66 @@ from the set, if one does; the upload failure and fallback by fault injection in
 the scratchpad script (a failing upload call), since a provider cannot be made
 to fail on demand; `just lint`.
 
+Evidence, 2026-11-18, on `80e6bcb` plus the uncommitted DEV-009 changes (macOS
+arm64, Python 3.13.9, anthropic 2.10.0, openai 3.53.0).
+
+- `just lint-python` (Ruff check and format, ty, interrogate 100%) and
+  `just test` (2 passed) pass.
+- Scratchpad `dev009_offline.py`: 20 of 20 checks passed against a loopback stub
+  of Anthropic's Files API (through `ANTHROPIC_BASE_URL`, no provider key; run
+  outside the sandbox, which does not allow binding a local port). The first
+  upload sends the provider maximum (`expires_in_seconds` 7776000) and records
+  provider, file ID, PDF name, size, SHA-256 and expiry in `uploads.json`; a
+  rerun reuses it with no upload. A record with 59 minutes left is uploaded
+  again and replaced, while another provider's record for the same PDF stays.
+  `expiry_hours` 1 sends 3600. A damaged `uploads.json` and one with
+  `schema_version` 2.0 each give one warning, then an upload and a rewritten
+  file. A 503 with `provider_retries` 2 made 3 attempts, then fell back: the
+  PDF's bytes as `BinaryContent` (`application/pdf`), one warning, no record,
+  and an `upload_error` naming the PDF and the provider's message; a 400 fell
+  back after one attempt. A 401 and a 413 stopped with `ProviderError` after one
+  attempt, not temporary, nothing recorded. `is_missing_file` is true for a 404
+  naming the file ID, false for a missing model and for a PDF sent in the
+  request; `replace_missing_upload` uploads again and replaces the record, or
+  falls back when that upload fails; `with_upload_error` gives both errors.
+- Scratchpad `dev009_real.py`, real Files API calls with the user's keys loaded
+  from `.env` into that process only (never printed), `expiry_hours` 2: for
+  Anthropic and OpenAI, an upload recorded with about two hours left, then
+  reused by a rerun. A recorded file ID the provider does not have made a
+  request fail with the provider's 404 (Anthropic: ``File `file_…` not found.``;
+  OpenAI: `Files [file-…] were not found`), no ledger line and no charge;
+  `is_missing_file` recognized it, and `replace_missing_upload` uploaded again
+  and replaced the record. An invalid key stopped the upload with
+  `ProviderError` 401 for both providers. The CLI with `--yes` and a config file
+  logged `Uploaded irs_form_w9.pdf to anthropic: file …, expires … UTC`, then
+  `Reusing upload …` on the rerun. 13 of 13 passed; every test upload was
+  deleted afterwards. No PDF in the set is rejected by either provider, so no
+  real rejection was available.
+- A first real run used `expiry_hours` 1. Its reuse checks failed as the design
+  intends: a one-hour upload starts with just under an hour left, below the
+  one-hour reuse threshold, so it is never reused. The run was repeated with two
+  hours; the extra test uploads it left were deleted.
+
+**Implementation Notes**
+
+- Files approved by the user (2026-11-18): `src/pydelity/providers/uploads.py`
+  and `src/pydelity/providers/schemas.py`, plus changes to `src/pydelity/api.py`
+  and `src/pydelity/costs/budget.py` (the unused `request_upper_bound` removed).
+- Uploads go through the model's own SDK client, so `advanced.provider_retries`
+  and the timeout apply to them too.
+- DEV-011 calls `attach_pdf` (already called in `api.py` after the
+  confirmation), puts `PdfAttachment.content` in the user message, uses
+  `is_missing_file` and `replace_missing_upload` once on a 404, and wraps a
+  rejection after the fallback with `with_upload_error`. The `upload_fallback`
+  warning text and `PdfAttachment.upload_error` are ready for `run.json`
+  (DEV-012).
+- OpenAI's own 401 message repeats the key it received, masked except for its
+  first and last few characters, and `ProviderError` keeps the provider's
+  message unchanged.
+
 ### DEV-010 — Survey proposal, profile, prompt and checks
 
-`Status`: `PENDING` `Depends On`: `DEV-005` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-005` `Acceptance`:
 `AC-002, AC-003, AC-004, AC-006`
 
 **Goal**
@@ -924,6 +981,88 @@ will send. No model call happens yet.
 Scratchpad script running the checks on hand-made passing and failing proposals
 against facts from the PDF set; a search of code and prompt for document-type
 terms and word lists; `just lint`.
+
+Evidence, 2026-11-18, on `80e6bcb` plus the uncommitted DEV-009 and DEV-010
+changes (macOS arm64, Python 3.13.9).
+
+- `just lint-python` (Ruff check and format, ty, interrogate 100%) and
+  `just test` (2 passed) pass; the `survey_pdf` doctest passes.
+- `SurveyAnswer`'s JSON schema (about 9,000 characters) passes the strict
+  structured-output transformers PydanticAI uses for `claude-opus-5-5` and
+  `gpt-6.2-astra`.
+- Scratchpad `dev010_check.py`: 30 of 30 checks passed, on facts the probe
+  measured from the committed PDFs. An answer built from each PDF's own facts
+  passes all seven checks on all 9 PDFs. C1: an empty name, a name used twice
+  (`Body`, and `body` followed by a space), a label without kinds and a region
+  naming a missing label give 4 failures, the last on the region's page; a
+  region using `Other` passes. C2: a region on page 6 of 6 (page null), a box
+  with `x0 == x1` and one with `x1` 1.2 (on their pages). C3 on the CAPS extract
+  (8 pages measured at 90 degrees): no rotation gives 8 failures, one per page,
+  `{"measured": 90, "proposed": 0}`; a range past the last page gives a
+  page-null failure and leaves pages 5-7 failing; overlapping ranges give one
+  failure per shared page (3, 4). C4 on the W-9 instructions (pages 1-6 print
+  index + 1): offset 2 gives 12 failures (6 wrong pages, 6 pages of the
+  uncovered measured range); style `none` gives the same 12; covering pages 1-3
+  only fails pages 4-6; with one page's number changed, 5 of 6 matching (83%)
+  passes and 4 of 6 (67%) fails on the 2 wrong pages. C5 on the CAPS extract (8
+  repeated lines): 5 missing IDs, `R2` twice and an unknown `R9` give 7
+  failures. C6: a range past the last page and page 3 in two ranges. C7: `zz`
+  and `en-` rejected with `{"proposed": tag}`, `zxx` and `EN_us` accepted; an
+  empty list fails once with `{"proposed": []}`. `check_results` gives 7 results
+  in C1-C7 order with the attempts; `review_issues` one issue per failure with
+  `step` `survey`; `retry_message` names all 9 failures. The prompt explains
+  every role and kind, and the request text carries the page count, facts,
+  instructions and languages.
+- Word search of `prompts.py`, `validators.py`, `schemas.py` and the
+  instructions for document-type and domain words (invoice, contract, textbook,
+  lesson, chapter, exam, student, grade, article, report, tax, legal, medical,
+  letter, slide, book and others): only "contract" (the interface later steps
+  rely on) and "letters" (Unicode letter characters) in `schemas.py`, neither a
+  document type. The only string lists in code are the `Literal` vocabularies of
+  the schemas, not natural-language word lists.
+- CLI on `irs_form_w9.pdf` with `--verbose`, a placeholder key and piped input:
+  it logged `Survey instructions (prompt version 1):` with the instructions and
+  `Survey text sent with the PDF:` with the facts, then stopped before any
+  upload, exit 3. The estimate now counts the real prompt (instructions, text
+  and answer schema): about $0.36, at most $2.90 on `claude-opus-5-5`, up from
+  $0.35 and $2.87.
+- Prompt rework at the user's request, 2026-11-18: the prompt is built the way
+  KGForEdGlobal builds its prompts. `survey_pdf` in `surveying/prompts.py`
+  writes both messages inside the function and returns a `PromptPair`
+  (`system_message`, `user_message`) from the new `utils/prompts.py`; the role
+  and kind descriptions sit in the text next to their enum values. Both messages
+  are identical to the earlier module-level text, for a 1-page PDF without
+  instructions or languages and for a 12-page PDF with both, so `PROMPT_VERSION`
+  stays 1. After the change, `dev010_check.py` (30 of 30), Ruff, ty, interrogate
+  100% and the doctests pass, and the CLI check above gives the same log and
+  estimate.
+
+**Implementation Notes**
+
+- Files approved by the user (2026-11-18): `src/pydelity/surveying/prompts.py`
+  and `src/pydelity/surveying/validators.py` (the user chose `validators.py`
+  over `checks.py`, and later steps use the same name), plus changes to
+  `src/pydelity/surveying/schemas.py` and `src/pydelity/api.py`. With the prompt
+  rework, the user approved the new `src/pydelity/utils/prompts.py` for
+  `PromptPair`, which later steps' prompts also return.
+- The user kept all checks in `validators.py` (2026-11-18) after reviewing which
+  rules need only the answer and could run as Pydantic validators instead;
+  moving them would make those failures fail the survey on the last attempt, a
+  design change, so the design stays as it is.
+- Local choices in the checks: label names and region labels compare after
+  trimming spaces, regardless of case. A range outside the PDF, or ending before
+  it starts, gives one failure with `page_index` null; overlapping ranges give
+  one failure per shared page. C3 compares the clockwise rotation with the
+  measured counterclockwise text angle, which are equal for upright content. In
+  C4, a null offset matches no printed number; when a range fails the 80% rule,
+  its pages with a wrong number fail; each page of a measured range of 3 or more
+  pages (arabic or roman) fails unless a range with the measured offset covers
+  that page. C5's failures have `page_index` null, since a repeated line is on
+  many pages. The thresholds are named constants (`PAGE_NUMBERING_MATCH_SHARE`
+  0.8, `PAGE_NUMBERING_MIN_RANGE_PAGES` 3).
+- `PdfSurvey` holds the design's fields plus `schema_version`. Adding `other`,
+  merging languages, storing `user_instructions` and converting region boxes to
+  points are DEV-011's.
 
 ### DEV-011 — Survey step
 
