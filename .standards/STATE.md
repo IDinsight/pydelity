@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -27,8 +27,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
-`Scope revised for the user rework: AC-047 adds a root-level examples/ folder with a JSON and a YAML config file holding every setting, which pydelity reads without a settings error. Architecture and development rerun before testing resumes.`
+`Kind`: `FORWARD` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Design rerun for AC-047: two hand-written example config files in examples/ (JSON and YAML) with every Config key at its default, a placeholder pdf path and price entry, and a test that keeps them complete and readable (Build Plan step 8). Development reruns before testing resumes.`
 
 ## Recovery
 

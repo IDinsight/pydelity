@@ -14,7 +14,7 @@ inherit, and builds step 1 (survey) on them.
 
 - Scope:
   `.standards/docs/scope/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
-  (AC-001 to AC-046; AC-003, AC-012, AC-013 and AC-016 are retired). Project
+  (AC-001 to AC-047; AC-003, AC-012, AC-013 and AC-016 are retired). Project
   context: `.standards/CONTEXT.md`. Design inputs: `artifacts/design_brief.md`
   (step 1 design points, cross-cutting directions, known source defects) and
   `artifacts/next_cycle_inputs.md`.
@@ -64,6 +64,10 @@ inherit, and builds step 1 (survey) on them.
   rotation and printed page numbers go on the review list (decision 5). It
   followed a run where the probe took numbers in table cells for printed page
   numbers and the old page-numbering check made the model agree with them.
+- User rework recorded 2026-11-18 during testing (scope AC-047): a root-level
+  `examples/` folder holds a JSON and a YAML config file that users copy as a
+  starting template, each with every setting the config file accepts (**Example
+  config files**).
 - Survey changes the user approved during development (2026-11-18, recorded in
   the development plan) are part of this design: repeated lines ignore invisible
   formatting characters and the probe keeps up to 1,000 of them; a page label
@@ -357,6 +361,9 @@ and adapt, without changing KGForEdGlobal:
 - `AC-008`: `Config` model, JSON/YAML loading, precedence rule.
 - `AC-009`: Validation before any model call; error formatting naming every
   invalid setting.
+- `AC-047`: The two files under **Example config files** and the test that keeps
+  them complete and readable. Pointing users to them from the README and the
+  configuration page is Documenter's.
 - `AC-010`: Public API; import-time rules (decision 1).
 - `AC-011`: Model factory and provider settings (decision 3).
 - `AC-041`: `advanced.provider_retries` and the SDK clients built with it
@@ -453,8 +460,8 @@ Shared components (configuration, costs, models, utilities) never use run
 orchestration or a step. Later steps add step components beside the survey.
 
 Repo-level components: a reference-docs generator script, a wheel smoke-test
-script, the Astro site under `docs/`, and CI, docs and release workflows under
-`.github/workflows/`.
+script, the example config files under `examples/`, the Astro site under
+`docs/`, and CI, docs and release workflows under `.github/workflows/`.
 
 ## Interfaces and Contracts
 
@@ -501,6 +508,28 @@ script, the Astro site under `docs/`, and CI, docs and release workflows under
   (`advanced.survey.check_retries`) with the reason, collected in one pass
   (Pydantic errors plus file, path and key checks), raised before any model
   call.
+
+### Example config files
+
+- Two hand-written files in the root-level `examples/` folder (AC-047), one JSON
+  and one YAML (names `CANDIDATE`, such as `config.json` and `config.yaml`).
+  They live in the repo only; the wheel does not ship them.
+- Each holds every key `Config` accepts and no other, at every level:
+  `advanced`, `instructions`, `languages`, `max_cost`, `model`, `output_dir`,
+  `overwrite`, `pdf`; `advanced.models`, `provider_retries`, `survey` (all four
+  keys) and `uploads.expiry_hours`. CLI-only options (`--config`, `--yes`,
+  `--verbose`) are not settings and are absent.
+- Values are the defaults, written out, so a copied file changes nothing until
+  the user edits it: `null` where the default is unset (`instructions`,
+  `max_cost`, `output_dir`, `expiry_hours`), `[]` for `languages`, `false` for
+  `overwrite`, the default model, retries, effort, token and timeout values. Two
+  keys have no default: `pdf` is `"document.pdf"`, a placeholder path relative
+  to the config file; and `advanced.models` holds one entry with all four price
+  keys, keyed by a placeholder model ID (`anthropic:your-model-id`) so it prices
+  no real model. Both files hold the same values.
+- The YAML file has a short comment above each setting saying what it does and
+  where paths resolve; the JSON file cannot hold comments. Both pass the repo's
+  existing hooks.
 
 ### CLI
 
@@ -1098,6 +1127,13 @@ with only disagreements has every check passed.
   calls on different folders run concurrently in one loop. The event loop stays
   responsive while `ameasure` measures. Cancelling `arun` leaves `run.json`
   `interrupted` and every file valid.
+- `AC-047`: A test in the suite fails when either example file is missing, when
+  its keys at any level differ from the fields of `Config` and its nested models
+  (the one `advanced.models` entry compared with the price model's fields), when
+  the two files hold different values, or when resolving either file with a PDF
+  given as the CLI argument or `pdf` keyword raises `ConfigError`. The resolved
+  settings then equal the defaults, apart from the PDF and the placeholder price
+  entry.
 - `AC-009`: Every invalid setting in a single input is reported in one error; no
   model request happens.
 - `AC-011`: Both providers pass the same survey flow with their canned responses
@@ -1231,6 +1267,8 @@ Developer proposes its name and place and waits for the user's sign-off.
    sidebar), docs workflow, reference-docs generator and the generated reference
    pages. Depends on 5 for the generator; the site scaffold can start any time.
    Documenter writes the prose pages and README later.
+8. **Example config files** — `CREATE examples/` with the two `CANDIDATE` files
+   and their test (AC-047). Depends on 1 (configuration) only.
 
 ## Risks and Follow-up
 
@@ -1379,3 +1417,9 @@ Developer proposes its name and place and waits for the user's sign-off.
   `zz`) and leaves spelling variants unmerged; the user chose `langcodes`.
 - Hand-written reference pages: drift from the code; generation makes AC-032
   checkable.
+- Generating the example config files from `Config`, like the reference pages:
+  no drift, but YAML comments and a second generator for two small files. The
+  test catches drift with less code.
+- `pdf: null` in the examples instead of a placeholder path: a copied file
+  without a PDF would fail with a less helpful message than "no such file:
+  document.pdf".
