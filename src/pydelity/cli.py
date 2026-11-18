@@ -5,6 +5,7 @@ library does the rest.
 """
 
 # Standard Library
+import asyncio
 import sys
 
 from functools import partial
@@ -28,7 +29,6 @@ from pydelity.errors import (
     PdfError,
     PydelityError,
 )
-from pydelity.utils.coroutines import run_coroutine
 
 # Exit code for a run that failed.
 _EXIT_FAILED = 1
@@ -286,7 +286,7 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
     }
     settings = {name: value for name, value in given.items() if value is not None}
     try:
-        run_coroutine(
+        asyncio.run(
             arun_with_questions(
                 pdf,
                 config=config,

@@ -52,11 +52,13 @@ load into a Pydantic model that reports damage instead of raising, stale
 `*.tmp-*` cleanup, canonical-JSON `sha256:` fingerprints, and opening a PDF
 (full SHA-256 ported from KGForEdGlobal `utils/pdf.py`, page count, bytes;
 `PdfError` for password-protected, empty or unopenable files), and a helper that
-runs a coroutine from sync code (`asyncio.run` without a running loop, otherwise
-a worker thread with its own loop, re-issuing its warnings in the caller's
-thread). A first `arun()`, with `run()` calling it through that helper, opens
+runs an async function from sync code with `asyncio.run` (design decision 14).
+Called while an event loop is running in its thread, the helper raises
+`RuntimeError` naming the async function to await (`await pydelity.arun(...)`)
+before it creates the coroutine, so nothing is written and no coroutine is left
+unawaited. A first `arun()`, with `run()` calling it through that helper, opens
 the PDF off the event loop and logs each stage through loguru; the CLI enables
-logging at INFO and calls `run()`.
+logging at INFO and runs `arun` with `asyncio.run`.
 
 From the command line: `pydelity <pdf>` opens the PDF, logs its name, page
 count, size and SHA-256, then `Run finished`; a missing, password-protected or
@@ -67,7 +69,13 @@ version; `python -m pydelity <pdf>` does the same.
 
 `just lint`; `just test` (existing smoke tests); a scratchpad script exercising
 atomic write and load and fingerprints; `pydelity` on a PDF and on a broken
-file; `import pydelity` with an empty environment prints nothing.
+file; `import pydelity` with an empty environment prints nothing. For the
+decision-14 rework: `run()` from a script works and its warnings reach the
+caller; `run()` inside a running loop (`asyncio.run`, and the
+`python -m asyncio` REPL, which awaits at the top level like Jupyter) raises
+`RuntimeError` naming `arun`, creates no output folder and leaves no "never
+awaited" warning; `await arun()` works there; a real SIGINT during `run()`
+cancels the coroutine and raises `KeyboardInterrupt`.
 
 Evidence, 2026-11-17, repo root, on `0f1c417` plus the uncommitted DEV-001
 changes (macOS arm64, Python 3.13.9). First run on PyMuPDF 1.28.2. After the
@@ -115,6 +123,33 @@ with the same results.
 - `scripts/check_env_template.py` reports the six `LLM_*` names still in the
   user's local `.env`. The user is removing them (2026-11-17).
 
+Rework evidence (design decision 14), 2026-11-18, on `76e25f0` plus the
+uncommitted rework of `utils/coroutines.py`, `api.py` and `cli.py` (macOS arm64,
+Python 3.13.9). The `run_coroutine` evidence above is superseded.
+
+- `just lint-python` (Ruff check and format, ty, interrogate 100%) and
+  `just test` (2 passed) pass; the `run_sync` doctest passes.
+- Scratchpad `dev001_rework_check.py`: 13 of 13 checks passed, on
+  `tests/fixtures/pdfs/irs_form_w9.pdf`. From a script, `run()` finishes and
+  writes `pdf_facts.json`; its `max_cost` warning (tiny `max_cost`,
+  `allow_over_max_cost=True`) reaches the caller's `catch_warnings` and points
+  at the script's file. Inside `asyncio.run`, `run()` raises `RuntimeError`
+  whose message says that `pydelity.run()` cannot be called while an event loop
+  is running and to use `await pydelity.arun(...)` instead, creates no output
+  folder and leaves no warning at all after `gc.collect()`; `await arun()` there
+  finishes, and its warning also points at the script. In `python -m asyncio`
+  (top-level `await`, as in Jupyter) `run()` raises the same `RuntimeError` and
+  writes nothing, and `await pydelity.arun(...)` finishes. A real SIGINT 0.3 s
+  into `run_sync` on a sleeping coroutine: the coroutine saw `CancelledError`
+  and `KeyboardInterrupt` arrived 0.05 s after the signal.
+- CLI: `pydelity tests/fixtures/pdfs/irs_form_w9.pdf --yes --output-dir ...`
+  logged the estimate and `Run finished`, exit 0; with piped input and no
+  `--yes` it stopped before any model request, exit 3.
+- Limitation: no Jupyter kernel is installed, so `python -m asyncio` stands in
+  for it. The earlier DEV-005 and DEV-007 scratchpad scripts were cleared with
+  the scratchpad and were not rerun; the CLI runs above and the warning checks
+  cover the paths the rework touched.
+
 **Implementation Notes**
 
 - Files approved by the user (2026-11-17):
@@ -134,13 +169,15 @@ with the same results.
   Windows ARM, 32-bit Windows or musl Linux. Documenter should say which
   platforms are supported. CI's `ubuntu-latest`, `windows-latest` and
   `macos-latest` (arm64) all have wheels.
-- pydelity warnings go through `pydelity.utils.coroutines.warn`, which records
-  them on a worker thread (a `ContextVar` set there) and issues them as
-  `PydelityWarning` otherwise. This avoids `warnings.catch_warnings`, which is
-  process-global and unsafe with concurrent sync calls from several threads.
-- Within a running loop, `run_coroutine` also cancels the coroutine when the
-  calling task gets a new cancellation request. That is how the first Ctrl+C
-  arrives under `asyncio.run`, while the waiting thread blocks the loop.
+- pydelity warnings go through `pydelity.utils.coroutines.warn`, which issues a
+  `PydelityWarning` that skips stack frames in pydelity and in asyncio, so it
+  points at the caller's line in both forms.
+- `run_sync(function, /, *args, **kwargs)` takes the async function, not a
+  coroutine, so it can check for a running loop before any coroutine exists. Its
+  error names the sync function and the `a` function to await, from the
+  function's name. The CLI calls `asyncio.run` directly, since it never runs
+  inside an event loop. Ctrl+C is `asyncio.run`'s own handling: the first SIGINT
+  cancels the main task, then `KeyboardInterrupt` is raised.
 - Conventions from the user's review (2026-11-17), for every later step: modules
   put private globals, classes and functions before public ones (alphabetical
   within each group); shipped code, config and docstrings use American English
@@ -959,28 +996,32 @@ The coroutines `ameasure`, `aestimate`, `asurvey` and `arun` hold the logic;
 `measure`, `estimate`, `survey` and `run` take the same arguments (`pdf`,
 `config` as a path, `Config` or mapping, setting keywords; `run` and `survey`
 also `allow_over_max_cost`) and call them through the DEV-001 helper, so both
-forms give the same results, errors and warnings, including inside Jupyter.
-`measure` prepares the output folder and writes or reuses `pdf_facts.json`,
-returning `PdfFacts`, with no API key or model call. `survey` writes
-`pdf_facts.json` and `pdf_survey.json` and returns `PdfSurvey`. `run` returns a
-`RunResult` (`output_dir`, `record`, `facts`, `survey`, `ledger`).
-`load(output_dir)`, sync only, reads a folder back into a `RunResult` with
-missing parts as `None` and raises `OutputError` for a missing folder or a
-corrupt file. Cancelling `asurvey` or `arun` is handled like Ctrl+C. Every
-function validates the whole configuration, never prompts or reads stdin. The
-root re-exports all of them with `Config`, the result models, `CostEstimate`,
-the errors and `PydelityWarning`; import stays free of side effects.
+forms give the same results, errors and warnings. Inside a running event loop
+(Jupyter, async code) a sync function raises `RuntimeError` naming the `a`
+function to await, writes nothing and leaves no un-awaited coroutine. `measure`
+prepares the output folder and writes or reuses `pdf_facts.json`, returning
+`PdfFacts`, with no API key or model call. `survey` writes `pdf_facts.json` and
+`pdf_survey.json` and returns `PdfSurvey`. `run` returns a `RunResult`
+(`output_dir`, `record`, `facts`, `survey`, `ledger`). `load(output_dir)`, sync
+only, reads a folder back into a `RunResult` with missing parts as `None` and
+raises `OutputError` for a missing folder or a corrupt file. Cancelling
+`asurvey` or `arun` is handled like Ctrl+C. Every function validates the whole
+configuration, never prompts or reads stdin. The root re-exports all of them
+with `Config`, the result models, `CostEstimate`, the errors and
+`PydelityWarning`; import stays free of side effects.
 
-From Python: every function works, sync and async, in a script or in Jupyter,
-and `pydelity.load("<output folder>")` reads a run back; the command line is
-unchanged.
+From Python: the sync functions work in scripts, the `a` functions work
+anywhere, including Jupyter with top-level `await`, and
+`pydelity.load("<output folder>")` reads a run back anywhere; the command line
+is unchanged.
 
 **Self-Check**
 
-Real calls of every function in both forms, including from inside a running
-event loop and two `asurvey` calls on different folders at once; `measure` and
-`load` with no API key; cancelling `arun`; import with an empty environment
-prints nothing; `just lint`.
+Real calls of every function in both forms; each sync function inside a running
+event loop raises `RuntimeError` naming its `a` function and writes nothing; two
+`asurvey` calls on different folders at once; `measure` and `load` with no API
+key; cancelling `arun`; import with an empty environment prints nothing;
+`just lint`.
 
 ### DEV-015 — CLI
 
@@ -1389,3 +1430,13 @@ the plan stays approved.
 `scope a938118 and design 117eafe; DEV-001 to DEV-005 committed (DEV-005 e2c02cf); DEV-007 done and a plain-language pass over the package's docstrings and comments (wording only, lint and tests pass) both uncommitted in the working tree`
 `Next Action`:
 `Reconcile DEV-001 (reduce utils/coroutines.py and the sync wrappers to the corrected design, dropping the worker thread and its warning replay; keep run_in_daemon_thread for terminal questions) and any other step the corrected design changes, then list DEV-008's files for the user's review.`
+
+Restored on the `RESUME` from `ARCHITECTING` (design `76e25f0`, decision 14) and
+reconciled without changing the plan's steps or their order. DEV-001 is
+reopened: its helper takes the async function and its arguments, so it can check
+for a running loop before the coroutine exists, and the CLI calls `asyncio.run`
+directly. DEV-014's outcome and self-check now expect `RuntimeError` from the
+sync functions inside a running loop. DEV-007 already uses only
+`run_in_daemon_thread` and `warn`, which stay. The change is the user's own
+request, so the plan stays approved; as with every step, the user reviews
+DEV-001's files before the rework starts.

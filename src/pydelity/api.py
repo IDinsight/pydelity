@@ -1,9 +1,10 @@
 """pydelity's Python API.
 
 Each function has an async version whose name starts with ``a``, such as `arun`, and a
-sync version without the ``a``, such as `run`. The sync version takes the same
-arguments and calls the async version through
-`pydelity.utils.coroutines.run_coroutine`.
+sync version without the ``a``, such as `run`. Both take the same arguments and give
+the same results, errors and warnings. The sync version runs the async one with
+`asyncio.run`, so it cannot be called while an event loop is running, as in a Jupyter
+cell or async code. Await the async version there instead.
 
 `arun` and `run` do not prompt for input. The ``pydelity`` command calls
 `arun_with_questions` instead, which can ask for confirmation on the terminal before
@@ -35,7 +36,7 @@ from pydelity.costs.ledger import LEDGER_FILE_NAME, read_ledger
 from pydelity.costs.schemas import CostEstimate, MaxCostWarning
 from pydelity.surveying.facts import measure_facts
 from pydelity.surveying.schemas import PdfFacts
-from pydelity.utils.coroutines import run_coroutine, run_in_daemon_thread, warn
+from pydelity.utils.coroutines import run_in_daemon_thread, run_sync, warn
 from pydelity.utils.files import remove_stale_temp_files
 from pydelity.utils.pdf import open_pdf
 
@@ -362,8 +363,15 @@ def run(
         Listing every invalid setting, or naming a config file that cannot be read.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
+    RuntimeError
+        If called while an event loop is running, as in Jupyter or async code. Use
+        ``await pydelity.arun(...)`` there instead.
     """
 
-    run_coroutine(
-        arun(pdf, allow_over_max_cost=allow_over_max_cost, config=config, **settings)
+    run_sync(
+        arun,
+        allow_over_max_cost=allow_over_max_cost,
+        config=config,
+        pdf=pdf,
+        **settings,
     )
