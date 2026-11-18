@@ -1,9 +1,17 @@
-"""The survey's checks, C1 to C7: what Pydantic cannot check in the model's answer.
+"""The survey's checks on the model's answer, and its comparison with the facts.
 
-Pydantic checks the answer's shape. These checks compare the answer with itself and
-with the measured facts. Each check returns every failure it finds, one per affected
-page, so one retry message can name every problem and the last attempt can record them
-all. The checks use page indexes, measured values and IDs only, never word lists.
+Pydantic checks the answer's shape. Checks C1 to C7 test that the answer is well
+formed and complete: labels and regions fit together, page ranges lie inside the PDF
+without overlapping, every repeated line is accounted for and every language tag is
+valid. They use the facts only for the page count and the repeated-line IDs. Each
+check returns every failure it finds, one per affected page, so one retry message can
+name every problem and the last attempt can record them all.
+
+The model's reading of the PDF takes precedence over the measured facts, so no check
+compares the answer with a measured value. Instead, `compare_with_facts` runs once on
+the accepted answer and records each page whose rotation or page number differs from
+what the probe measured, for a person to review. The checks and the comparison use
+page indexes, values and IDs only, never word lists.
 """
 
 # Standard Library
@@ -17,22 +25,16 @@ from pydelity.surveying.schemas import (
     CheckFailure,
     CheckName,
     CheckResult,
+    ComparisonName,
     Facts,
     PageNumberingRange,
     ReviewIssue,
+    RotationRange,
     SurveyAnswer,
 )
 
 # Checks the answer against the facts and returns every failure found.
 type Check = Callable[[SurveyAnswer, Facts], list[CheckFailure]]
-
-# In a page-numbering range, at least this share of the pages with a measured arabic
-# number must print the page index plus the range's offset.
-PAGE_NUMBERING_MATCH_SHARE = 0.8
-
-# Each page of a measured numbering range of at least this many pages must be in a
-# page-numbering range with the same offset.
-PAGE_NUMBERING_MIN_RANGE_PAGES = 3
 
 
 class _PageRange(Protocol):
@@ -45,6 +47,33 @@ class _PageRange(Protocol):
     @property
     def last_page_index(self) -> int:
         """The last page of the range, inclusive."""
+
+
+def _covering[RangeT: _PageRange](
+    ranges: Sequence[RangeT], *, page: int, page_count: int
+) -> RangeT | None:
+    """Find the first range that covers a page, ignoring ranges outside the PDF.
+
+    Parameters
+    ----------
+    ranges
+        The answer's ranges, in its order.
+    page
+        The page index.
+    page_count
+        The PDF's number of pages.
+
+    Returns
+    -------
+    RangeT | None
+        The range, or ``None`` when no range inside the PDF covers the page.
+    """
+
+    for page_range in ranges:
+        first, last = page_range.first_page_index, page_range.last_page_index
+        if 0 <= first <= last < page_count and first <= page <= last:
+            return page_range
+    return None
 
 
 def _failure(
@@ -61,9 +90,9 @@ def _failure(
     check
         The check that failed.
     message
-        What is wrong, with the proposed and measured values.
+        What is wrong.
     details
-        The proposed and measured values.
+        The proposed value and, where it applies, what it was checked against.
     page_index
         The page the problem is on, or ``None``.
 
@@ -78,76 +107,89 @@ def _failure(
     )
 
 
-def _offset_failures(
-    *, facts: Facts, measured: dict[int, int], ranges: Sequence[PageNumberingRange]
-) -> list[CheckFailure]:
-    """Check the printed numbers in each page-numbering range against its offset.
+def _issue(
+    comparison: ComparisonName,
+    message: str,
+    *,
+    details: dict[str, object],
+    page_index: int,
+) -> ReviewIssue:
+    """Make a review issue for a difference from the facts.
 
     Parameters
     ----------
-    facts
-        The measured facts, for the measured numbering ranges.
-    measured
-        Each page's measured arabic number, by page index.
-    ranges
-        The answer's valid page-numbering ranges.
+    comparison
+        The comparison that found the difference.
+    message
+        The page, the measured value and the profile's value.
+    details
+        The measured and profile values.
+    page_index
+        The page that differs.
 
     Returns
     -------
-    list[CheckFailure]
-        One failure per page that breaks a range's offset, in a range where fewer
-        than `PAGE_NUMBERING_MATCH_SHARE` of the numbered pages match, and one per
-        page of a long measured range that no range with its offset covers.
+    ReviewIssue
+        The issue, with its message starting with the comparison's name.
     """
 
-    failures = []
-    for numbering in ranges:
-        numbered = [page for page in _pages(numbering) if page in measured]
-        offset = numbering.offset
-        wrong = [
-            page
-            for page in numbered
-            if offset is None or measured[page] != page + offset
-        ]
-        if len(numbered) - len(wrong) >= PAGE_NUMBERING_MATCH_SHARE * len(numbered):
-            continue
-        for page in wrong:
-            expected = "no number" if offset is None else str(page + offset)
-            failures.append(
-                _failure(
-                    "page_numbering",
-                    f"page {page} prints {measured[page]}, but the range of pages "
-                    f"{numbering.first_page_index}-{numbering.last_page_index} with "
-                    f"offset {offset} gives {expected}",
-                    details={"measured": measured[page] - page, "proposed": offset},
-                    page_index=page,
-                )
-            )
+    return ReviewIssue(
+        check=comparison,
+        details=details,
+        message=f"{comparison}: {message}",
+        page_index=page_index,
+        step="survey",
+    )
 
-    for measured_range in facts.page_numbering:
-        if len(_pages(measured_range)) < PAGE_NUMBERING_MIN_RANGE_PAGES:
+
+def _page_number_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
+    """List the pages whose measured printed number the profile does not give.
+
+    Parameters
+    ----------
+    answer
+        The accepted answer.
+    facts
+        The measured facts.
+
+    Returns
+    -------
+    list[ReviewIssue]
+        One ``page_number_differs`` issue per differing page.
+    """
+
+    issues = []
+    page_count = len(facts.pages)
+    for page in facts.pages:
+        measured = page.printed_number
+        if measured is None or measured.value is None:
             continue
-        offset = measured_range.offset
-        for page in _pages(measured_range):
-            if any(page in _pages(r) and r.offset == offset for r in ranges):
-                continue
-            failures.append(
-                _failure(
-                    "page_numbering",
-                    f"page {page} is in measured pages "
-                    f"{measured_range.first_page_index}-"
-                    f"{measured_range.last_page_index}, whose numbers have offset "
-                    f"{offset}, but no range with that offset covers it",
-                    details={
-                        "measured": offset,
-                        "proposed": next(
-                            (r.offset for r in ranges if page in _pages(r)), None
-                        ),
-                    },
-                    page_index=page,
-                )
+        numbering = _covering(
+            answer.page_numbering, page=page.index, page_count=page_count
+        )
+        profile = _profile_number(numbering, page=page.index)
+        if profile == measured.value:
+            continue
+        where = (
+            f"page label {measured.text!r}"
+            if measured.source == "page_label"
+            else f"page text {measured.text!r}"
+        )
+        gives = "no number" if profile is None else f"{profile}"
+        issues.append(
+            _issue(
+                "page_number_differs",
+                f"page {page.index} has the number {measured.value} in its {where}, "
+                f"but the profile gives {gives}",
+                details={
+                    "measured": measured.value,
+                    "profile": profile,
+                    "source": measured.source,
+                },
+                page_index=page.index,
             )
-    return failures
+        )
+    return issues
 
 
 def _pages(page_range: _PageRange) -> range:
@@ -167,9 +209,35 @@ def _pages(page_range: _PageRange) -> range:
     return range(page_range.first_page_index, page_range.last_page_index + 1)
 
 
+def _profile_number(numbering: PageNumberingRange | None, *, page: int) -> int | None:
+    """Return the number the profile gives a page.
+
+    Parameters
+    ----------
+    numbering
+        The range that covers the page, if any.
+    page
+        The page index.
+
+    Returns
+    -------
+    int | None
+        The page index plus the range's offset for an arabic or roman range with an
+        offset, otherwise ``None``.
+    """
+
+    if (
+        numbering is None
+        or numbering.style not in {"arabic", "roman"}
+        or numbering.offset is None
+    ):
+        return None
+    return page + numbering.offset
+
+
 def _range_failures(
     check: CheckName, ranges: Sequence[_PageRange], page_count: int
-) -> tuple[list[CheckFailure], list[int]]:
+) -> list[CheckFailure]:
     """Check that page ranges lie inside the PDF and do not overlap.
 
     Parameters
@@ -183,18 +251,18 @@ def _range_failures(
 
     Returns
     -------
-    tuple[list[CheckFailure], list[int]]
-        One failure per range outside the PDF and one per page that several ranges
-        cover; and the positions of the ranges inside the PDF.
+    list[CheckFailure]
+        One failure per range outside the PDF, and one per page that several ranges
+        cover.
     """
 
     failures = []
-    valid = []
-    for position, page_range in enumerate(ranges):
+    inside = []
+    for page_range in ranges:
         first = page_range.first_page_index
         last = page_range.last_page_index
         if 0 <= first <= last < page_count:
-            valid.append(position)
+            inside.append(page_range)
             continue
         failures.append(
             _failure(
@@ -202,14 +270,14 @@ def _range_failures(
                 f"range {first}-{last} is not inside the PDF's pages 0-"
                 f"{page_count - 1}, or ends before it starts",
                 details={
-                    "measured": {"page_count": page_count},
+                    "page_count": page_count,
                     "proposed": {"first_page_index": first, "last_page_index": last},
                 },
                 page_index=None,
             )
         )
 
-    covering = Counter(page for position in valid for page in _pages(ranges[position]))
+    covering = Counter(page for page_range in inside for page in _pages(page_range))
     for page, count in sorted(covering.items()):
         if count > 1:
             failures.append(
@@ -220,11 +288,51 @@ def _range_failures(
                     page_index=page,
                 )
             )
-    return failures, valid
+    return failures
+
+
+def _rotation_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
+    """List the pages whose confident measured rotation the profile does not give.
+
+    Parameters
+    ----------
+    answer
+        The accepted answer.
+    facts
+        The measured facts.
+
+    Returns
+    -------
+    list[ReviewIssue]
+        One ``rotation_differs`` issue per differing page.
+    """
+
+    issues = []
+    page_count = len(facts.pages)
+    for page in facts.pages:
+        measured = page.orientation.dominant
+        if not page.orientation.confident or measured is None:
+            continue
+        turn: RotationRange | None = _covering(
+            answer.rotation, page=page.index, page_count=page_count
+        )
+        profile = 0 if turn is None else turn.degrees
+        if profile == measured:
+            continue
+        issues.append(
+            _issue(
+                "rotation_differs",
+                f"page {page.index} needs {measured} degrees by its measured text "
+                f"angle, but the profile gives {profile}",
+                details={"measured": measured, "profile": profile},
+                page_index=page.index,
+            )
+        )
+    return issues
 
 
 def check_artifacts(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
-    """C5: every measured repeated line is accounted for exactly once.
+    """C5: every repeated line is accounted for exactly once.
 
     Each repeated line ID appears once, in an artifact or in ``non_artifact_lines``,
     and no other ID appears.
@@ -260,7 +368,7 @@ def check_artifacts(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
             _failure(
                 "artifacts",
                 message,
-                details={"measured": line.id, "proposed": count},
+                details={"proposed": count, "repeated_line_id": line.id},
                 page_index=None,
             )
         )
@@ -391,19 +499,14 @@ def check_languages(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
 
 
 def check_page_numbering(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
-    """C4: page-numbering ranges lie inside the PDF and agree with the printed numbers.
-
-    Ranges must not overlap. In each range, at least `PAGE_NUMBERING_MATCH_SHARE` of
-    the pages with a measured arabic number must print the page index plus the
-    range's offset. Each page of a measured numbering range of at least
-    `PAGE_NUMBERING_MIN_RANGE_PAGES` pages must be in a range with the same offset.
+    """C4: page-numbering ranges lie inside the PDF and do not overlap.
 
     Parameters
     ----------
     answer
         The model's answer.
     facts
-        The measured facts, for the printed numbers.
+        The measured facts, for the page count.
 
     Returns
     -------
@@ -411,18 +514,7 @@ def check_page_numbering(answer: SurveyAnswer, facts: Facts) -> list[CheckFailur
         The failures, one per affected page where a page applies.
     """
 
-    failures, valid = _range_failures(
-        "page_numbering", answer.page_numbering, len(facts.pages)
-    )
-    measured = {
-        page.index: page.printed_number.value
-        for page in facts.pages
-        if page.printed_number is not None
-        and page.printed_number.style == "arabic"
-        and page.printed_number.value is not None
-    }
-    ranges = [answer.page_numbering[position] for position in valid]
-    return failures + _offset_failures(facts=facts, measured=measured, ranges=ranges)
+    return _range_failures("page_numbering", answer.page_numbering, len(facts.pages))
 
 
 def check_regions(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
@@ -452,7 +544,7 @@ def check_regions(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
                     "regions",
                     f"a region is on page {page}, but the PDF has pages 0-"
                     f"{page_count - 1}",
-                    details={"measured": {"page_count": page_count}, "proposed": page},
+                    details={"page_count": page_count, "proposed": page},
                     page_index=None,
                 )
             )
@@ -468,52 +560,6 @@ def check_regions(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
                 "0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1",
                 details={"proposed": values},
                 page_index=page,
-            )
-        )
-    return failures
-
-
-def check_rotation(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
-    """C3: rotation ranges lie inside the PDF and agree with the measured text angle.
-
-    Ranges must not overlap. On every page whose orientation is measured with
-    confidence, the rotation (0 for pages no range covers) must equal the measured
-    angle of the text: text that runs at 90 degrees counterclockwise needs a
-    90-degree clockwise rotation.
-
-    Parameters
-    ----------
-    answer
-        The model's answer.
-    facts
-        The measured facts, for each page's orientation.
-
-    Returns
-    -------
-    list[CheckFailure]
-        The failures, one per affected page where a page applies.
-    """
-
-    failures, valid = _range_failures("rotation", answer.rotation, len(facts.pages))
-    degrees_by_page = {
-        page: answer.rotation[position].degrees
-        for position in valid
-        for page in _pages(answer.rotation[position])
-    }
-    for page in facts.pages:
-        measured = page.orientation.dominant
-        if not page.orientation.confident or measured is None:
-            continue
-        proposed = degrees_by_page.get(page.index, 0)
-        if proposed == measured:
-            continue
-        failures.append(
-            _failure(
-                "rotation",
-                f"page {page.index} gets {proposed} degrees, but its text runs at "
-                f"{measured} degrees counterclockwise, which needs {measured}",
-                details={"measured": measured, "proposed": proposed},
-                page_index=page.index,
             )
         )
     return failures
@@ -548,6 +594,25 @@ def check_results(
     ]
 
 
+def check_rotation(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
+    """C3: rotation ranges lie inside the PDF and do not overlap.
+
+    Parameters
+    ----------
+    answer
+        The model's answer.
+    facts
+        The measured facts, for the page count.
+
+    Returns
+    -------
+    list[CheckFailure]
+        The failures, one per affected page where a page applies.
+    """
+
+    return _range_failures("rotation", answer.rotation, len(facts.pages))
+
+
 def check_writing_direction(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
     """C6: writing-direction ranges lie inside the PDF and do not overlap.
 
@@ -564,10 +629,34 @@ def check_writing_direction(answer: SurveyAnswer, facts: Facts) -> list[CheckFai
         The failures, one per affected page where a page applies.
     """
 
-    failures, _ = _range_failures(
+    return _range_failures(
         "writing_direction", answer.writing_direction.ranges, len(facts.pages)
     )
-    return failures
+
+
+def compare_with_facts(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
+    """Record where the accepted answer differs from the measured facts.
+
+    A page can differ only where the probe measured a value: a confident text angle
+    for rotation, or a printed number with a value for page numbering. The profile's
+    value for a page comes from the first range inside the PDF that covers it. The
+    comparison never changes the answer and never sends it back to the model.
+
+    Parameters
+    ----------
+    answer
+        The accepted answer.
+    facts
+        The measured facts.
+
+    Returns
+    -------
+    list[ReviewIssue]
+        One ``rotation_differs`` issue per page whose rotation differs, then one
+        ``page_number_differs`` issue per page whose number differs.
+    """
+
+    return _rotation_issues(answer, facts) + _page_number_issues(answer, facts)
 
 
 def retry_message(failures: dict[CheckName, list[CheckFailure]]) -> str:
@@ -586,7 +675,7 @@ def retry_message(failures: dict[CheckName, list[CheckFailure]]) -> str:
 
     lines = [f"- {failure.message}" for name in CHECKS for failure in failures[name]]
     return (
-        "Your answer does not match the measured facts. Fix each problem below and "
+        "Your answer is not yet well formed and complete. Fix each problem below and "
         "answer again:\n" + "\n".join(lines)
     )
 
@@ -628,7 +717,7 @@ def run_checks(
     answer
         The model's answer.
     facts
-        The measured facts.
+        The measured facts, for the page count and the repeated-line IDs.
 
     Returns
     -------

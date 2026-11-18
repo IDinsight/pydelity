@@ -36,7 +36,12 @@ from pydelity.surveying.schemas import (
     SurveyInputs,
     SurveySettings,
 )
-from pydelity.surveying.validators import check_results, review_issues, run_checks
+from pydelity.surveying.validators import (
+    check_results,
+    compare_with_facts,
+    review_issues,
+    run_checks,
+)
 from pydelity.utils.coroutines import warn
 from pydelity.utils.files import load_model, write_model_atomic
 from pydelity.utils.fingerprints import fingerprint
@@ -236,8 +241,8 @@ def build_survey(
     Returns
     -------
     PdfSurvey
-        The survey, with the checks' results on the answer and a review issue for each
-        failure.
+        The survey, with the checks' results on the answer, a review issue for each
+        failure, and a review issue for each page that differs from the facts.
     """
 
     checks = check_results(run_checks(answer, facts.facts), attempts=attempts)
@@ -248,7 +253,7 @@ def build_survey(
         facts=facts.facts,
         fingerprint=survey_fingerprint(inputs),
         inputs=inputs,
-        issues=review_issues(checks),
+        issues=review_issues(checks) + compare_with_facts(answer, facts.facts),
         profile=Profile(
             continuation_notes=answer.continuation_notes,
             labels=labels,

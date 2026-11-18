@@ -941,7 +941,7 @@ arm64, Python 3.13.9, anthropic 2.10.0, openai 3.53.0).
 ### DEV-010 — Survey proposal, profile, prompt and checks
 
 `Status`: `DONE` `Depends On`: `DEV-005` `Acceptance`:
-`AC-002, AC-003, AC-004, AC-006`
+`AC-002, AC-004, AC-006, AC-045, AC-046`
 
 **Goal**
 
@@ -972,6 +972,15 @@ item per rejected tag (`details`: `{"proposed": "<tag>"}`) or one for an empty
 list, `page_index` null. Unlike KGForEdGlobal's validators, which raise on the
 first problem, each check returns all its failures, so one retry message names
 every problem and the last attempt can record them all.
+
+Reopened by the user rework of 2026-11-18 (scope `8ef0b0a`, design `8ad8d41`,
+decision 5): the prompt gives the measured facts as hints and asks the model to
+answer with its own reading where they differ. Checks C1–C7 test only form and
+completeness: C3 and C4 keep only their range rules (inside the PDF, no
+overlap), and no check message or `details` holds a measured value. A comparison
+of the accepted answer with the facts produces the `rotation_differs` and
+`page_number_differs` review issues defined under **Disagreements with the
+facts**; review issues accept those names as `check`.
 
 From the command line: `--verbose` logs the prompt and facts summary the survey
 will send. No model call happens yet.
@@ -1067,7 +1076,7 @@ changes (macOS arm64, Python 3.13.9).
 ### DEV-011 — Survey step
 
 `Status`: `DONE` `Depends On`: `DEV-009, DEV-010` `Acceptance`:
-`AC-002, AC-003, AC-004, AC-011, AC-017, AC-018`
+`AC-002, AC-004, AC-011, AC-017, AC-018, AC-045, AC-046`
 
 **Goal**
 
@@ -1097,6 +1106,11 @@ in standard form, leaving out model tags C7 still rejects after the check
 retries), stores `user_instructions`, converts region boxes to points and writes
 `pdf_survey.json` atomically. A refusal or an answer that never parses raises
 `SurveyError`.
+
+Reopened by the user rework of 2026-11-18 (design decision 5): after the answer
+is accepted, the survey compares it with the facts once and adds one
+`rotation_differs` or `page_number_differs` review issue per differing page
+after the check issues, without retrying or changing the profile.
 
 From the command line: the run makes the real survey call and logs
 `Survey finished` with the labels, languages, rotation, review-issue count and
@@ -1231,6 +1245,56 @@ arm64, Python 3.13.9, PydanticAI 2.69.0).
   `pydelity.run` in the same setup printed it once. In that run the command also
   printed each `PydelityWarning` a second time, as a Python warning pointing at
   a Typer file, after its log line; DEV-012 handles warnings in the command.
+
+Rework evidence for DEV-010 and DEV-011, 2026-11-18, on `8ad8d41` plus the
+uncommitted rework (macOS arm64, Python 3.13.9). No model was called.
+
+- Changed, as the user approved: `surveying/prompts.py` (the facts are hints;
+  the three "must agree" sentences are gone and the closing line says the answer
+  is checked for form and completeness), `surveying/validators.py` (C3 and C4
+  keep only the range rules; check `details` hold the page count, not a measured
+  value; the retry message no longer mentions the measured facts;
+  `compare_with_facts` adds `rotation_differs` and `page_number_differs`
+  issues), `surveying/schemas.py` (`ComparisonName`, accepted as a review
+  issue's `check`) and `surveying/survey.py` (`build_survey` adds the
+  comparison's issues after the check issues). The comparison sits in
+  `validators.py` with the checks.
+- `just lint-python` (Ruff check and format, ty, interrogate 100%), `just test`
+  (2 passed) and the doctests pass.
+- Scratchpad `dev_hints_check.py`, 11 of 11, on the user's three PDFs' facts and
+  the CAPS extract:
+  - The prompt says the facts are hints and to answer with what the model reads,
+    with no "must agree" or "must equal".
+  - The 59-page bilingual PDF answered with no page numbers: every check passes,
+    the profile keeps it, and its 16 table-cell numbers give 16
+    `page_number_differs` issues (`source` `text`, `profile` null). The first
+    reads "page 20 has the number 3 in its page text '3', but the profile gives
+    no number".
+  - The 94-page PDF: offset 1 and rotation 270 on pages 84-87 and 92-93 give no
+    issue (92-93 have no confident angle). No numbers and no rotation give 94
+    `page_number_differs` (from labels) and 4 `rotation_differs`.
+  - The 142-page PDF: the model's "no numbers on pages 0-4" gives 5
+    `page_number_differs` issues with `source` `page_label`.
+  - The CAPS extract with no rotation passes the checks and gives 8
+    `rotation_differs` issues (`{"measured": 90, "profile": 0}`). A range
+    outside the PDF is ignored, and overlapping ranges use the first that covers
+    a page.
+  - In `pdf_survey.json`, check issues come first and the comparison's after;
+    differences are not in `checks[]`.
+- `dev010_check.py` (29 of 29): C3 and C4 now fail only for ranges outside the
+  PDF or overlapping; a differing rotation or offset passes; no failure holds a
+  measured value; the retry message names only check failures. Still no
+  document-type words.
+- `dev011_offline.py` (32 of 32): a new case answers the CAPS extract with no
+  rotation. It takes one request, every check passes, the profile keeps no
+  rotation and there are 8 `rotation_differs` issues. The retry case now retries
+  on a C1 failure, and the still-failing case records its check failures, then 8
+  `rotation_differs` issues.
+- `dev012_offline.py` (26 of 26; the summary now counts
+  `languages 1, rotation_differs 8`), `dev013_check.py` (26 of 26) and
+  `dev014_offline.py` (25 of 25) pass.
+- `PROMPT_VERSION` stays at 1 at the user's request, so the user reruns with
+  `--overwrite` to survey again.
 
 ### DEV-012 — Run orchestration
 
@@ -2187,3 +2251,14 @@ DEV-001's files before the rework starts.
 `scope a938118 and design 76e25f0; DEV-001 to DEV-005 and DEV-007 to DEV-015 done and committed (last aa63b6a); the probe change for invisible characters and 1,000 repeated lines done but uncommitted in the working tree; DEV-006 and DEV-016 to DEV-021 not started`
 `Next Action`:
 `Reconcile the survey's prompt and checks (DEV-010, and DEV-011 for how disagreements are recorded) with the reworked scope and design, then list DEV-006's files for the user's review.`
+
+Restored on the `RESUME` from `ARCHITECTING` (scope `8ef0b0a`, design `8ad8d41`)
+and reconciled without adding, removing or reordering steps. `AC-003` is retired
+and replaced by `AC-045` (checks of form and completeness, which still send an
+answer back) and `AC-046` (the model's reading wins, and differences from the
+facts go on the review list). DEV-010 and DEV-011 are reopened for that change
+and take those acceptance IDs. The approved survey changes made during
+development (label numbers, every repeated line in the request, invisible
+characters ignored, 1,000 repeated lines) are now part of the design. The change
+is the user's own request, so the plan stays approved; the user reviews the
+rework's files before it starts, and DEV-006 follows it.

@@ -46,6 +46,10 @@ type CheckName = Literal[
     "languages",
 ]
 
+# The survey's comparisons of the accepted answer with the facts, whose differences
+# are review issues. The names are part of the ``run.json`` contract.
+type ComparisonName = Literal["rotation_differs", "page_number_differs"]
+
 # A writing direction: left to right, right to left, or top to bottom.
 type Direction = Literal["ltr", "rtl", "ttb"]
 
@@ -448,10 +452,11 @@ class CheckFailure(_Output):
     """One problem a check found in the model's answer."""
 
     details: dict[str, object]
-    """The proposed and measured values, such as ``{"proposed": 0, "measured": 90}``."""
+    """The proposed value and, where it applies, what it was checked against, such as
+    ``{"proposed": 9, "page_count": 6}``."""
 
     message: str
-    """What is wrong, naming the check and the proposed and measured values."""
+    """What is wrong, starting with the check's name."""
 
     page_index: int | None
     """The page the problem is on, or ``None`` when no single page applies."""
@@ -578,13 +583,17 @@ class Region(_Output):
 
 
 class ReviewIssue(_Output):
-    """A problem a person should review, from a check that still failed."""
+    """A problem a person should review.
 
-    check: CheckName
-    """The check that found the problem."""
+    It comes from a check that still failed on the accepted answer, or from a
+    difference between the accepted answer and the measured facts.
+    """
+
+    check: CheckName | ComparisonName
+    """The check or comparison that found the problem."""
 
     details: dict[str, object]
-    """The proposed and measured values."""
+    """The values the problem is about, such as ``{"measured": 90, "profile": 0}``."""
 
     message: str
     """What is wrong."""
