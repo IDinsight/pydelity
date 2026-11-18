@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -27,20 +27,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `USER_REWORK` `From`: `DEVELOPING` `FailureType`: `ARCHITECTURE`
-`Reason`:
-`User rework: sync Python API functions use asyncio.run only; called while an event loop is already running (Jupyter, async code), they raise an error saying to await the async version instead of running the coroutine on a worker thread.`
+`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Design corrected (decision 14): sync API functions run the coroutine with asyncio.run only; inside a running event loop they raise RuntimeError naming the async function to await, before creating the coroutine or writing anything. load stays sync and works anywhere.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `DEVELOPING` `Owner`: `ARCHITECTING` `FailureType`: `ARCHITECTURE`
-`Reason`:
-`User rework: sync Python API functions use asyncio.run only; called while an event loop is already running (Jupyter, async code), they raise an error saying to await the async version instead of running the coroutine on a worker thread.`
-`ResumeAt`: `DEVELOPING` `RerunThrough`: `NONE`
+`Active`: `false`
 
 ## Outstanding Obligations
 

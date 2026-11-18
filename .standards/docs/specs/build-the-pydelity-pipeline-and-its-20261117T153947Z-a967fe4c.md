@@ -54,6 +54,9 @@ inherit, and builds step 1 (survey) on them.
 - User rework recorded 2026-11-17 during development: language tags (the
   `languages` setting and check C7) are checked with the `langcodes` library, a
   new runtime dependency, instead of a hand-written pattern (decision 15).
+- User rework recorded 2026-11-18 during development: the sync API functions use
+  `asyncio.run` only and raise an error pointing to the async version when an
+  event loop is already running, instead of using a worker thread (decision 14).
 - Test PDFs are real public-domain documents the user approves, not generated
   ones (user decision recorded in the development plan, 2026-11-17).
 - No project references exist under `.standards/project-references/`; none is
@@ -253,17 +256,19 @@ inherit, and builds step 1 (survey) on them.
 14. **Async core, sync wrappers** (AC-042 to AC-044). Each measuring, estimating
     or running function is written once as a coroutine: `ameasure`, `aestimate`,
     `asurvey`, `arun`. The sync functions `measure`, `estimate`, `survey`, `run`
-    take the same arguments and call the coroutine: with `asyncio.run` when the
-    calling thread has no running event loop, otherwise on a worker thread with
-    its own loop, blocking until it finishes. A worker thread's warnings are
-    recorded and issued again in the calling thread, so both forms give the same
-    results, errors and warnings. The coroutines never call `asyncio.run` and do
+    take the same arguments and run the coroutine with `asyncio.run`, so both
+    forms give the same results, errors and warnings. A sync function called
+    while an event loop is running in its thread (Jupyter, async code) raises
+    `RuntimeError` before doing anything, with a message naming the async
+    function to await instead (`await pydelity.arun(...)`). It checks for a
+    running loop before creating the coroutine, so no file is written and no
+    coroutine is left unawaited. The coroutines never call `asyncio.run` and do
     no long blocking work on the event loop: opening and hashing the PDF, the
     probe, and rendering report images run in `asyncio.to_thread`; small JSON
     reads and writes run inline. Warnings are issued from the coroutine, never
-    from a worker thread. `load` stays sync only: it reads a few local files,
-    and code inside an event loop can call it directly or through
-    `asyncio.to_thread`.
+    from a worker thread. `load` stays sync only and uses no event loop, so it
+    works anywhere: it reads a few local files, and async code can call it
+    directly or through `asyncio.to_thread`.
 15. **Language tags are checked with `langcodes`.** A language tag, from the
     `languages` setting or from the model, is valid when
     `langcodes.tag_is_valid` accepts it. That checks the tag against the IANA
@@ -543,7 +548,9 @@ script, the Astro site under `docs/`, and CI, docs and release workflows under
   the check retries and a model refusal. User-facing warnings (each `run.json`
   warning code) use `warnings.warn` with `PydelityWarning`, are logged through
   loguru at WARNING, and are recorded in `run.json` when the function writes
-  one.
+  one. Calling a sync function inside a running event loop is a usage error and
+  raises `RuntimeError`, the type `asyncio.run` itself raises there, not a
+  `PydelityError` (decision 14).
 
 ### Providers and models
 
@@ -1009,11 +1016,13 @@ it (atomically).
   only `measure` wrote it returns the facts and `None` elsewhere; on a missing
   folder or a corrupt file it raises `OutputError` naming the file.
 - `AC-044`: Each async function, awaited inside a running event loop, gives the
-  same result, errors and `PydelityWarning`s as its sync form; each sync
-  function also works when called from a thread whose event loop is running. Two
-  `asurvey` calls on different folders run concurrently in one loop. The event
-  loop stays responsive while `ameasure` measures. Cancelling `arun` leaves
-  `run.json` `interrupted` and every file valid.
+  same result, errors and `PydelityWarning`s as its sync form. Each sync
+  function called while an event loop is running in its thread raises
+  `RuntimeError` naming the async function to await, writes nothing and leaves
+  no "coroutine was never awaited" warning; `load` works there. Two `asurvey`
+  calls on different folders run concurrently in one loop. The event loop stays
+  responsive while `ameasure` measures. Cancelling `arun` leaves `run.json`
+  `interrupted` and every file valid.
 - `AC-009`: Every invalid setting in a single input is reported in one error; no
   model request happens.
 - `AC-011`: Both providers pass the same survey flow with their canned responses
@@ -1192,9 +1201,9 @@ Developer proposes its name and place and waits for the user's sign-off.
   later is rejected until `langcodes` is upgraded, and a release that changes a
   tag's standard form changes the survey fingerprint for runs that use it, so
   the survey runs again.
-- A sync call from inside a running event loop blocks that loop's thread until
-  the worker thread finishes (as any sync call would); async callers should use
-  the `a` functions.
+- In Jupyter and other async code the sync functions raise, so users there
+  `await` the `a` functions (Jupyter allows top-level `await`). The docs show
+  both forms and say which to use where (Documenter).
 - Claude Opus 5.5 can stop with `refusal`; the survey reports it as a failure.
   Server-side refusal fallbacks are not enabled in this cycle (they change the
   billed model mid-request).
@@ -1257,6 +1266,11 @@ Developer proposes its name and place and waits for the user's sign-off.
 - A sync core with async functions that run it in a worker thread: simpler, but
   PydanticAI is async already, and an async core lets later steps send requests
   concurrently in one loop.
+- Sync functions that run the coroutine on a worker thread when an event loop is
+  already running (the earlier design): they would work in Jupyter, but they
+  block that loop while they run and need warnings carried back from the thread.
+  The user chose `asyncio.run` only, with an error that points to the async
+  function.
 - An async `load` (`aload`): it would only wrap a few small file reads.
 - Reusing `advanced.survey.max_retries` as the name for check retries: two
   settings called retries for different things invite mistakes, so the survey's
