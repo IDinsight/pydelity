@@ -1907,6 +1907,36 @@ constants; regenerating after Markdown formatting is byte-identical, so CI's
 
 ## Plan Notes
 
+- The user's own run on a 94-page PDF of their own (2026-11-18, $1.35) found two
+  general gaps. The fixes changed `src/pydelity/surveying/probe.py` and
+  `src/pydelity/surveying/prompts.py`, with the user's approval, and hold no
+  document-specific rules:
+  - The probe read a page label as a page number only when the whole label was a
+    number. PDF page labels are a prefix plus a number, so "Page 12" gave no
+    number and the text on the page was never checked. The probe now reads the
+    number at the end of a label (`Page 12`, `A-iv`, `Part II`). When a label
+    has no number, it looks for the number printed on the page.
+  - The model saw printed page numbers that the facts had missed, but answered
+    "no numbers" because the prompt asked it to agree with the facts. It also
+    left out the rotation of pages whose text is inside images, which the facts
+    cannot measure. The prompt now says the facts can miss things such as text
+    inside images or page numbers, that answers must agree with what the facts
+    did measure, and to describe what is seen where they measured nothing. For
+    rotation it names pages whose text is inside images; for page numbering, to
+    give the numbers seen even where the facts found none.
+  - At the user's request, `PROBE_VERSION` and `PROMPT_VERSION` stay at 1 until
+    the first release, so a rerun needs `--overwrite` to measure and survey
+    again.
+  - Checks:
+    - Measured before and after on the nine test PDFs and the user's two PDFs,
+      only the user's 94-page PDF changed: its printed numbers now run with
+      offset 1 on all 94 pages. Every other fact of every PDF is unchanged.
+    - With labels that have no number, set on a copy of the W-9 instructions,
+      the probe now finds the printed numbers it finds without labels.
+    - The label examples (`12`, `Page 12`, `Page12`, `A-iv`, `Part II`, `Cover`,
+      `Appendix`, Arabic-Indic digits) read as expected.
+    - Lint, `just test`, the doctests, `dev010_check.py` (no document-type words
+      in the prompt), `dev011_offline.py` and `dev012_offline.py` pass.
 - A deviation from the design's CLI contract, approved by the user on
   2026-11-18: the command has no `--quiet`. By default it shows warnings,
   errors, the cost estimate and the summary, and `--verbose` shows everything.

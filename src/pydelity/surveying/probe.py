@@ -121,6 +121,10 @@ _MAX_ROLE_STEPS = 10
 # A line's number or word parts: runs of decimal digits (any script) or of letters.
 _NUMBER_PARTS = re.compile(r"\d+|[^\W\d_]+")
 
+# A page label's number at its end, after any prefix: decimal digits, or letters (a
+# roman numeral) after a character that is not a letter, as in "Page 12" or "A-iv".
+_LABEL_NUMBER = re.compile(r"(?:.*\W)?([^\W\d_]+)|.*?(\d+)")
+
 # The page reference of an inline marked-content or object reference dictionary.
 _PAGE_REFERENCE = re.compile(r"/Pg\s+(\d+)\s+\d+\s+R")
 
@@ -236,7 +240,7 @@ def _bookmarks(document: pymupdf.Document) -> list[Bookmark]:
 def _choose_text_numbers(
     *, lines_by_page: list[list[_Line]], pages: list[PageFacts]
 ) -> None:
-    """Find printed page numbers in the text of pages that have no page label.
+    """Find printed page numbers in the text of pages whose label gives no number.
 
     A candidate is a line in the top or bottom band that is a single number with
     only non-letter decoration around it. When a page has several candidates, the
@@ -253,7 +257,9 @@ def _choose_text_numbers(
     """
 
     candidates = [
-        [] if page.printed_number is not None else _number_candidates(lines)
+        []
+        if page.printed_number is not None and page.printed_number.value is not None
+        else _number_candidates(lines)
         for page, lines in zip(pages, lines_by_page, strict=True)
     ]
     agreement: Counter[tuple[str, int]] = Counter()
@@ -488,6 +494,9 @@ def _kids(*, kind: str, value: str) -> list[tuple[str, str]]:
 def _label_number(label: str) -> PrintedNumber:
     """Describe a page label as a printed number.
 
+    A PDF page label is an optional prefix followed by a number, such as ``12``,
+    ``Page 12`` or ``A-iv``. The number is read from the end of the label.
+
     Parameters
     ----------
     label
@@ -496,15 +505,22 @@ def _label_number(label: str) -> PrintedNumber:
     Returns
     -------
     PrintedNumber
-        An arabic or roman number when the label is one, otherwise a ``label``.
+        An arabic or roman number when the label ends in one, otherwise a ``label``
+        with no value.
+
+    Examples
+    --------
+    >>> [_label_number(label).value for label in ("12", "Page 12", "A-iv", "Cover")]
+    [12, 12, 4, None]
     """
 
-    text = label.strip()
-    if text.isdecimal():
+    match = _LABEL_NUMBER.fullmatch(label.strip())
+    letters, digits = match.groups() if match else (None, None)
+    if digits is not None:
         return PrintedNumber(
-            source="page_label", style="arabic", text=label, value=int(text)
+            source="page_label", style="arabic", text=label, value=int(digits)
         )
-    roman = _roman_value(text)
+    roman = _roman_value(letters or "")
     if roman is not None:
         return PrintedNumber(
             source="page_label", style="roman", text=label, value=roman
@@ -748,7 +764,8 @@ def _page(
         height_pt=round(page.rect.height, 2),
         index=index,
         orientation=_orientation(lines),
-        # Use the page label if there is one. Otherwise `_choose_text_numbers` sets it.
+        # Use the page label's number if it has one. Otherwise `_choose_text_numbers`
+        # looks for the number printed on the page.
         printed_number=_label_number(label) if label else None,
         rotation_attribute=page.rotation,
         text=_text_facts(text),

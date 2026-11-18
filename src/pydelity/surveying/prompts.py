@@ -57,6 +57,11 @@ def survey_pdf(
 You receive a PDF and facts measured from it without a model. Describe how the PDF's \
 pages are laid out, so that later steps can take its content apart page by page.
 
+The facts come from the PDF's text layer and internal structure, so they can miss \
+things, such as text inside images or page numbers they could not read. Where the \
+facts measured something, your answer must agree with it. Where they measured \
+nothing, describe what you see on the pages.
+
 Page indexes start at 0. Page ranges are inclusive: first_page_index 2 and \
 last_page_index 4 cover pages 2, 3 and 4. Positions, directions and boxes refer to \
 each page as it is displayed.
@@ -95,13 +100,15 @@ direction.
 
 Rotation. For pages whose content is not upright as displayed, give the clockwise \
 rotation in degrees (90, 180 or 270) that makes it upright. Leave out pages that are \
-upright. Where the facts measure a page's text angle with confidence, your rotation \
-for that page must equal it.
+upright. Include pages whose text is inside images, such as scans, which the facts \
+cannot measure. Where the facts measure a page's text angle with confidence, your \
+rotation for that page must equal it.
 
 Page numbering. Give ranges of pages whose printed page numbers follow the page \
 index, with the numbers' style and offset: the printed number minus the page index. \
 Use style none and offset null for pages that print no numbers. Your offsets must \
-agree with the printed numbers the facts measure.
+agree with the printed numbers the facts measure. Give the numbers you see printed \
+on the pages even where the facts found none.
 
 Artifacts. Page furniture is not part of the content: running headers and footers, \
 page numbers, logos, watermarks, stamps and the like. The facts list lines that \
