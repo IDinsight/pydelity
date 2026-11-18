@@ -1,0 +1,67 @@
+{
+  "artifacts": [],
+  "continuation_notes": [
+    "The return continues from the front page to the back page; item 12 on the back page follows item 11 on the front."
+  ],
+  "labels": [
+    {
+      "description": "Numbered items and their entry boxes, which the filer fills in.",
+      "kinds": ["field"],
+      "name": "Form item",
+      "role": "body"
+    },
+    {
+      "description": "Instructions printed beside and between the items.",
+      "kinds": ["text"],
+      "name": "Instruction",
+      "role": "body"
+    },
+    {
+      "description": "The form's title and the section headings.",
+      "kinds": ["text"],
+      "name": "Heading",
+      "role": "heading"
+    },
+    {
+      "description": "The table of dependents on the back page.",
+      "kinds": ["table"],
+      "name": "Dependents table",
+      "role": "body"
+    },
+    {
+      "description": "Anything the other labels do not cover.",
+      "kinds": ["text"],
+      "name": "other",
+      "role": "body"
+    }
+  ],
+  "languages": ["en"],
+  "non_artifact_lines": [],
+  "notes": [
+    "Both pages are scans with no text layer, so every reading comes from the page images."
+  ],
+  "page_numbering": [
+    {
+      "first_page_index": 0,
+      "last_page_index": 1,
+      "offset": null,
+      "style": "none"
+    }
+  ],
+  "regions": [
+    {
+      "bbox": { "x0": 0.02, "x1": 0.98, "y0": 0.3, "y1": 0.5 },
+      "label": "Dependents table",
+      "note": "Item 14 lists dependents in six columns.",
+      "page_index": 1
+    }
+  ],
+  "rotation": [{ "degrees": 0, "first_page_index": 0, "last_page_index": 1 }],
+  "start_markers": [
+    {
+      "description": "The start of the return.",
+      "text": "U.S. Individual Income Tax Return"
+    }
+  ],
+  "writing_direction": { "default": "ltr", "ranges": [] }
+}

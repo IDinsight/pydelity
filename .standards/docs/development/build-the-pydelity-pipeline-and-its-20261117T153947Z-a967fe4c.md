@@ -1768,7 +1768,7 @@ arm64, Python 3.13.9).
 
 ### DEV-006 — Mock provider server
 
-`Status`: `PENDING` `Depends On`: `DEV-015` `Acceptance`: `AC-021, AC-023`
+`Status`: `DONE` `Depends On`: `DEV-015` `Acceptance`: `AC-021, AC-023`
 
 **Goal**
 
@@ -1801,6 +1801,89 @@ the stand-in, `pydelity <pdf> --yes` completes with no keys and no spend.
 
 Run the installed `pydelity` (`--yes`) and the Python API against it for both
 providers on the committed smoke-test PDF; `just lint`.
+
+Evidence, 2026-11-18, on `c44959d` plus the uncommitted DEV-006 files (macOS
+arm64, Python 3.13.9, anthropic 2.10.0, openai 3.53.0, pydantic-ai 2.69.0). No
+real key was used and nothing was spent: the check removes any provider key from
+its environment and sets the placeholder.
+
+- Scratchpad `dev006_check.py`, 34 of 34 checks. It ran outside the sandbox,
+  which does not allow a local port to be opened. Every request went to
+  127.0.0.1.
+  - Response bodies: the Anthropic message validates as the SDK's `Message` and
+    `BetaMessage`, the Anthropic file as `FileMetadata`, the OpenAI response as
+    `Response` (its `output_text` is the answer) and the OpenAI file as
+    `FileObject`; the Anthropic error bodies for 400, 401, 402, 403, 404, 408,
+    413, 429, 500, 503, 504 and 529 validate as `ErrorResponse`. Only 408, 409,
+    429 and 5xx carry `retry-after-ms`.
+  - The SDKs against the running server: both uploads return a file ID and size,
+    and the server reads the Anthropic `expires_in_seconds` and the OpenAI
+    `purpose` and `expires_after[seconds]` form fields. A message that names a
+    held file gets the answer, and one that names an unknown file gets 404
+    naming it. Three 429s with two retries give `RateLimitError` after three
+    requests, two 503s with two retries give the answer on the third request,
+    both in under a second. An OpenAI 400 fault's message reaches the SDK's
+    error. A used-up fault no longer applies. No logged request holds the
+    placeholder key.
+  - The Python API, `pydelity.run` with `anthropic:claude-opus-5-5` and with
+    `openai:gpt-6.2-astra` on `irs_form_1040a_1965_scan.pdf`: completed, with
+    `pdf_survey.json`, `uploads.json`, `report.html`, one ledger line and one
+    upload then one model request. `pydelity.load` on each folder equals the
+    run's result.
+  - The installed `pydelity` (`--yes`) with each provider: exit 0, `run.json`
+    `completed`, one upload then one model request.
+  - Faults through the Python API:
+    - three 429s on the model request with `provider_retries` 2: `ProviderError`
+      with `temporary` true and status 429, three model requests, `run.json`
+      `failed` and no ledger line;
+    - two 529s: completed after three model requests, one ledger line;
+    - three 500s on the OpenAI upload: completed with the PDF inside the request
+      (`pdf_transport: "request"`, an `upload_fallback` warning, `file_data` in
+      the request and no `uploads.json`);
+    - a 401 or a 413 on the upload: `ProviderError` with that status, no model
+      request, `run.json` `failed`;
+    - a 400 that rejects the PDF on every model request, for each provider:
+      `ProviderError` whose `provider_message` is the server's message
+      unchanged, with the SDK error as its cause;
+    - an expired upload (`forget_uploads`, then a run with new instructions in
+      the same folder): 404 naming the file, a new upload, then the answer;
+    - answers in order: a first answer with language `zz` fails check C7, the
+      second passes, with no review issue.
+  - `python -m tests.fixtures.mock_providers --answer <file>` prints both base
+    URLs; `pydelity <pdf> --yes` with those URLs and placeholder keys exits 0;
+    Ctrl+C stops the server with exit 0, its request lines on stderr.
+- The canned answer passes checks C1 to C7 against the PDF's measured facts.
+- `just lint` (Python, Markdown and workflows) and `just test` (2 passed) pass.
+  `prek run --files` on the two new files passes every hook, `detect-secrets`
+  included.
+
+**Implementation Notes**
+
+- Files approved by the user (2026-11-18): `tests/fixtures/mock_providers.py`
+  and `tests/fixtures/survey_answers/irs_form_1040a_1965_scan.json`.
+- The smoke-test PDF is `tests/fixtures/pdfs/irs_form_1040a_1965_scan.pdf` (2
+  scanned pages, 85,909 bytes). Its facts have no repeated lines, printed page
+  numbers or measured rotation, so its answer is short and passes every check.
+- One server serves both providers on one port: `ANTHROPIC_BASE_URL` is
+  `<url>/anthropic` and `OPENAI_BASE_URL` is `<url>/openai/v1`. pydelity asks
+  for native or prompted output, so a model answer is the reply's text, not a
+  tool call. The server ignores any query string when it matches a path.
+- The response bodies follow the installed SDK types rather than recorded
+  responses, as the user chose (2026-11-18). The SDK types have no
+  `request_too_large` error type, so a 413 gets `invalid_request_error`.
+- `MockProviders(answers=[...])` sends the answers in order and repeats the
+  last; `add_fault(route=..., status=..., times=...)` makes model requests or
+  uploads fail; `forget_uploads()` makes later requests that name an upload get
+  404; `requests` is the log; `environment()` gives both base URLs and
+  `PLACEHOLDER_KEY` for both keys.
+- Found while checking, outside this step: pydelity never closes the SDK client
+  that `build_model` creates. When several sync `pydelity.run` calls in one
+  process end with `ProviderError`, an earlier run's client is collected during
+  a later run, and httpx prints "Task exception was never retrieved …
+  RuntimeError: Event loop is closed" to stderr (scratchpad
+  `dev006_leak_repro3.py`: 12 failing runs print it 1 time with Anthropic and 8
+  times with OpenAI). Successful runs did not print it. Left for the user to
+  decide whether to fix it, by reopening DEV-008.
 
 ### DEV-016 — Wheel build and smoke script
 
