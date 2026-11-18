@@ -7,45 +7,60 @@ name without the ``a`` (``run``), takes the same arguments and runs the coroutin
 
 # Standard Library
 import asyncio
+import json
 import os
-
-from pathlib import Path
 
 # Third Party Library
 from loguru import logger
 
 # Package Library
-from pydelity.providers.profiles import DEFAULT_MODEL, parse_model
+from pydelity.config.loading import ConfigSource, resolve_config
 from pydelity.utils.coroutines import run_coroutine
 from pydelity.utils.pdf import open_pdf
 
 
-async def arun(pdf: str | os.PathLike[str], *, model: str = DEFAULT_MODEL) -> None:
+async def arun(
+    pdf: str | os.PathLike[str] | None = None,
+    *,
+    config: ConfigSource | None = None,
+    **settings: object,
+) -> None:
     """Run pydelity on a PDF.
 
-    So far the run checks the model setting, opens the PDF and logs what it found; the
+    So far the run checks the settings, opens the PDF and logs what it found; the
     survey and the rest of the run come in later versions.
 
     Parameters
     ----------
     pdf
-        The PDF to process.
-    model
-        The model to use, as ``<provider>:<model-id>`` with provider ``anthropic`` or
-        ``openai``.
+        The PDF to process; it wins over a ``pdf`` in ``config``.
+    config
+        A JSON or YAML config file, a `pydelity.config.schemas.Config`, or a mapping
+        of settings.
+    **settings
+        Settings by name, such as ``model="openai:gpt-6.2-astra"`` or
+        ``advanced={"survey": {"effort": "medium"}}``. They win over ``config``.
 
     Raises
     ------
     ConfigError
-        If the model setting is invalid or names an unsupported provider.
+        Listing every invalid setting, or naming a config file that cannot be read.
     PdfError
-        If the PDF is missing, empty, password-protected or cannot be opened.
+        If the PDF is empty, password-protected or cannot be opened.
     """
 
-    choice = parse_model(model)
-    path = Path(pdf)
-    logger.info("Opening {path}", path=path)
-    info = await asyncio.to_thread(open_pdf, path)
+    resolved = resolve_config(config=config, pdf=pdf, settings=settings)
+    logger.info("Settings OK")
+    logger.debug(
+        "Settings: {settings}",
+        settings=json.dumps(
+            resolved.model_dump(mode="json")
+            | {"output_folder": str(resolved.output_folder)},
+            indent=2,
+        ),
+    )
+
+    info = await asyncio.to_thread(open_pdf, resolved.pdf)
     logger.info(
         "Opened {name}: {pages}, {size:,} bytes, SHA-256 {sha256}",
         name=info.name,
@@ -53,6 +68,7 @@ async def arun(pdf: str | os.PathLike[str], *, model: str = DEFAULT_MODEL) -> No
         sha256=info.sha256,
         size=info.bytes,
     )
+    choice = resolved.model_choice
     logger.info(
         "Model: {model_id} from provider {provider}",
         model_id=choice.model_id,
@@ -61,23 +77,31 @@ async def arun(pdf: str | os.PathLike[str], *, model: str = DEFAULT_MODEL) -> No
     logger.info("Run finished")
 
 
-def run(pdf: str | os.PathLike[str], *, model: str = DEFAULT_MODEL) -> None:
+def run(
+    pdf: str | os.PathLike[str] | None = None,
+    *,
+    config: ConfigSource | None = None,
+    **settings: object,
+) -> None:
     """Run pydelity on a PDF; the sync version of `arun`.
 
     Parameters
     ----------
     pdf
-        The PDF to process.
-    model
-        The model to use, as ``<provider>:<model-id>`` with provider ``anthropic`` or
-        ``openai``.
+        The PDF to process; it wins over a ``pdf`` in ``config``.
+    config
+        A JSON or YAML config file, a `pydelity.config.schemas.Config`, or a mapping
+        of settings.
+    **settings
+        Settings by name, such as ``model="openai:gpt-6.2-astra"`` or
+        ``advanced={"survey": {"effort": "medium"}}``. They win over ``config``.
 
     Raises
     ------
     ConfigError
-        If the model setting is invalid or names an unsupported provider.
+        Listing every invalid setting, or naming a config file that cannot be read.
     PdfError
-        If the PDF is missing, empty, password-protected or cannot be opened.
+        If the PDF is empty, password-protected or cannot be opened.
     """
 
-    run_coroutine(arun(pdf, model=model))
+    run_coroutine(arun(pdf, config=config, **settings))

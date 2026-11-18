@@ -340,7 +340,7 @@ Evidence, 2026-11-17, repo root, uncommitted on top of `ed70f71`:
 
 ### DEV-004 — Configuration
 
-`Status`: `PENDING` `Depends On`: `DEV-003` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-003` `Acceptance`:
 `AC-004, AC-007, AC-008, AC-009, AC-041`
 
 **Goal**
@@ -375,6 +375,61 @@ bad setting.
 
 Scratchpad script with valid and invalid JSON and YAML files, several errors at
 once, precedence cases and a missing key; `just lint`.
+
+Evidence, 2026-11-17, repo root, uncommitted on top of `274b41a`:
+
+- Scratchpad `tools/dev004_check.py`: 37 of 37 checks passed.
+  - Files: YAML and JSON load; `pdf` and `output_dir` in a file are relative to
+    the file's folder; `max_cost: 0.1` in YAML becomes `Decimal("0.1")` exactly;
+    defaults fill in (model, provider retries 2, check retries 2, output folder
+    `pydelity-output/<PDF name>`).
+  - Precedence: a keyword `pdf` wins over the file's; keywords win, and nested
+    `advanced` keywords merge with the file; a `False` keyword wins over a
+    file's `True`; a `Config` given as `config` contributes only the values it
+    was given; keyword paths are relative to the current directory.
+  - One `ConfigError` named all 10 problems in one file: missing PDF, a bad
+    language tag, a negative `max_cost`, provider `google`, an unknown key
+    `colour`, out-of-range provider and check retries, effort `max`, and a
+    `models` entry with a bad key and a missing price. The upload expiry is
+    checked against the selected provider (Anthropic 1–2,160 hours, OpenAI
+    1–720), and skipped when the model setting is itself invalid.
+  - Unreadable files: invalid JSON, invalid YAML, a list instead of settings, a
+    `.toml` file and a missing file each give a `ConfigError` naming the file;
+    an empty YAML file holds no settings.
+  - Language tags: `en`, `zh-Hant-TW`, `zxx`, `ar-EG-u-nu-latn` and `x-private`
+    pass; `en_US`, `e`, `en-`, `123` and `english words` fail.
+  - `read_api_key` raises `MissingApiKeyError` naming `ANTHROPIC_API_KEY` when
+    the key is unset or blank, ignores the `.env` in the current folder, and
+    returns a `SecretStr` that hides the key.
+- CLI: `pydelity -c settings.yaml` (PDF, language and OpenAI model in the file)
+  logged `Settings OK` and `Model: gpt-6.2-astra from provider openai`. With a
+  PDF argument, `--model`, `--language`, `--max-cost 2.50`, `--overwrite`,
+  `--output-dir`, `--instructions` and `-v`, the options won over the file, and
+  the resolved settings were logged as JSON with the effective output folder.
+  `--model google:x --language en_US --max-cost abc` printed one error listing
+  all 3 settings and exited 2; no PDF anywhere exited 2 with
+  `pdf: required: give the PDF as an argument or set pdf`; a missing config file
+  was named.
+- `just lint-python` (Ruff, ty, interrogate 100%) and `just test` (2 passed)
+  passed. `env -i` `import pydelity` printed nothing, took 0.18 s and loaded no
+  `pydantic_ai`.
+
+**Implementation Notes**
+
+- Files approved by the user (2026-11-17):
+  `src/pydelity/config/{__init__,schemas,loading}.py`, plus changes to `api.py`
+  and `cli.py`.
+- `parse_model` (DEV-003) now raises `ValueError`, so the configuration reports
+  a bad model setting with every other problem instead of stopping at it.
+- The upload-expiry range is checked in `resolve_config`, after the model is
+  known, not inside `Config`; every API path goes through `resolve_config`.
+- `Config.output_dir` stays `None` when not set; `Config.output_folder` applies
+  the default (`pydelity-output/<PDF name>` in the current folder).
+- `is_language_tag` checks BCP-47 syntax only (RFC 5646 well-formed tags,
+  without grandfathered tags) and is public, so the survey's language check
+  (DEV-010) can reuse it.
+- CLI options default to `None`, so an option left out never overrides the
+  config file. `--quiet` and `--yes` come with DEV-015 and DEV-007.
 
 ### DEV-005 — Survey probe and `pdf_facts.json`
 
@@ -1138,3 +1193,12 @@ retries; DEV-008 and DEV-009 build the SDK clients with the retry count and set
 `a` functions; DEV-005, DEV-012 and DEV-013 move blocking work off the event
 loop and handle cancellation; DEV-006 adds temporary failures. No step was
 added, removed or reordered.
+
+### Suspended Assignment 5
+
+`Recovery Frame`: `1` `Recovery Reason`:
+`User rework: check BCP-47 language tags (the languages setting and survey check C7) with the langcodes library, a new runtime dependency, instead of a hand-written pattern.`
+`Purpose`: `DEVELOPMENT` `Target`: `NONE` `Assessed Inputs`:
+`scope a938118 and design 2e96832; DEV-001 to DEV-003 committed (121f87d, ed70f71, 274b41a); DEV-004 done but uncommitted in the working tree`
+`Next Action`:
+`Reconcile DEV-004 (replace the BCP-47 pattern in config/schemas.py with langcodes and add the dependency) and DEV-010 (C7) with the corrected design, then list DEV-005's files for the user's review.`

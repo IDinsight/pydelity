@@ -13,9 +13,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-# Package Library
-from pydelity.errors import ConfigError
-
 if TYPE_CHECKING:
     # Standard Library
     from collections.abc import Callable
@@ -210,9 +207,10 @@ def parse_model(setting: str) -> ModelChoice:
 
     Raises
     ------
-    ConfigError
+    ValueError
         If the setting has no ``:``, an empty provider or model ID, or a provider
-        pydelity does not support.
+        pydelity does not support. The configuration reports it as an invalid
+        ``model`` setting.
 
     Examples
     --------
@@ -222,9 +220,8 @@ def parse_model(setting: str) -> ModelChoice:
 
     provider, separator, model_id = setting.partition(":")
     if not separator or not provider or not model_id:
-        raise ConfigError(
-            f"model: {setting!r} is not <provider>:<model-id>, "
-            f"such as {DEFAULT_MODEL!r}"
+        raise ValueError(
+            f"{setting!r} is not <provider>:<model-id>, such as {DEFAULT_MODEL!r}"
         )
     if provider == "anthropic":
         return ModelChoice(model_id=model_id, provider="anthropic")
@@ -232,4 +229,4 @@ def parse_model(setting: str) -> ModelChoice:
         return ModelChoice(model_id=model_id, provider="openai")
 
     supported = " or ".join(repr(name) for name in PROFILES)
-    raise ConfigError(f"model: provider {provider!r} is not supported; use {supported}")
+    raise ValueError(f"provider {provider!r} is not supported; use {supported}")

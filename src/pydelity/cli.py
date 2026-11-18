@@ -18,8 +18,7 @@ from loguru import logger
 # Package Library
 from pydelity import __version__
 from pydelity.api import run
-from pydelity.errors import ConfigError, PdfError, PydelityError
-from pydelity.providers.profiles import DEFAULT_MODEL
+from pydelity.errors import ConfigError, MissingApiKeyError, PdfError, PydelityError
 
 # Exit codes: the run failed; the input (settings, API key or PDF) is invalid.
 _EXIT_FAILED = 1
@@ -31,11 +30,17 @@ _LOG_FORMAT = "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {me
 app = typer.Typer(add_completion=False, pretty_exceptions_show_locals=False)
 
 
-def _enable_logging() -> None:
-    """Send pydelity's log messages to stderr at INFO level."""
+def _enable_logging(*, verbose: bool) -> None:
+    """Send pydelity's log messages to stderr.
+
+    Parameters
+    ----------
+    verbose
+        Whether to log details (DEBUG level) as well as progress (INFO level).
+    """
 
     logger.remove()
-    logger.add(sys.stderr, format=_LOG_FORMAT, level="INFO")
+    logger.add(sys.stderr, format=_LOG_FORMAT, level="DEBUG" if verbose else "INFO")
     logger.enable("pydelity")
 
 
@@ -59,17 +64,79 @@ def _show_version(value: bool) -> None:
 
 
 @app.command(help="Turn a PDF into faithful, structured JSON.")
-def _pydelity(
+def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
     pdf: Annotated[
-        Path, typer.Argument(help="The PDF to process.", show_default=False)
-    ],
-    model: Annotated[
-        str,
-        typer.Option(
-            help="The model to use, as <provider>:<model-id> (anthropic or openai).",
-            metavar="MODEL",
+        Path | None,
+        typer.Argument(
+            help="The PDF to process. Overrides pdf in the config file.",
+            show_default=False,
         ),
-    ] = DEFAULT_MODEL,
+    ] = None,
+    config: Annotated[
+        Path | None,
+        typer.Option(
+            "--config",
+            "-c",
+            help="A JSON or YAML file of settings.",
+            metavar="FILE",
+            show_default=False,
+        ),
+    ] = None,
+    instructions: Annotated[
+        str | None,
+        typer.Option(
+            help="Extra instructions for the model about this PDF.",
+            metavar="TEXT",
+            show_default=False,
+        ),
+    ] = None,
+    language: Annotated[
+        list[str] | None,
+        typer.Option(
+            help="A language of the PDF as a BCP-47 tag, such as en; repeat for more.",
+            metavar="TAG",
+            show_default=False,
+        ),
+    ] = None,
+    output_dir: Annotated[
+        Path | None,
+        typer.Option(
+            help="The output folder [default: pydelity-output/<PDF name>].",
+            metavar="DIR",
+            show_default=False,
+        ),
+    ] = None,
+    model: Annotated[
+        str | None,
+        typer.Option(
+            help="The model, as <provider>:<model-id> with provider anthropic or "
+            "openai [default: anthropic:claude-opus-5-5].",
+            metavar="MODEL",
+            show_default=False,
+        ),
+    ] = None,
+    max_cost: Annotated[
+        str | None,
+        typer.Option(
+            help="The most the output folder's model requests may cost, in US dollars.",
+            metavar="USD",
+            show_default=False,
+        ),
+    ] = None,
+    overwrite: Annotated[
+        bool | None,
+        typer.Option(
+            "--overwrite",
+            help="Redo steps whose outputs could be reused.",
+            show_default=False,
+        ),
+    ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose", "-v", help="Also log details, such as the settings in use."
+        ),
+    ] = False,
     version: Annotated[
         bool,
         typer.Option(
@@ -82,26 +149,51 @@ def _pydelity(
 ) -> None:
     """Run pydelity on a PDF from the command line.
 
+    Options left out fall back to the config file, then to the defaults.
+
     Parameters
     ----------
     pdf
         The PDF to process.
+    config
+        A JSON or YAML file of settings.
+    instructions
+        Extra instructions for the model.
+    language
+        The PDF's languages as BCP-47 tags.
+    output_dir
+        The output folder.
     model
-        The model to use, as ``<provider>:<model-id>``.
+        The model, as ``<provider>:<model-id>``.
+    max_cost
+        The spending limit in US dollars, checked when settings are validated.
+    overwrite
+        Whether to redo steps whose outputs could be reused.
+    verbose
+        Whether to log details as well as progress.
     version
         Whether to print the version and exit instead (handled by `_show_version`).
 
     Raises
     ------
     typer.Exit
-        With exit code 2 when a setting is invalid or the PDF cannot be opened, or 1
-        when the run fails.
+        With exit code 2 when a setting, the API key or the PDF is invalid, or 1 when
+        the run fails.
     """
 
-    _enable_logging()
+    _enable_logging(verbose=verbose)
+    given = {
+        "instructions": instructions,
+        "languages": language or None,
+        "max_cost": max_cost,
+        "model": model,
+        "output_dir": output_dir,
+        "overwrite": overwrite,
+    }
+    settings = {name: value for name, value in given.items() if value is not None}
     try:
-        run(pdf, model=model)
-    except (ConfigError, PdfError) as error:
+        run(pdf, config=config, **settings)
+    except (ConfigError, MissingApiKeyError, PdfError) as error:
         logger.error(str(error))
         raise typer.Exit(code=_EXIT_INVALID_INPUT) from error
     except PydelityError as error:
