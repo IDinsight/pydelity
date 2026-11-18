@@ -1923,8 +1923,7 @@ its environment and sets the placeholder.
 
 ### DEV-016 — Wheel build and smoke script
 
-`Status`: `PENDING` `Depends On`: `DEV-006, DEV-015` `Acceptance`:
-`AC-023, AC-024`
+`Status`: `DONE` `Depends On`: `DEV-006, DEV-015` `Acceptance`: `AC-023, AC-024`
 
 **Goal**
 
@@ -1948,6 +1947,46 @@ built package into a fresh environment and runs `pydelity`.
 **Self-Check**
 
 `just build`, then the smoke script on macOS; `just lint`.
+
+Evidence, 2026-11-18, on `6c074bd` plus the uncommitted DEV-016 files (macOS
+arm64). No real key was used and nothing was spent.
+
+- `just build`: removed `dist/`, built `pydelity-0.0.1-py3-none-any.whl` (113
+  KB) and `pydelity-0.0.1.tar.gz` (99 KB), and `twine check --strict` passed
+  both.
+- `python3.13 scripts/smoke_installed_wheel.py` (Homebrew Python 3.13.9, outside
+  the sandbox for the downloads and the stand-in's port), with the user's
+  approval of the download: 13 of 13 checks in 42 s, 30 s on a second run.
+  - pip installed the wheel and 51 packages from PyPI (about 115 MB, the largest
+    `pymupdf-2.1-cp311-abi3-macosx_11_0_arm64.whl`). pip resolved newer versions
+    than `uv.lock` for two of them, `openai` 3.55.1 and `pydantic-ai-slim`
+    2.70.0, as a user installing from PyPI today would get.
+  - `pydelity --version` prints `pydelity 0.0.1`.
+  - For each provider: `pydelity <PDF> --yes` exits 0; the installed
+    `pydelity.load()` reads every output file and `run.json` says `completed`;
+    the Python API's `run()` completes and `load()` of its folder equals the
+    result; `pydelity` is imported from the new environment; and each run sent
+    exactly one upload and one model request, both to the stand-in.
+  - The temporary folder was removed afterward.
+- Failure paths: `--wheel missing.whl` exits 1 with "No such wheel"; two wheels
+  in `dist/` exit 1 naming both. With an answer that does not match the survey
+  schema (a scratchpad wrapper, `dev016_negative.py`), every run check fails
+  with the run's output shown, the "installed copy" checks still pass, and the
+  script exits 1 (3 of 13).
+- `just lint`, `just test` (2 passed) and `prek run --files` on the changed
+  files pass.
+
+**Implementation Notes**
+
+- Files approved by the user (2026-11-18): `justfile` (`build`, placed after
+  `default`, which must stay first) and `scripts/smoke_installed_wheel.py`.
+- The script runs the child processes from its temporary folder, without a
+  shell, and without the provider keys or base URLs of its own environment. It
+  decodes their output as UTF-8 with replacement characters, so a Windows code
+  page cannot crash it, but it does not force UTF-8 on them: an encoding problem
+  in `pydelity` on Windows would still fail the run.
+- It imports the stand-in from `tests/fixtures/mock_providers.py` by putting the
+  repository root on `sys.path`, so it must run from a checkout.
 
 ### DEV-017 — CI jobs for Python 3.14, wheels and the gate
 
@@ -2193,7 +2232,11 @@ constants; regenerating after Markdown formatting is byte-identical, so CI's
   than as a string constant. The report's HTML is still built in Python.
 - Collaboration: `STEPWISE`. The user also asked that before each step Developer
   lists the files and folders it will create or change and waits for their
-  review; after each step Developer stops for the go-ahead to the next.
+  review; after each step Developer stops for the go-ahead to the next. From
+  2026-11-18, the report at the end of each step also gives the next step's
+  plan: what it builds and how, the files it will create or change, how it will
+  be checked, and anything that needs the user's approval, such as downloads or
+  spending.
 - File and folder names are the user's decision (design, **Components**). The
   layout below is a sketch only: plan approval does not approve it, and the user
   approves each file and folder name and location at the step that creates it.

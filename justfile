@@ -9,6 +9,12 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 default:
     @just --list
 
+# Build the wheel and sdist into a fresh dist/, then check their metadata as PyPI would
+build:
+    rm -rf dist
+    uv build
+    uv run --locked twine check --strict dist/*
+
 # Remove the dev environment, caches and build output (run `just install` afterwards)
 clean:
     rm -rf .venv build dist .cache .coverage .coverage.* htmlcov .pytest_cache .ruff_cache .mypy_cache
