@@ -570,3 +570,36 @@ exact release-please version bundled in `release-please-action` v5.0.0 (its
   an advisory is published for an action the repo uses. prek is pre-1.0.
   Markdown formatting also covers STANDARDS files while STANDARDS is installed.
   PyPI versions are permanent.
+
+## Pushed to later steps
+
+Decided while scoping step 2 (2026-11-19). Each entry names the step that picks
+it up. Add to this list whenever work is moved out of the current step.
+
+- **Translation (after assembly, step 4 or later).** Revisit an optional step
+  that translates extracted text into a target language the user sets. pydelity
+  serves any PDF and any downstream use, so translation is worth having even
+  though KGForEdGlobal does not translate. A run for KGForEdGlobal leaves it
+  off. Step 2 transcribes text as printed and translates nothing. Translating
+  after assembly means text continued across a page break is translated as one
+  unit.
+- **Page continuity (step 3).** Step 2 records no continuity. Items carry no
+  continuation marks, and containers carry no open-top or open-bottom hints,
+  which the brief's container proposal had. Step 3 decides whether content
+  continues across each page break.
+- **Boxes that cross pages (step 4).** Step 2 records a bordered or shaded box
+  as a container on each page it appears on, with an ID and a bounding box, and
+  the items inside name their container. Assembly joins the pieces of a box that
+  crosses pages into one container, using step 3's verdicts.
+- **Pauses between steps (each later step).** By default, a run stops after a
+  step that wrote new output, so the user can check it before paying for the
+  next step, and the next run continues. One setting, in the config file, the
+  CLI and Python, turns every pause off. Step 2 adds the pause after the survey.
+  Each later step adds its own pause under the same setting.
+- **Model per step (each later step).** The global `model` setting chooses the
+  model for every step. Step 2 adds an optional page extraction override under
+  `advanced:`, and each later step gets its own optional override the same way.
+- **Raising internal versions again (not yet decided).** Step 2 raises no
+  `PROBE_VERSION`, `PROMPT_VERSION` or output `schema_version`, because no one
+  uses pydelity yet. When to go back to raising them for changed outputs is
+  still open.
