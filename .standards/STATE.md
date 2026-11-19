@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DOCUMENTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `REVIEWING_FINAL` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -27,8 +27,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `RESUME` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
-`PdfError docstring, its reference page and the docs site's Node floor fixed in DEV-001 and DEV-019 with no behavior change. Documenter fixes the Python guide's error table and the docs-site page's Node.js version; final review then rechecks all three.`
+`Kind`: `FORWARD` `From`: `DOCUMENTING` `FailureType`: `NONE` `Reason`:
+`Documenter fixed the Python guide's error table and the docs-site page's Node.js version (F-002, F-003); final review rechecks them with Developer's F-001 and Node floor fixes, then frame 1 closes to SYNCHRONIZING.`
 
 ## Recovery
 

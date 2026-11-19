@@ -14,7 +14,9 @@ Markdown files in `docs/src/content/docs/`. The sidebar is set in
 
 Besides the tools in [Local development](../development/), the site needs:
 
-- [Node.js](https://nodejs.org/) 22.12 or later
+- [Node.js](https://nodejs.org/) 22.23.4 or later, the oldest version the site's
+  Astro release supports and the one `docs/package.json` requires. CI and the
+  git hooks use 24.22.3.
 - [pnpm](https://pnpm.io/installation) 10.34.5, the version `docs/package.json`
   names. `corepack enable` sets it up from that file, or install it with
   `npm install -g pnpm@10.34.5`.

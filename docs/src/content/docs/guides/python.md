@@ -131,15 +131,15 @@ pydelity does not detect it, and the two runs can overwrite each other's files.
 Every error pydelity raises on purpose is a `pydelity.PydelityError`, so one
 `except` clause catches them all. Each kind also has its own class:
 
-| Error                 | When                                                                      |
-| --------------------- | ------------------------------------------------------------------------- |
-| `ConfigError`         | A setting is invalid, or the config file can't be read                    |
-| `PdfError`            | The PDF is missing, empty, password-protected or can't be opened          |
-| `MissingApiKeyError`  | The API key for the model's provider is not set                           |
-| `BudgetExceededError` | The run could go over `max_cost` and `allow_over_max_cost` is not set     |
-| `ProviderError`       | The provider rejected the request or kept failing after its retries       |
-| `SurveyError`         | The model refused, ran out of output tokens or never gave a usable answer |
-| `OutputError`         | `load` can't read the output folder                                       |
+| Error                 | When                                                                                          |
+| --------------------- | --------------------------------------------------------------------------------------------- |
+| `ConfigError`         | A setting is invalid, such as a PDF path that doesn't exist, or the config file can't be read |
+| `PdfError`            | The PDF is empty, password-protected or can't be opened                                       |
+| `MissingApiKeyError`  | The API key for the model's provider is not set                                               |
+| `BudgetExceededError` | The run could go over `max_cost` and `allow_over_max_cost` is not set                         |
+| `ProviderError`       | The provider rejected the request or kept failing after its retries                           |
+| `SurveyError`         | The model refused, ran out of output tokens or never gave a usable answer                     |
+| `OutputError`         | `load` can't read the output folder                                                           |
 
 ```python
 import pydelity

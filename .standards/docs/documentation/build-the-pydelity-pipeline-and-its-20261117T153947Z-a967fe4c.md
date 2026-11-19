@@ -12,22 +12,36 @@ Cycle: build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c
 
 ## Assessed Inputs and Boundary
 
-- Workflow: `STANDARD`, `FULL_DELIVERABLE`, `DOCUMENTING`, recovery inactive, no
-  outstanding obligations (`.standards/STATE.md`). Entered by `FORWARD` from
-  `REVIEWING_IMPLEMENTATION`.
-- Contract and owner evidence (SHA-256 prefixes, unchanged at HEAD `9273074`
-  when rechecked on 2026-11-19): scope `1c127ab4fa9a2c5e`, design
-  `7e579b1ed3535e6e`, development plan `4aa6bef88043e791`, verification report
-  `e8e654e6b3ccffcb`, implementation review `3fd035240dc9ad4e`, context
-  `.standards/CONTEXT.md` `aa4a553cf773451e`. These match the identities the
-  implementation review assessed.
-- Behavior inputs at HEAD `9273074`, unchanged by this work: trees `src`
-  `cae826c`, `tests` `268e597`, `examples` `235e934`, `scripts` `19567bb`,
-  `.github` `4cc0d13`; blobs `pyproject.toml` `3cb2e48`, `justfile` `ff59f1c`,
-  `.template.env` `56e4725`; generated `docs/src/content/docs/reference/` as
-  committed.
+- Workflow: `STANDARD`, `FULL_DELIVERABLE`, `DOCUMENTING`, no outstanding
+  obligations (`.standards/STATE.md`). First entered by `FORWARD` from
+  `REVIEWING_IMPLEMENTATION`. Re-entered on 2026-11-19 by `RESUME` from
+  `DEVELOPING` as a rerun in recovery frame 1 (owner `DEVELOPING`,
+  `FailureType: IMPLEMENTATION`, `ResumeAt: SYNCHRONIZING`,
+  `RerunThrough: REVIEWING_FINAL`), opened when the user asked to fix the final
+  review's withdrawn findings
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-001`,
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-002`
+  and
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-003`.
+- Contract and owner evidence (SHA-256 prefixes at HEAD `8ba5dae`, rechecked on
+  2026-11-19 for the rerun): scope `1c127ab4fa9a2c5e`, design
+  `7e579b1ed3535e6e`, verification report `e8e654e6b3ccffcb`, implementation
+  review `3fd035240dc9ad4e` and context `.standards/CONTEXT.md`
+  `aa4a553cf773451e`, all unchanged; development plan `06983d3c3a3e01c2`
+  (DEV-001 and DEV-019 reopened and done again for the frame); final-deliverable
+  review `a7bc9825d5b08246` (its three findings, all withdrawn as not material,
+  fixed at the user's request).
+- Behavior inputs at HEAD `8ba5dae`: trees `tests` `268e597`, `examples`
+  `235e934`, `scripts` `19567bb`, `.github` `4cc0d13`; blobs `pyproject.toml`
+  `3cb2e48`, `justfile` `ff59f1c`, `.template.env` `56e4725`,
+  `docs/pnpm-lock.yaml` `d383b7c`, all unchanged. Changed by Developer for the
+  frame, with no behavior change: tree `src` `f37825c` (only the `PdfError`
+  docstring, `ac5e43f`), generated reference tree
+  `docs/src/content/docs/reference/` `70524e5` (only the `PdfError` line of
+  `python-api.md`) and `docs/package.json` `398fe9f` (`engines.node`
+  `>=22.23.4`, `8ba5dae`).
 - Comparison range: `main` (`bdd8488`, merge base) to `tz6/pipeline` at
-  `9273074`, plus this record's uncommitted documentation edits. The STANDARDS
+  `8ba5dae`, plus this record's uncommitted documentation edits. The STANDARDS
   installation (`.standards/`, `.claude/`, `.agents/`) is workflow tooling, not
   project documentation.
 - Editing boundary: prose docs pages under `docs/src/content/docs/` (outside the
@@ -90,9 +104,14 @@ Written or updated:
 - `docs/src/content/docs/guides/command-line.md` `f0b1391`: options, what is
   printed and where, scripts and CI with `--yes`, `--yes` over `max_cost`, batch
   loops for bash and PowerShell, exit codes.
-- `docs/src/content/docs/guides/python.md` `076e549`: the five functions and
+- `docs/src/content/docs/guides/python.md` `9c8365b`: the five functions and
   their async forms, `RunResult`, settings, `measure`/`estimate`/`load`,
   Jupyter, concurrency limits, errors, warnings, logs and the PydanticAI banner.
+  Corrected in the rerun for
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-002`:
+  the **Errors** table now says a PDF path that doesn't exist is a
+  `ConfigError`, and `PdfError` covers an empty, password-protected or
+  unopenable PDF, matching the corrected docstring and reference.
 - `docs/src/content/docs/guides/models-and-providers.md` `5f7c2c1`: choosing a
   model, what is sent, upload storage and `expiry_hours` per provider, large
   PDFs, retries, timeouts that may be billed unseen, survey failures.
@@ -109,9 +128,12 @@ Written or updated:
   every just recipe, tests (offline stand-in provider, random order,
   `KEEP_GOING`), dependencies, git hooks and commit messages; moved from the
   README and updated for the current recipes.
-- `docs/src/content/docs/contributing/docs-site.md` `061f43d`: Node.js and pnpm,
+- `docs/src/content/docs/contributing/docs-site.md` `1a72c55`: Node.js and pnpm,
   preview, build and link check, reference regeneration, writing pages, the
-  versioned build and publishing rules.
+  versioned build and publishing rules. Corrected in the rerun for
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-003`:
+  Node.js 22.23.4 or later, the locked Astro 7.4.10's floor and
+  `docs/package.json`'s `engines.node`, with CI and the hooks on 24.22.3.
 - `docs/src/content/docs/contributing/releases.md` `dca1af0`: the release flow,
   commit types, making a release, the first 0.1.0 release, and the one-time PyPI
   Trusted Publisher, `pypi` environment, GitHub Pages and release-please token
@@ -210,6 +232,31 @@ uv's cache ran outside the Claude Code sandbox, which blocks `~/.cache/uv`.
 - `node .standards/bin/check.mjs`: "STANDARDS check passed." before any work and
   after formatting.
 
+Recovery rerun (frame 1), 2026-11-19, same machine, on HEAD `8ba5dae` plus the
+two corrected pages:
+
+- `node .standards/bin/check.mjs` before any rerun work: passed, exit 0.
+- Affected surfaces found with `grep` over `README.md` and every hand-written
+  page: the only Node.js version was `docs-site.md`'s, and the only `PdfError`
+  wording was `python.md`'s table. `configuration.md` names `ConfigError` for
+  invalid settings, which stays correct. The FAQ, the CLI exit-code table (exit
+  2 for both errors) and the README need no change.
+- Error claim checked (outside the sandbox): `pydelity.measure` on a path that
+  does not exist raised `ConfigError` (`pdf: no such file: ...`), and on an
+  empty file raised `PdfError` (`...: the file is empty`). Scratch folder
+  removed.
+- Node.js claim checked: `docs/pnpm-lock.yaml` gives `astro@7.4.10` the engines
+  `node: '>=22.23.4'`; `docs/package.json` requires `>=22.23.4`;
+  `.github/workflows/docs.yml` (the pull-request and publish build) and
+  `.pre-commit-config.yaml` pin `24.22.3`.
+- `just lint-markdown` (outside the sandbox): Prettier realigned the error
+  table; markdownlint `Passed`; STANDARDS check passed; exit 0.
+- `just docs-build` (outside the sandbox, local Node.js 23.10.0): 25 pages
+  built; `Checked local links and fragments in 25 HTML pages.`; exit 0, with the
+  same `i18n` and `404` notes as before.
+- Every other written surface still matches its identity above (git blob
+  prefixes compared).
+
 ## Acceptance Criteria Dispositions
 
 Documentation ACs:
@@ -266,22 +313,38 @@ folder.
 
 ## Discrepancies, Dependencies, and Remaining Work
 
-`NONE`. No discrepancy between the docs and the code was found. Dependencies on
-later owners: the final reviewer assesses these docs; the published site and the
-PyPI page exist only after the v0.1.0 release that follows sign-off.
+`NONE` open. The final review's
+`.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-002`
+and
+`.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-003`,
+withdrawn as not material, are corrected in the recovery rerun at the user's
+request. Dependencies on later owners: the final reviewer assesses these docs;
+the published site and the PyPI page exist only after the v0.1.0 release that
+follows sign-off.
 
 ## Resume and Conclusion
 
 - The user reviewed the written docs and asked for changes to the overview, a
   FAQ, a Need Help? page and a comic sticker, all written and checked above.
-  They then approved the docs on 2026-11-19 ("Looks good"). No blocking question
-  remains.
-- Gate rechecked on approval: every written surface and every assessed input
-  matches the identities above (git blob and SHA-256 prefixes), HEAD is still
-  `9273074`, and the behavior inputs have no uncommitted changes. Every current
-  AC has a disposition. No discrepancy, pending guided edit or Documenter-owned
+  They then approved the docs on 2026-11-19 ("Looks good").
+- Recovery rerun (frame 1): the user asked to fix the final review's withdrawn
+  findings. Developer fixed
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-001`
+  (`PdfError` docstring and its reference line) and `docs/package.json`'s Node
+  floor. This rerun fixed the Documenter parts of
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-002`
+  (`python.md`) and
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-003`
+  (`docs-site.md`); both were verified against the code, the lock file and CI as
+  listed under **Checks and Applicability**. The findings stay with the final
+  reviewer to reassess.
+- Gate rechecked for the rerun: every written surface and assessed input matches
+  the identities above, every current AC keeps its disposition, and no
+  discrepancy, pending guided edit, blocking question or Documenter-owned
   outstanding obligation remains.
 - Selected target and full Documenter gate: complete. Handoff: `FORWARD` to
-  `REVIEWING_FINAL` for a `FINAL_DELIVERABLE` review in a fresh Reviewer chat.
-  The final reviewer assesses these docs; the published site and the PyPI page
-  exist only after the v0.1.0 release that follows sign-off.
+  `REVIEWING_FINAL` for a `FINAL_DELIVERABLE` review in a fresh Reviewer chat,
+  keeping recovery frame 1 (`RerunThrough: REVIEWING_FINAL`); the final reviewer
+  rechecks all three fixes, then the frame closes back to `SYNCHRONIZING`. The
+  published site and the PyPI page exist only after the v0.1.0 release that
+  follows sign-off.
