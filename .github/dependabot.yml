@@ -53,5 +53,10 @@ updates:
     groups:
       uv:
         patterns: ["*"]
+    ignore:
+      # setuptools appears only in pyproject.toml's [build-system], as the oldest
+      # version that can build pydelity. Builds install the newest one anyway, so
+      # raising that bound changes nothing.
+      - dependency-name: setuptools
     schedule:
       interval: monthly
