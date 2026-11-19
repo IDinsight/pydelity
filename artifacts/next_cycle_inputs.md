@@ -1,86 +1,342 @@
-# pydelity: inputs for the pipeline cycle
+# pydelity: inputs for the page extraction cycle (step 2)
 
-The repo setup and the `0.0.1` placeholder release were scoped, built and signed
-off in an earlier STANDARDS cycle
-(`build-pydelity-generic-pdf-to-structured-20261116T164214Z-313393de`, branch
-`tz6/port-over`). STANDARDS was then uninstalled so the setup could merge to
-`main`, which removed that cycle's records. This file keeps what the next cycle
-needs from them:
+The survey, step 1 of the pipeline, was scoped, built, reviewed and signed off
+on 2026-11-19 in the STANDARDS cycle
+`build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c` (branch
+`tz6/pipeline`), and ships as pydelity 0.1.0. STANDARDS was then uninstalled so
+the work could merge to `main`, which removed that cycle's records. Commit
+`83743ef` on `tz6/pipeline` still holds them, and the merged pull request keeps
+that commit if the branch is deleted:
 
-- the scope's **Deferred to the Next Cycle** section, copied unchanged below the
-  first three headings;
-- the design's **Risks and Follow-up** section;
-- loose ends that were still open at sign-off.
+- scope, design, development plan, verification report, documentation record and
+  synchronization record:
+  `.standards/docs/<scope|specs|development|verification|documentation|synchronization>/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`;
+- implementation and final reviews:
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/<implementation|final-deliverable>.md`.
 
-The full request, design directions and evidence E1–E23 are in
-`artifacts/design_brief.md`. Its "First work item: repo setup" section is done
-and its "done when" line names the retired Make and pre-commit commands; the
-repo now uses just and prek. Its open questions are answered under **User
-decisions made while scoping the pipeline** below.
+For example,
+`git show 83743ef:.standards/docs/specs/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
+prints the survey's design. `main` takes squash merges, so `83743ef` never
+reaches it. Once `tz6/pipeline` is deleted, a clone that lacks the commit gets
+it with `git fetch origin pull/<N>/head`, where `<N>` is the number of the pull
+request that merged the survey.
 
-Nothing here is an acceptance condition. The old AC numbers (AC-003 to AC-039)
-are retired; the next cycle numbers its own.
+This file keeps what the next cycle needs from those records. The full request,
+design directions, step design points, known source defects, evidence E1–E23 and
+the KGForEdGlobal consumer contract are in `artifacts/design_brief.md`. Where
+the brief and this file disagree, this file is newer. The earlier version of
+this file, written for the survey cycle, is in git history.
 
-## Deferred from the repo-setup scope
+Nothing here is an acceptance condition. The survey cycle's AC numbers belong to
+that cycle; the next cycle numbers its own.
 
-### User decisions made while scoping the pipeline
+## User decisions that apply to later steps
 
-- Acceptance rests on the user's sign-off of each build step. The user runs the
-  relevant commands on PDFs of their choice, reviews the output, and asks the
-  owning role when something needs explaining or reviewing. No numeric parity
-  with today's pipeline, and cost is reported with no pass/fail target.
-- New document types to handle and try: two-column right-to-left, Chinese or
-  Japanese, tax or fillable form, slide deck or image-heavy.
-- A default run goes through all six steps, with a setting to stop after
-  `document.json`.
-- The CLI shows a cost estimate and asks before spending; `--yes` skips the
-  question. There is no default max_cost.
-- The review list goes to `run.json`, a CLI summary and an HTML report.
-- Bordered or shaded boxes become containers.
-- The PDF path comes from the CLI or the config file; the CLI wins.
-- A survey model with no known PDF limits gets a warning and the call proceeds;
-  the user can set limits under `advanced:`.
-- Anthropic and OpenAI models must both work. Automated tests mock model API
-  calls.
-- Architect picks the step 3 design (no comparison gate), the final `kind` and
-  `role` lists, and the default model for each step.
-- The working pydelity is published to PyPI when the pipeline is signed off.
-- Added 2026-11-16, after the placeholder release: people must be able to
-  install and use pydelity on Windows.
+Made while scoping the pipeline (2026-11-16) or during the survey cycle
+(2026-11-17 to 2026-11-19). Where a rule goes beyond what the user decided, the
+bullet says which part was the survey design's choice, which Architect may
+revisit.
 
-### Constraints, non-goals and assumptions scoped for the pipeline
+- Acceptance of each step rests on the user's review of real runs on PDFs of
+  their choice, covering two-column right-to-left, Chinese or Japanese, a tax or
+  fillable form, a slide deck or image-heavy PDF, and CAPS. There is no numeric
+  parity target with KGForEdGlobal, and cost is reported with no pass/fail
+  target.
+- Reuse before rewriting: pydelity ports over KGForEdGlobal's code and reuses
+  what fits, and writes new or updated code where it does not fit. Ported code
+  must not carry the defects listed in `artifacts/design_brief.md`.
+  KGForEdGlobal (`/Users/tzz/Projects/private/idi/KGForEdGlobal`) is read-only.
+- pydelity ships no per-model PDF input limits and checks none before a model
+  call, because keeping them current is not maintainable. The provider enforces
+  its own limits. The CLI shows the provider's error, and the Python API raises
+  `ProviderError` carrying it. Extending this to all per-model data (context
+  windows, capability lists) was the survey design's choice (decision 3), so a
+  per-model limit step 2 needs, such as for images, is open for Architect.
+- There is no default `max_cost`. When a run would go over it, pydelity logs a
+  warning and the user decides. The CLI asks (`--yes` answers yes), and Python
+  callers pass `allow_over_max_cost=True` or get `BudgetExceededError` and a run
+  they can resume. The survey design (decision 11) added that the CLI asks at
+  most once per run and that the guard serializes the question so concurrent
+  requests ask once. Step 2's Architect may revisit both for parallel page
+  requests.
+- The number of provider retries is a setting. The user decided only that. The
+  survey design made it one setting, `advanced.provider_retries` (0 to 10,
+  default 2), shared by model requests and uploads, with no retry layer of
+  pydelity's own (decision 13). A per-step retry count is open for Architect.
+- Every Python function that measures, estimates or runs has an async version
+  named with an `a` prefix (`arun`, `asurvey`, `ameasure`, `aestimate`). The
+  sync functions use `asyncio.run` only and raise `RuntimeError`, naming the
+  async function to await, when called inside a running event loop (Jupyter,
+  async code). New steps add their functions the same way. `load` stays sync,
+  which Architect chose.
+- Language tags are checked with `langcodes`. Storing them in their standard
+  form was the survey design's choice (decision 15).
+- The survey's model trusts its own reading of the PDF over the probe's measured
+  facts, which are hints, because the model sees the page and is the more
+  capable reader. This applies to page numbers, rotation and every other fact,
+  and each disagreement on rotation or printed page numbers goes on the review
+  list. The decision is recorded for the survey, but the user stated it
+  generally: the model should be trusted over the facts "in general". Step 2's
+  planned checks compare the model's text with the text layer and send the page
+  back when text is dropped or invented. Whether those checks keep retrying
+  under this decision, or only list the differences for review as the survey
+  does, was not asked. Step 2's Scoper settles it with the user.
+- The survey uses Python checks only. A second model that verifies answers (a
+  producer-verifier pass like KGForEdGlobal's page extraction) was left to later
+  steps such as page extraction.
+- People must be able to install and use pydelity on Windows. `just` recipes
+  that work on Windows without a POSIX shell were left out of the survey cycle;
+  whether a later cycle takes them up is the user's call.
+- CI tests Python 3.13 and 3.14 (the user's decision). Smoke-testing the built
+  wheel on Linux and macOS as well as Windows was the survey design's choice.
+- Releases come from release-please. A pull request's squash-merge title is the
+  commit message, so it must be a Conventional Commit, and a `feat:` title makes
+  a minor release. Work merges to `main` only after its cycle is signed off and
+  STANDARDS is uninstalled.
+- `examples/config.json` and `examples/config.yaml` hold every setting at its
+  default, and a test keeps them complete, so a new setting goes into both.
+- PyMuPDF is pydelity's PDF library, as in KGForEdGlobal, and the user accepted
+  its AGPL-3.0 license (pydelity itself stays MIT). Step 2's rendering need not
+  reopen that choice.
+- PDF transport, for every provider: upload the PDF with the provider's file API
+  when it has one, send it inside the request only when the upload path fails,
+  keep uploads until they expire at the provider, and treat a provider that
+  offers neither as unusable.
+- Test PDFs are real public-domain documents that the user approves, never
+  generated ones.
+- The CLI has no `--quiet`. By default it shows warnings, errors, the cost
+  estimate and the summary, and `--verbose` shows everything. Every option also
+  has a short form (such as `-mc` for `--max-cost`), so options step 2 adds,
+  such as `pages`, need one too.
+- File and folder names are the user's to approve, before the step that creates
+  them. Each pipeline step gets one folder directly under `src/pydelity/`, named
+  with an "-ing" word so it never collides with a public function: `surveying/`
+  for step 1, then `extracting/`, `verifying/`, `assembling/`, `proposing/` and
+  `projecting/`. Inside a step folder, model code follows KGForEdGlobal's
+  `page_ir_extraction/` split (`agents.py`, `llm.py`, `prompts.py`,
+  `validators.py`, `schemas.py`).
+- How the user worked with Developer: `STEPWISE` collaboration. Before each
+  build step, Developer listed the files and folders it would create or change
+  and waited for the user's review; after each step it stopped for a go-ahead,
+  and its report ended with the next step's plan (what it builds and how, the
+  files, how it will be checked, and anything needing approval, such as
+  downloads or spending).
+- During development, self-checks call the real Anthropic and OpenAI APIs with
+  the user's keys, on small PDFs, and record the spend. Failure paths a provider
+  cannot produce on demand use fault injection in scratch scripts, never in
+  pydelity code. After each build step, `pydelity <pdf>` (or the Python API) can
+  try what that step built. `PROBE_VERSION` and `PROMPT_VERSION` stayed at 1
+  until the first release, and reruns used `--overwrite`; ask whether step 2's
+  prompt version follows the same rule.
+- A new runtime dependency's minimum version is its latest stable release on the
+  day it is added.
+- Code conventions from the user's reviews: private globals, classes and
+  functions come before public ones in each module, alphabetical within each
+  group; American English throughout; shipped code, config and docstrings never
+  mention the development process (decision dates, DEV or AC IDs,
+  KGForEdGlobal); each step's checks on model answers live in
+  `<step>/validators.py`; prompts return a `PromptPair` from
+  `src/pydelity/utils/prompts.py`, written the way KGForEdGlobal writes its
+  prompts; output schema versions live in `src/pydelity/schema_versions.py`;
+  `justfile` recipes and `pyproject.toml` tables, keys and lists stay
+  alphabetical.
 
-- Constraints: Python 3.13 with Pydantic, pydantic-settings, PydanticAI, loguru
-  and Typer. Models reached through provider APIs via PydanticAI. The PDF path
-  is the only required input, configuration is one optional JSON or YAML file,
-  and a normal run resumes. No hand-written per-document config or domain
-  Pydantic classes, and no core logic, prompt, schema field or default that
-  assumes a document type. The domain schema is JSON Schema data with `x-key`
-  and `x-verbatim`, never Python source. Consumer-specific needs go in
-  `document.json` fields or the consumer's adapter. The brief's design
-  directions are input for Architect, and evidence E1–E23 illustrates rather
-  than specifies.
-- Non-goals: any change to KGForEdGlobal; KG, Learning Component and Learning
-  Progression logic; generating KG config from a pydelity schema; automatic
-  splitting or a chunked survey for PDFs over the survey model's input limits;
-  continuity judged inside step 2 (step 3 option E); a measured comparison of
-  step 3 designs; a default spending limit; a hosted service, web UI beyond the
-  HTML report, telemetry and other Level 4 features.
-- Assumptions: Level 3 (internally testable) maturity. Test PDFs for the new
-  document types are public documents chosen with the user's approval. A
-  user-supplied domain schema does not seed page-profile labels, so changing it
-  reruns only steps 5–6. Real model runs use the user's own API keys.
+These decisions replace earlier plans:
 
-### Pipeline outcomes scoped before the split
+- The brief's **Cross-cutting** input limits, its open question 11 and the
+  earlier version of this file planned per-model PDF limits, checked before the
+  model call, with a warning for unknown models. pydelity keeps no limits and
+  checks none.
+- Going over `max_cost` no longer stops a run on its own.
+- The brief's **Step 1 (survey) design points** had the survey's checks compare
+  the profile with the probe's rotation and page numbers, and require proposed
+  artifacts to cover about 80% of the repeated lines. The built survey lists
+  rotation and page-number differences for review instead of retrying. For
+  repeated lines it is stricter: while check retries remain, check C5 sends the
+  answer back until every repeated line is classified, exactly once, as an
+  artifact or as content. The last allowed answer is kept as it is, and each
+  check still failing goes on the review list. That section of the brief is now
+  history.
+- The pipeline is no longer released only once all six steps are done. 0.1.0
+  ships the survey alone, and each later cycle decides its own release.
 
-- Survey (step 1), was AC-003: given only a PDF, plus optional instructions and
-  languages, step 1 writes `pdf_survey.json`, holding facts measured from the
-  PDF without a model (text-layer quality per page, bookmarks, form fields,
-  structure tags, repeated lines, text direction per page, printed page numbers)
-  and a model-proposed profile checked against them: per-PDF labels mapped to
-  one role and allowed kinds and always including `other`, languages, writing
-  direction, rotation per page range, continuation notes and start markers. User
-  inputs add to the profile but never bypass its checks.
+## Answers to the brief's open questions
+
+The numbers follow **Open questions for Scoper to settle with the user** in
+`artifacts/design_brief.md`. All twelve are settled.
+
+1. A default run goes through all six steps, projection included, with a setting
+   to stop after `document.json`. In 0.1.0 it runs only the survey.
+2. Yes. The CLI shows an estimate and asks before spending, `--yes` skips the
+   question, and the Python API never asks.
+3. Both: the review list in `run.json`, a CLI summary at the end of a run, and
+   an HTML report.
+4. No parity target. Acceptance rests on the user's review of real runs on PDFs
+   of their choice.
+5. Two-column right-to-left, Chinese or Japanese, tax or fillable forms, and
+   slide decks or image-heavy PDFs, plus CAPS.
+6. Architect picks each step's default model (the survey's is
+   `anthropic:claude-opus-5-5`). There is no default `max_cost`. 0.1.0 has one
+   global `model` setting, used by the survey, so step 2's design decides how a
+   user picks a different model for page extraction.
+7. Both, and a PDF path given on the CLI is used over the config file's.
+8. No. A user-supplied domain schema does not seed page-profile labels, so
+   changing it reruns only steps 5–6.
+9. Architect picks the final `kind` and `role` lists. The survey design
+   (decision 8) added `formula` and `code` to kind and `aside` to role; the
+   lists are under **What 0.1.0 provides for step 2**. Step 2's Architect may
+   change them, which changes the output `schema_version`.
+10. Option (a): bordered or shaded boxes become containers. Page extraction
+    records them, and assembly joins a box that crosses pages into one container
+    (see **Item vocabulary** below).
+11. pydelity keeps no per-model limits (see above).
+12. Architect picks the step 3 design, with no measured comparison of the
+    options first.
+
+## What 0.1.0 provides for step 2
+
+- **Layout.** `src/pydelity/` holds `api.py`, `cli.py`, `config/`, `costs/`,
+  `pipeline/runner.py`, `providers/`, `report/`, `surveying/` and `utils/`.
+  Later steps add their own step folders beside `surveying/`, named as described
+  under **User decisions that apply to later steps**.
+- **Models.** `build_model` builds every model as `<provider>:<model-id>`
+  (`anthropic` or `openai`; default `anthropic:claude-opus-5-5`) and wraps it in
+  `LedgerModel`. `LedgerModel` asks the `max_cost` guard before each request and
+  writes each response's tokens and cost to `cost.jsonl`, so every step's
+  requests are recorded. Spend control does not yet cover step 2. The guard's
+  upper bound for a request counts text and documents only: `_user_content_size`
+  in `providers/ledger_model.py` ignores images, and each document counts as the
+  whole PDF. The plan-time estimate covers the survey only (`estimate_survey` in
+  `costs/budget.py`, called from `pipeline/runner.py`). Step 2 sends page
+  images, so it needs its own estimate and a per-request bound that counts
+  images. Otherwise a run can go over `max_cost` without the question. The guard
+  also checks each request against recorded spend only (`costs/budget.py`), so
+  requests already in flight are not counted, and parallel page requests can
+  together go over `max_cost` with no question. Structured output uses
+  PydanticAI `NativeOutput` where the model supports it, otherwise
+  `PromptedOutput`, never forced `tool_choice`. The survey's model settings sit
+  under `advanced.survey`: `effort` (mapped to Anthropic's adaptive thinking and
+  OpenAI's `reasoning_effort`), `max_output_tokens`, `request_timeout_seconds`
+  and `check_retries`. A new step gets its own `advanced:` section the same way.
+  The plan-time maximum assumes every request writes `max_output_tokens` and
+  every check retry happens. With the survey's default of 32,000 output tokens,
+  one request's bound is about $0.64 on `claude-opus-5-5` and $1.28 on
+  `gpt-6.2-astra`, while real survey answers used 1,858 to 5,633 output tokens.
+  Copied per page, those defaults would make the `max_cost` question come on
+  nearly every step 2 run, so step 2 needs its own per-page defaults.
+- **Output folder.** One folder per PDF is the unit of resume and spend. Every
+  JSON and HTML file is written atomically and validated on load. Each output
+  stores a fingerprint of its inputs and is reused while valid and matching.
+- **Uploads.** The survey uploads the whole PDF to the provider, keeps it until
+  the provider's expiry (`advanced.uploads.expiry_hours`, default the provider's
+  maximum, 90 days on Anthropic) and records it in `uploads.json`, so a later
+  step can reuse it. The survey design assumed steps 2–6 send page images, crops
+  and text rendered locally; whether a step uses the upload is its own design
+  choice.
+- **The profile step 2 builds on.** `pdf_survey.json` `profile` holds:
+  - `labels[]` (`name`, `role`, `kinds`, `description`), always including
+    `other`;
+  - `languages[]`, in standard form;
+  - `writing_direction` (a default plus page ranges, each `ltr`, `rtl` or
+    `ttb`);
+  - `rotation[]` (clockwise degrees that make each page range upright);
+  - `page_numbering[]`, `continuation_notes[]`, `start_markers[]` and
+    `user_instructions`.
+
+  `proposal.artifacts[]` and `proposal.non_artifact_lines[]` say which repeated
+  lines are page furniture and which are content. These inputs are not
+  guaranteed valid. When the check retries run out (at once when
+  `advanced.survey.check_retries` is 0), the survey keeps the model's last
+  answer. Python cleans up only labels, languages and regions. The `rotation`,
+  `writing_direction` and `page_numbering` ranges and the artifact mapping are
+  stored as answered, so ranges can overlap or run past the PDF, and the mapping
+  can miss, repeat or invent repeated-line IDs, each with only a review issue.
+  Step 2 must handle these. The survey's own comparison takes, for each page,
+  the first range that covers it and ignores ranges outside the PDF. The design
+  names `profile` as what steps 2–3 depend on and include in their fingerprints.
+  The artifact mapping is outside `profile`, so if step 2 uses it (the brief's
+  step 2 design sends pre-matched artifact lines), step 2's fingerprint must
+  include it too, or a changed mapping will not rerun step 2.
+
+- **Item vocabulary.** Kind: `text`, `list`, `table`, `figure`, `field`,
+  `formula`, `code`. Role: `heading`, `body`, `caption`, `footnote`, `artifact`,
+  `navigation`, `aside`. A value is in these lists only when a later step must
+  treat it differently, and per-PDF detail goes in labels. `code` keeps its
+  whitespace and line breaks exactly, and a cross-page join is a newline with no
+  dehyphenation. Changing these lists changes the output `schema_version`.
+  Bordered or shaded boxes become containers, not a kind or role. The brief puts
+  `container` in the page schema for steps 2–4: items inside a box keep their
+  own kind and carry a container ID, and each container has a bounding box and
+  open-top and open-bottom hints for cross-page continuation. So page extraction
+  records containers on each page, and assembly joins a box that crosses pages
+  into one container. The survey design says only "in a later step", so step 2's
+  design settles the container contract.
+- **Facts.** `pdf_facts.json` holds per-page text-layer quality (`none`, `good`
+  or `garbled`), bookmarks, form fields and checkbox states, structure tags and
+  their quality, repeated lines with IDs and bands, text direction and printed
+  page numbers. The brief's step 2 design skips text-layer hints on pages with
+  garbled text (E22). The text layer also misses text inside images, and the
+  survey's prompt had to be changed to say so after the model left out the
+  rotation of such pages. A check for invented text against the text layer must
+  allow for text the model reads from images, which bears on the open question
+  of whether step 2's text checks retry.
+- **Review and report.** Review issues go to `run.json` `review[]` with `step`,
+  `page_index`, `check`, `message` and `details`, and the CLI prints a summary.
+  `report.html` renders page images (`report/images.py`) with the survey's
+  findings. The `ReviewIssue` model is survey-specific today: it lives in
+  `surveying/schemas.py`, its `step` can only be `survey`, its `check` can only
+  be a survey check name, and it has no item field. Step 2 needs a shared model
+  that can also name an item, which changes the `run.json` contract. The report
+  needs item boxes.
+- **Tests.** `tests/fixtures/mock_providers.py` is a stand-in Anthropic and
+  OpenAI server reached through the SDKs' base URLs. An autouse fixture sets
+  dummy keys and a closed port, so no test reaches a provider. Nine public test
+  PDFs are in `tests/fixtures/pdfs/`, with their sources in `SOURCES.md`. None
+  has a page whose rotation attribute is 90, 180 or 270, because no downloadable
+  candidate had one. Step 2 renders rotated pages upright and maps boxes back to
+  PDF points, so it needs a real public PDF with such a page, approved by the
+  user. The survey cycle already checked 21 candidates (CDC, BLS, SSA, GAO and
+  CRS refuse scripted downloads). Its self-checks used a copy of
+  `irs_pub1_arabic.pdf` with page 0's rotation attribute set to 90. Whether such
+  a copy of a real document counts as a real test PDF, as the CAPS page excerpt
+  did, was never asked.
+- **Docs.** `scripts/generate_reference_docs.py` generates the reference pages
+  from the code, and CI fails when they are stale. The guides describe the
+  survey only and need updating for each new step.
+
+## Reuse from KGForEdGlobal so far
+
+KGForEdGlobal has no survey step, so the survey cycle ported only infrastructure
+(paths under `backend/src/kgfeg/`):
+
+- `utils/pdf.py` `compute_doc_key` became pydelity's PDF SHA-256 helper.
+- `model_registry.py` became the model factory and provider profiles, without
+  its hand-kept list of models.
+- `page_ir_extraction/agents.py` gave the agent pattern: an output validator
+  that raises `ModelRetry` with the Python checks' messages.
+- `AgentUsageBucket` and `write_to_json` were replaced by the cost ledger and
+  atomic writes rather than ported.
+
+Nothing else from `page_ir_extraction` has been ported: not its validators,
+prompts or constants. It is step 2's main source, and most of the brief's
+**Known defects in the source code to design out** are in it or in the code it
+uses: left-to-right reading order in the prompt and in
+`validate_gross_reading_order`, English-only word lists, full-page figure checks
+that reject one-figure pages, a letter-run word tokenizer, no form-field or
+checkbox type, figure crops not saved, one DPI for every page (a setting with
+default 250), and resume that checks only whether a file exists.
+
+Ported code targets KGForEdGlobal's locked versions, pydantic-ai 1.63.0 and
+PyMuPDF 1.26.7, so it needs updating for PydanticAI 2.69 or later (output
+retries, for example, are `Agent(retries={"output": n})`) and PyMuPDF 2.1 or
+later. Keep PyMuPDF 2.x: the user chose it for fixes that include `get_pixmap`
+hangs (#5082, and #5125 on heavily tagged pages).
+
+## Pipeline outcomes for steps 2–6
+
+Scoped before the pipeline was split into one cycle per step, copied from the
+earlier version of this file. The old AC numbers in parentheses are retired.
+
 - Page extraction (step 2), was AC-005 to AC-007: each selected page gets a page
   file of items in reading order for its writing direction (including
   right-to-left and multi-column), each with a stable ID, kind, role, label,
@@ -115,94 +371,202 @@ are retired; the next cycle numbers its own.
   objects get stable IDs from their key paths; arrays follow document order;
   conflicting values go on the review list. A coverage report lists uncited
   content items, verbatim retries and merge conflicts.
-- User sign-off of each step's output, was AC-004, AC-008, AC-010, AC-015,
-  AC-017 and AC-020.
-- Configuration, CLI and library use, was AC-021 to AC-024: `pydelity <pdf>`
-  runs with no config file; an optional JSON or YAML file sets the PDF path and
-  the global settings, with an `advanced:` section; the CLI's PDF path wins;
-  invalid settings stop the run with a message naming them. The pipeline and
-  each step run from Python without the CLI, and importing needs no environment
-  settings and logs nothing unless asked. A built wheel installs with pip and
-  provides the package and the `pydelity` command.
-- Cost and spend controls, was AC-025 to AC-028: a per-call cost ledger and
-  per-step and total cost per run; the CLI's estimate-and-confirm prompt with
-  `--yes`, stopping non-interactive runs without it, and no prompt from the
-  Python API; max_cost counting all spend in the output folder, including
-  resumed runs, and stopping in a resumable state; a check of the whole PDF
-  against the survey model's PDF input limits before any model call, with a
-  clear error, known limits for default and documented models, overrides under
-  `advanced:` and a warning for unknown models.
-- Resume and reruns, was AC-029 and AC-030: a stopped run resumes and redoes
-  only unfinished outputs, with no half-written files and damaged files
-  regenerated; a changed input reruns its outputs and everything downstream, and
-  nothing else; `overwrite` reruns everything.
-- Providers and tests, was AC-031 and AC-032: every step works with Anthropic or
-  OpenAI models chosen by setting; the automated tests cover every step and both
-  providers with mocked responses and no network calls to model providers.
-- Review list and HTML report, was AC-033 and AC-034: issues left after retries
-  go to `run.json` with step, page, item and failed check, a CLI summary, and an
-  HTML report with page images and item boxes.
-- No document-type assumptions, was AC-035: core code, prompts, page-schema
-  fields and defaults name no document type or domain concept, hold no
-  language-specific word lists, and contain no per-document rules or domain
-  Pydantic classes.
 - KGForEdGlobal compatibility, was AC-036 to AC-038: segment IDs follow today's
   recipe and are stable across reruns, boxes are in PDF points, and an item ID
   to segment ID lookup is included; `document.json` holds the data an adapter
   needs for each KG field in use today and for CAPS requirement boxes as
-  one-column tables; a written mapping documents where each comes from.
-- User documentation, was AC-039: a README that lets another engineer install
-  pydelity, set provider keys, run it, find outputs, read the review list and
-  reports, and resume or rerun.
+  one-column tables; a written mapping documents where each comes from. Each
+  KGForEdGlobal `TextUnit` (every text block and table cell) has a required
+  BCP-47 `language` that the KG stage reads, which the brief's consumer contract
+  leaves out. Step 2's design decides whether items carry a language tag or an
+  adapter fills it from the profile's `languages`. Corrections to the brief from
+  the survey cycle's audit: KGForEdGlobal's KG stage loads
+  `stitching/document_ir.json` with `DocumentIR.model_validate`, not a
+  `document.json`. Its schema models forbid undeclared keys (`extra="forbid"`),
+  so even a top-level `schema_version` fails validation. The brief's field-use
+  counts come from substring matches; whole-word counts are lower for
+  `segment_id` (38, not 223), `section_path` (23, not 72), `grid_sources` (46,
+  not 53) and `columns_signature` (19, not 31). Reading pydelity's
+  `document.json` therefore needs KGForEdGlobal-side changes, which stay out of
+  pydelity's cycles.
+- User sign-off of each step's output, was AC-004, AC-008, AC-010, AC-015,
+  AC-017 and AC-020.
 
-## Risks and follow-up from the repo-setup design
+The cross-cutting outcomes scoped with them (configuration, CLI and library use,
+cost and spend controls, resume, providers and tests, the review list and HTML
+report, no document-type assumptions, user docs) were built for the survey in
+0.1.0, with the changes listed under **User decisions that apply to later
+steps**. Each later step extends them to its own outputs. Two parts are still
+open: a changed input reruns its own outputs and everything downstream, and
+nothing else, once there is more than one step; and review issues name the item,
+not only the page.
 
-- Dependabot's uv can lag behind the uv people use. If it falls below
-  `required-version`, uv updates fail until the bound is lowered. A lock written
-  by a different uv patch release may also differ slightly; CI's `--locked`
-  check shows it on the Dependabot pull request.
-- Dependabot's uv updater raises lower bounds it touches, so it may propose
-  raising `setuptools>=77` in `[build-system]`. That bound is set by what the
-  build needs; if Dependabot proposes raising it, add an ignore with a comment
-  rather than accepting it.
-- Hand-kept pins (the uv bound, CI's uv, Node's `language_version`, prettier) go
-  stale unless someone bumps them. A prettier bump can reformat many files at
-  once (3.6.2 and 3.10.1 already differ on `AGENTS.md` and `CLAUDE.md`).
-- With the job token, zizmor's online audits can fail CI when an advisory is
-  published for an action the repo uses, with no repo change. That is intended;
-  the fix is a Dependabot or hand update of the action.
-- The `auditor` persona allows false positives; each one costs a written ignore.
-  With two workflows, that is cheap.
-- prek is pre-1.0 (0.5.x). Its behaviour may shift between releases;
-  Dependabot's cooldown and the CI run on its pull requests limit the surprise.
-- Markdown formatting covers STANDARDS files too, which departs from the
-  protocol rule that only installation or upgrade changes shipped framework
-  files; the user accepted this during the repo setup. If a STANDARDS release
-  ships files prettier would rewrap, they will differ from upstream (whitespace
-  only) until the next upgrade replaces them.
-- Role-written records that prettier would change beyond whitespace stay
-  unformatted and show up as warnings until their owning role rewrites them. A
-  markdownlint violation in a new record fails the prek run until its owner
-  fixes it or the config is tuned.
-- PyPI versions are permanent. A mistake in `0.0.1` can only be fixed with
-  `0.0.2`.
-- `>=3.13` lets Python 3.14 users install versions tested only on 3.13. The next
-  cycle can add 3.14 to CI.
-- Next cycle: runtime dependencies, the Typer CLI and its console script, a
-  release workflow with Trusted Publishing (which zizmor will also check),
-  whether to yank the placeholder after the working release, and Windows
-  support, which will need recipes that do not assume a POSIX shell.
+The direction for the default run is unchanged: `pydelity <pdf>` eventually runs
+all six steps, with a setting to stop after `document.json`. In 0.1.0 it runs
+the survey only.
 
-## Loose ends from the repo setup
+## Constraints, non-goals and assumptions still in force
 
-Context, not requirements.
+- Constraints: Python 3.13 or later (3.14 tested), with Pydantic,
+  pydantic-settings, PydanticAI, loguru and Typer. Models are reached through
+  provider APIs via PydanticAI, and both Anthropic and OpenAI must work. The PDF
+  path is the only required input, configuration is one optional JSON or YAML
+  file with an `advanced:` section, and a normal run resumes. No hand-written
+  per-document config or domain Pydantic classes, and no core logic, prompt,
+  schema field or default that assumes a document type. The domain schema is
+  JSON Schema data with `x-key` and `x-verbatim`, never Python source.
+  Consumer-specific needs go in `document.json` fields or the consumer's
+  adapter. The brief's design directions are input for Architect, and evidence
+  E1–E23 illustrates rather than specifies.
+- Non-goals: any change to KGForEdGlobal; KG, Learning Component and Learning
+  Progression logic; generating KG config from a pydelity schema; automatic
+  splitting or a chunked survey for PDFs a provider rejects as too large;
+  per-model PDF limits; continuity judged inside step 2 (step 3 option E); a
+  measured comparison of step 3 designs; a default spending limit; a hosted
+  service, web UI beyond the HTML report, telemetry and other Level 4 features.
+- Assumptions: Level 3 (internally testable) maturity. Test PDFs are public
+  documents chosen with the user's approval. A user-supplied domain schema does
+  not seed page-profile labels, so changing it reruns only steps 5–6. Real model
+  runs use the user's own API keys, and automated tests mock every model call.
 
-- The README doesn't say the `just` recipes need bash.
-- Node `24.22.3` is written in two hooks in `.pre-commit-config.yaml`, so a
-  version bump has to change both.
-- `[tool.coverage.report]` in `pyproject.toml` still holds scaffold entries: a
-  `def cli` exclusion and an `omit` for `src/pydelity/__init__.py`.
-- Added after sign-off: release-please (`.github/workflows/release-please.yml`)
-  versions, tags and creates GitHub releases but does not publish. The PyPI
-  release workflow can start from those releases: the token release-please uses
-  is not the job token, so its releases do trigger `release` events.
+## Risks and follow-up from the survey design
+
+- Steps 2–6 reuse `build_model`, `LedgerModel`, the `max_cost` guard, atomic
+  files, fingerprints, review issues and the report. They add `pages` and
+  `schema` settings and per-step `advanced:` settings, and extend the default
+  run. Other PydanticAI providers can be added by extending the provider
+  allowlist, the model factory and the provider profiles.
+- Prices and model IDs drift. Prices follow `genai-prices` releases, and
+  `advanced.models` covers a model it does not know yet. Older models that
+  reject adaptive thinking, `effort` or `reasoning_effort` fail with the
+  provider's error.
+- A request that times out on pydelity's side may still finish, and be billed,
+  at the provider, with no ledger line. Each timed-out retry can add such unseen
+  cost, and page-level parallel requests multiply it.
+- Non-streaming requests with a large `max_output_tokens` need an explicit
+  request timeout. `LedgerModel` already wraps streamed requests
+  (`request_stream` runs the same `max_cost` check and writes the ledger line),
+  but no test covers that path, so a step that streams should add one.
+- PyMuPDF holds the GIL while it reads a page, so rendering pages in
+  `asyncio.to_thread` does not run them in parallel, and each read can hold up
+  the event loop (by up to about 50 ms on the survey's test machine).
+- The cost estimate is a heuristic with conservative upper bounds, so the
+  `max_cost` question can come for a run that would have fitted.
+- Uploaded PDFs stay in the user's provider storage until they expire (90 days
+  on Anthropic by default) and count against the organization's storage.
+- The IANA registry inside `langcodes` is fixed per release, and a release that
+  changes a tag's standard form changes fingerprints, so outputs that use the
+  tag run again.
+- Probe mistakes reach the review list as `page_number_differs` issues, for
+  example numbers in table cells, or page labels on pages that print no number.
+  Keeping page labels as a fact separate from the printed text would cut that
+  noise. It changes the facts schema, so it waits until review lists show it
+  matters.
+- The model can be wrong where the facts were right, and the review list is the
+  only signal.
+- Every repeated line (up to 1,000) goes with the survey request and must be
+  accounted for.
+- Claude Opus 5.5 can stop with `refusal`, which the survey reports as a
+  failure. Server-side refusal fallbacks are off because they change the billed
+  model in the middle of a request.
+- The survey's region boxes are the model's estimates and are often off. Making
+  them accurate, by snapping them to measured content or rejecting boxes over
+  empty areas, is a design question for the first step that uses regions.
+- One run per output folder at a time. Concurrent runs in the same folder are
+  unsupported and not detected.
+- On Windows, `os.replace` fails while another program holds the target open,
+  and the error names the file.
+- `docs/pnpm-lock.yaml` may approach the 500 KB limit of the large-file hook. If
+  it goes over, exclude that one path with a comment.
+- `pyproject.toml` `[tool.coverage.report]` still holds two scaffold entries,
+  the `def cli` exclusion and `omit = ["./src/pydelity/__init__.py"]`, that can
+  be tidied while editing it. The `*/__init__.py` omit in `[tool.coverage.run]`
+  is real.
+
+## Review findings and observations left for later
+
+The first four items are the implementation review's findings F-001 and F-003 to
+F-005, withdrawn as not material for 0.1.0, each with a reproducer in its
+report. The rest are its non-material observations.
+
+Any fix to the probe (the checkbox, page-label and structure-tag items below)
+must raise `PROBE_VERSION` in `surveying/probe.py`. That changes the facts
+fingerprint, which the survey's fingerprint includes. So every existing output
+folder reruns the paid survey on its next run, and step 2 reruns too wherever
+the profile changes.
+
+- `run.json` records `pdf_transport: null` for a failed step even when a request
+  carried the PDF, because the transport is set only when the survey returns.
+  Record it as soon as the PDF is attached to a request.
+- A checked checkbox with no normal appearance (`/AP /N`) makes PyMuPDF's
+  `on_state()` raise, and the whole form fact becomes unreadable. Read the
+  checked state without needing appearances, and keep one bad widget from
+  discarding the other fields. Step 2 carries form-field values, so this matters
+  there.
+- Letter-style page labels (`/S /A`, `/S /a`) are read as roman numerals (`C`
+  becomes 100). Use the label range's numbering style, which
+  `Document.get_page_labels()` returns. Recording a letter-style number may need
+  a new facts `style` value, which is Architect's decision.
+- Structure-tag quality is misrated in two cases. A structure element whose `/K`
+  is an indirect reference to an array is not followed, so a fully tagged PDF
+  reads as `poor`. A walk that stops at the 20,000-element cap counts unvisited
+  pages as untagged, so a long, well-tagged PDF reads as `partial`. Before step
+  2 relies on tags, its design should resolve indirect `/K` entries and settle
+  how a capped walk is rated.
+- The Python API leaves PydanticAI's first-run banner on, so the first `run()`
+  in a process prints it (the CLI turns it off). The Python guide mentions it.
+- `costs/pricing.py` `_config_price` uses `or`, so a cache price set to `0` in
+  `advanced.models` is priced at the input price. The ledger can only overstate.
+- CI's check for stale reference pages (`git diff --exit-code`) does not catch a
+  newly generated page left untracked.
+- `docs.yml` says a published build never reuses files another run wrote, which
+  is not true of the pnpm store cache that `withastro/action` restores. Its plan
+  step runs the runner's own `node` and `python3` and hides `node`'s error with
+  `2>/dev/null`.
+- Probe edge cases with low impact: an outline whose `/Next` links form a cycle
+  reads as no bookmarks; tagged pages without text count toward structure
+  coverage; a radio group whose kids are all `/AS /Off` with `/V` set reads as
+  unchecked.
+
+The final review found these wording issues in the docs, none material:
+
+- `contributing/docs-site.md` says a manual run of the docs workflow publishes,
+  but `docs.yml` publishes only on a push. It should say how to republish:
+  re-run the push run for the tag or for `main`.
+- `contributing/docs-site.md` and `contributing/development.md` say
+  `just docs-reference` regenerates the reference pages, but its output stays
+  unformatted until `just lint-markdown` or `just lint` runs Prettier.
+- `contributing/development.md`: `--randomly-seed` repeats the shuffle but not
+  each pytest-xdist worker's order, and skips the docstring session; Dependabot
+  opens up to four monthly pull requests (github-actions, npm, pre-commit, uv),
+  not one; several hooks check the whole tree, not only the commit's files.
+- `contributing/releases.md`: by release-please's default changelog sections,
+  `perf:` and `revert:` commits may also make a patch release (not confirmed
+  from a repo file).
+- `contributing/docs-site.md`: the docs build runs on pull requests to `main`,
+  not on every pull request.
+- `faq.md` says changing any survey setting reruns the survey, which is looser
+  than `guides/reruns.md`: `request_timeout_seconds` keeps the saved survey.
+
+Not exercised in the survey cycle: Ctrl+C at a CLI question on Windows, and the
+exact release-please version bundled in `release-please-action` v5.0.0 (its
+17.6.0 source was read).
+
+## Loose ends
+
+- After merging, check that release-please proposes 0.1.0 from the `0.0.1`
+  manifest with no earlier tag (confirmed from its source, not yet in practice),
+  that the PyPI Trusted Publisher, the `pypi` environment and GitHub Pages are
+  set up, and that the docs site publishes from the `v0.1.0` tag.
+- Whether to yank the `0.0.1` placeholder on PyPI is the user's call.
+- Node `24.22.3` is kept by hand in three places: two hooks in
+  `.pre-commit-config.yaml` and `docs.yml`. `docs/package.json`'s `engines.node`
+  (`>=22.23.4`) follows the locked Astro's own minimum.
+- Repo-setup risks still open: Dependabot's uv can lag behind the uv people use,
+  and updates fail if it falls below `required-version`. Dependabot may propose
+  raising `setuptools>=77`; ignore that with a comment. Hand-kept pins (the uv
+  bound, CI's uv, Node, Prettier) go stale unless someone bumps them, and a
+  Prettier bump can reformat many files. zizmor's online audits can fail CI when
+  an advisory is published for an action the repo uses. prek is pre-1.0.
+  Markdown formatting also covers STANDARDS files while STANDARDS is installed.
+  PyPI versions are permanent.

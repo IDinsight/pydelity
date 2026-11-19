@@ -1,8 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `AWAITING_USER_SIGNOFF` `CycleMode`: `STANDARD`
-`PendingCycleMode`: `UNSET` `PendingCycleRequest`: `UNSET`
-`PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `SIGNED_OFF` `CycleMode`: `UNSET` `PendingCycleMode`: `UNSET`
+`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -28,8 +27,9 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `SYNCHRONIZING` `FailureType`: `NONE` `Reason`:
-`Synchronization passed with no discrepancies; the deliverable at 7cd93f6 is ready for the user's sign-off.`
+`Kind`: `SIGNOFF` `From`: `AWAITING_USER_SIGNOFF` `FailureType`: `NONE`
+`Reason`:
+`User signed off on 2026-11-19 after revalidation: the deliverable at 83743ef is unchanged since synchronization and every full-deliverable gate holds.`
 
 ## Recovery
 
