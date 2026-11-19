@@ -2,7 +2,8 @@
 
 Each page request carries one image of the page, turned upright by the clockwise
 rotation the survey's profile gives for the page. The image is as large as every
-supported provider reads without shrinking it, and at most `_MAX_DPI`.
+supported provider reads without shrinking it, and at most
+`RENDERING_SETTINGS.max_dpi`.
 
 The model gives boxes on a grid of `GRID` units across and down the upright image,
 from its top-left corner, whatever size the provider resizes the image to.
@@ -30,18 +31,9 @@ from typing import Self
 import pymupdf
 
 # Package Library
+from pydelity.extracting.schemas import RenderingSettings
 from pydelity.providers.profiles import PROFILES
 from pydelity.surveying.schemas import Angle
-
-# The resolution of figure crops, in dots per inch.
-_CROP_DPI = 200
-
-# The JPEG quality of page images, from 0 to 100.
-_JPEG_QUALITY = 90
-
-# The highest resolution of a page image, in dots per inch. Beyond it a page image
-# shows no more detail.
-_MAX_DPI = 300
 
 # PDF points per inch.
 _POINTS_PER_INCH = 72
@@ -52,6 +44,12 @@ _ZOOM_SEARCH_STEPS = 40
 
 # The units across and down the upright page image in which the model gives boxes.
 GRID = 1000
+
+# How page images and figure crops are made. Crops are 200 DPI PNG images; page
+# images are JPEG images at quality 90, never above 300 DPI, beyond which a page
+# image shows no more detail. Each page file records these, so changing one extracts
+# the pages again.
+RENDERING_SETTINGS = RenderingSettings(crop_dpi=200, jpeg_quality=90, max_dpi=300)
 
 
 def _clamp(value: float, *, high: float, low: float) -> float:
@@ -123,7 +121,7 @@ def _render_crop(
     Returns
     -------
     bytes
-        The PNG image, at `_CROP_DPI`.
+        The PNG image, at `RENDERING_SETTINGS.crop_dpi`.
 
     Raises
     ------
@@ -136,7 +134,7 @@ def _render_crop(
     clip = pymupdf.Rect(box_pt) & page.rect
     if clip.is_empty:
         raise ValueError(f"the box {list(box_pt)} does not overlap page {page_index}")
-    zoom = _CROP_DPI / _POINTS_PER_INCH
+    zoom = RENDERING_SETTINGS.crop_dpi / _POINTS_PER_INCH
     matrix = pymupdf.Matrix(zoom, zoom).prerotate(rotation)
     pixmap = page.get_pixmap(alpha=False, clip=clip, matrix=matrix)
     return pixmap.tobytes("png")
@@ -170,7 +168,7 @@ def _render_upright(
     matrix = pymupdf.Matrix(zoom, zoom).prerotate(rotation)
     pixmap = page.get_pixmap(alpha=False, matrix=matrix)
     return UprightImage(
-        data=pixmap.tobytes("jpeg", jpg_quality=_JPEG_QUALITY),
+        data=pixmap.tobytes("jpeg", jpg_quality=RENDERING_SETTINGS.jpeg_quality),
         dpi=zoom * _POINTS_PER_INCH,
         height_px=pixmap.height,
         width_px=pixmap.width,
@@ -252,7 +250,7 @@ def _upright_zoom(*, height_pt: float, rotation: Angle, width_pt: float) -> floa
     Returns
     -------
     float
-        Pixels per point, at most `_MAX_DPI` / 72.
+        Pixels per point, at most `RENDERING_SETTINGS.max_dpi` / 72.
     """
 
     across, down = (
@@ -266,7 +264,7 @@ def _upright_zoom(*, height_pt: float, rotation: Angle, width_pt: float) -> floa
             height_px=math.ceil(down * zoom), width_px=math.ceil(across * zoom)
         )
 
-    highest = _MAX_DPI / _POINTS_PER_INCH
+    highest = RENDERING_SETTINGS.max_dpi / _POINTS_PER_INCH
     if fits(highest):
         return highest
     # The image only grows with the zoom, so halve the range that holds the largest
@@ -417,7 +415,7 @@ class PdfWorker:
         Returns
         -------
         bytes
-            The PNG image, at 200 DPI.
+            The PNG image, at `RENDERING_SETTINGS.crop_dpi`.
         """
 
         return await self.call(

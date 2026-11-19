@@ -20,6 +20,7 @@ from pydelity.pipeline.schemas import RunRecord
 from pydelity.report.schemas import PageImage, ReportManifest
 from pydelity.review import ReviewIssue
 from pydelity.surveying.schemas import Facts, PageFacts, PdfFacts, PdfSurvey
+from pydelity.surveying.validators import covering_range
 from pydelity.utils.files import write_text_atomic
 
 # The report's file name in the output folder.
@@ -276,7 +277,7 @@ def _page_findings(
     page
         The page's facts.
     facts
-        All the measured facts, for the repeated lines.
+        All the measured facts, for the repeated lines and the page count.
     survey
         The survey, if any, for the rotation and the regions.
 
@@ -299,14 +300,12 @@ def _page_findings(
         ),
     ]
     if survey is not None:
-        degrees = next(
-            (
-                turn.degrees
-                for turn in survey.profile.rotation
-                if turn.first_page_index <= page.index <= turn.last_page_index
-            ),
-            0,
+        turn = covering_range(
+            survey.profile.rotation,
+            page_count=len(facts.pages),
+            page_index=page.index,
         )
+        degrees = 0 if turn is None else turn.degrees
         findings.append(("Rotation to make it upright", f"{degrees} degrees clockwise"))
         labels = [
             r.label for r in survey.proposal.regions if r.page_index == page.index

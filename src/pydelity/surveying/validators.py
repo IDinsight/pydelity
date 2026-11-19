@@ -51,33 +51,6 @@ class _PageRange(Protocol):
         """The last page of the range, inclusive."""
 
 
-def _covering[RangeT: _PageRange](
-    ranges: Sequence[RangeT], *, page: int, page_count: int
-) -> RangeT | None:
-    """Find the first range that covers a page, ignoring ranges outside the PDF.
-
-    Parameters
-    ----------
-    ranges
-        The answer's ranges, in its order.
-    page
-        The page index.
-    page_count
-        The PDF's number of pages.
-
-    Returns
-    -------
-    RangeT | None
-        The range, or ``None`` when no range inside the PDF covers the page.
-    """
-
-    for page_range in ranges:
-        first, last = page_range.first_page_index, page_range.last_page_index
-        if 0 <= first <= last < page_count and first <= page <= last:
-            return page_range
-    return None
-
-
 def _failure(
     check: SurveyCheckName,
     message: str,
@@ -167,8 +140,8 @@ def _page_number_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]
         measured = page.printed_number
         if measured is None or measured.value is None:
             continue
-        numbering = _covering(
-            answer.page_numbering, page=page.index, page_count=page_count
+        numbering = covering_range(
+            answer.page_numbering, page_count=page_count, page_index=page.index
         )
         profile = _profile_number(numbering, page=page.index)
         if profile == measured.value:
@@ -316,8 +289,8 @@ def _rotation_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
         measured = page.orientation.dominant
         if not page.orientation.confident or measured is None:
             continue
-        turn: RotationRange | None = _covering(
-            answer.rotation, page=page.index, page_count=page_count
+        turn: RotationRange | None = covering_range(
+            answer.rotation, page_count=page_count, page_index=page.index
         )
         profile = 0 if turn is None else turn.degrees
         if profile == measured:
@@ -660,6 +633,48 @@ def compare_with_facts(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
     """
 
     return _rotation_issues(answer, facts) + _page_number_issues(answer, facts)
+
+
+def covering_range[RangeT: _PageRange](
+    ranges: Sequence[RangeT], *, page_count: int, page_index: int
+) -> RangeT | None:
+    """Find the first range that covers a page, ignoring ranges outside the PDF.
+
+    Every use of a profile's ranges reads them this way, so a range that a failed
+    check left in the profile, such as one running past the last page, gives the
+    same result everywhere.
+
+    Parameters
+    ----------
+    ranges
+        The ranges, in the answer's order.
+    page_count
+        The PDF's number of pages.
+    page_index
+        The page (0-based).
+
+    Returns
+    -------
+    RangeT | None
+        The range, or ``None`` when no range inside the PDF covers the page.
+
+    Examples
+    --------
+    On a 7-page PDF, a range that runs past the last page is skipped:
+
+    >>> ranges = [
+    ...     RotationRange(degrees=90, first_page_index=5, last_page_index=99),
+    ...     RotationRange(degrees=180, first_page_index=0, last_page_index=6),
+    ... ]
+    >>> covering_range(ranges, page_count=7, page_index=5).degrees
+    180
+    """
+
+    for page_range in ranges:
+        first, last = page_range.first_page_index, page_range.last_page_index
+        if 0 <= first <= last < page_count and first <= page_index <= last:
+            return page_range
+    return None
 
 
 def retry_message(failures: dict[SurveyCheckName, list[CheckFailure]]) -> str:

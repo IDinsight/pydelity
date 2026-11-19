@@ -958,7 +958,7 @@ uncommitted DEV-008 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
 
 ### DEV-009 — Page extraction step
 
-`Status`: `PENDING` `Depends On`: `DEV-002, DEV-007, DEV-008` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-002, DEV-007, DEV-008` `Acceptance`:
 `AC-007, AC-008, AC-009, AC-011, AC-013, AC-014, AC-016, AC-017, AC-018, AC-019, AC-021, AC-024, AC-025, AC-031, AC-032, AC-033, AC-056, AC-057, AC-058`
 
 **Goal**
@@ -968,8 +968,14 @@ time, and write page files and crops safely.
 
 **Affected Area**
 
-`CREATE` `src/pydelity/extracting/extraction.py` (name to approve, see Plan
-Notes); `utils/files.py` if temp-file cleanup needs the new folders.
+Approved by the user before the step (2026-11-19): `CREATE`
+`src/pydelity/extracting/extraction.py`; `MODIFY` `utils/files.py`
+(`write_bytes_atomic` for the PNG crops, which `write_text_atomic` now uses) and
+`extracting/rendering.py` (one public `RENDERING_SETTINGS` in place of the three
+private constants, so the page inputs record them). Added with the user's
+approval after the review (2026-11-19): `MODIFY` `surveying/validators.py` (the
+range rule made public as `covering_range`) and `report/html.py` (the page's
+rotation by that rule).
 
 **Expected Outcome**
 
@@ -991,8 +997,9 @@ Notes); `utils/files.py` if temp-file cleanup needs the new folders.
   its outcome and cost.
 - On the first page error, the other tasks are canceled, no new page starts, and
   the error ends the step; written page files stay valid. Leftover temporary
-  files in the output folder, `pages/`, `figures/` and `report/pages/` are
-  removed at the start of a run.
+  files in `pages/` and `figures/` are removed when the step starts. The runner
+  builds the step's model and calls the step in DEV-010, which also clears
+  `report/pages/` at the start of a run.
 
 **Self-Check**
 
@@ -1004,6 +1011,136 @@ file or a deleted crop is extracted again; the stand-in's log shows at most
 `concurrent_pages` requests in flight; an injected fault on one page stops the
 step, cancels the others and keeps the written pages; a cancel mid-run leaves no
 temporary file.
+
+Evidence, 2026-11-19, repo root, on the user's DEV-008 commit (`3f356b0`) plus
+the uncommitted DEV-009 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
+
+- `uv sync --locked` outside the sandbox, for the new module.
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` on `scripts src`:
+  passed; `interrogate`: 100%. Doctests: 23 passed, 1 skipped.
+- `.venv/bin/python -m pytest -q --numprocesses auto`: the same 7 failed and 98
+  passed as after DEV-003; `ty check tests`: the same 2 errors. The tests of
+  `write_text_atomic`'s callers still pass with it writing through
+  `write_bytes_atomic`.
+- Scratchpad `dev009_check.py`: 48 of 48 checks passed. Each scenario surveys
+  its PDF through the stand-in with an answer built from the PDF's facts, then
+  plans and extracts as the runner will (one `build_model` for the step, inside
+  `running_step("extraction")`), with extractor answers built from each page's
+  own text blocks, form fields, a figure and one page-wide container.
+  - Rotated PDF (`irs_w9_instructions_rotated.pdf`, Anthropic,
+    `concurrent_pages` 2): the profile's rotations are 0, 270, 180, 90, 0, 0, 0;
+    7 page files and 6 crops written, at most 2 requests in flight; each file's
+    fingerprint is its own inputs' fingerprint, and its inputs record the
+    rendering settings; item IDs `p<NNNN>-<nnn>` in reading order and container
+    `p<NNNN>-c01`, named by each item; every box inside the displayed page; on
+    the pages with rotation attributes 0, 90, 180 and 270 the stored boxes are
+    within 0.39 pt of the PyMuPDF text blocks they came from; each crop is
+    `figures/<item ID>.png`, upright, 425 x 198 px for its 153 x 71 pt box at
+    200 DPI, and `figures/` holds only the crops the files name.
+  - Verifier: a passed verdict keeps the extraction; a correction that passes
+    every check replaces it (page 1 lost its figure and crop) and its problems
+    stay in the verdict only; problems without a correction become `verifier`
+    issues, one naming `p0002-001` and one with no item; a correction that still
+    fails `labels` after 3 verdicts is not kept, and the page file records its
+    failing checks.
+  - The canned answers for pages 2 and 3 follow the content stream, which jumps
+    back up the page, and fail `reading_order` the same way on the unrotated
+    `irs_w9_instructions.pdf`; the kept answer's issue names `p0002-027` with
+    its ref in `details`. Text comparison ran on all 7 pages with no text
+    failure.
+  - One log line per page, such as
+    `Page 1 (index 0): 25 items, 0 review issues, verifier passed; $0.05 for 2 requests`,
+    and one plan line,
+    `Page extraction: 7 pages selected, 0 reused, 7 to extract`. The 20 ledger
+    lines carry their page and agent.
+  - A second call reuses all 7 with no request. New extraction instructions or
+    `overwrite` plan every page; a new request timeout plans none; a direction
+    range for page 5 alone plans only page 5.
+  - A page file made invalid JSON and a deleted crop give one `damaged_output`
+    warning each
+    (`0004.json is not valid: ...; extracting page 5 (index 4) again`;
+    `pages/0006.json names the figure image figures/p0006-009.png, which is missing; ...`),
+    and only those two pages are requested; the same answer gives identical
+    items and containers.
+  - `overwrite` at the default `concurrent_pages` 8: 7 requests in flight at
+    most; page 0's new answer has no figure, so its old crop is removed after
+    its new page file; page 5's items are byte-identical to the first run's.
+  - A page without a canned answer (index 4, `concurrent_pages` 2): the
+    `ProviderError` naming page 5 (index 4) is raised as itself, not as a group;
+    page 6 is never requested; pages 0–3 stay valid; the next call extracts only
+    pages 4, 5 and 6.
+  - Canceling the step 2.6 s in (`concurrent_pages` 2, 0.5 s per request): pages
+    0 and 1 written and valid, the rest canceled, no temporary file anywhere in
+    the output folder.
+  - Arabic PDF through OpenAI's format: 4 requests with `detail: "original"`,
+    both pages `rtl`, text compared with no text failure, items tagged `ar`.
+  - W-9 with pages 0 and 1 selected: page 0's context holds its 23 form fields
+    and the others none; the 23 field items carry the form's names and values
+    and `form_fields` passes; only `0000.json` and `0001.json` are written.
+  - Page context on a profile with a range past the PDF, a reversed range and
+    overlapping ranges: directions rtl, rtl, rtl, ttb, ttb, ltr, ltr and
+    rotations 90, 180, 0, 0, 0, 0, 0 (first covering range inside the PDF, else
+    the default or 0); a repeated line listed in two artifacts and as content is
+    `artifact`, one listed only as content is `content`, the rest
+    `unclassified`, and the unknown `R99` is ignored.
+- Process wording grep of the changed files: only "supported", which matched
+  "ported".
+
+**Implementation Notes**
+
+- `plan_pages(config, output_folder, page_indexes, survey)` gives a
+  `PlannedPage` per selected page (inputs, fingerprint, the page file to reuse
+  or `None`), which DEV-010's estimate can count before any request.
+  `extract_pages(model, output_folder, pages, pdf_path)` takes a `StepModel`
+  that the caller builds with `build_model`, extracts the pages without a page
+  file, and returns every selected page's page file in order.
+- Page context comes from `pdf_survey.json` alone: it holds the profile, the
+  proposal and a copy of the facts the survey used, which match `pdf_facts.json`
+  whenever the survey is reused. The PDF's SHA-256 in the inputs is the
+  survey's.
+- One range rule everywhere: `covering_range` in `surveying/validators.py`
+  (formerly its private `_covering`) gives the first range inside the PDF that
+  covers a page, and the survey comparison, `page_context` and the report's
+  per-page "Rotation to make it upright" all use it. The review after the step
+  found three copies, and the report's did not skip a range running past the
+  last page, so on a survey whose rotation check still failed with such a range
+  (such as 5-99 on a 7-page PDF) the report showed that range's rotation while
+  page extraction and the survey comparison used another. Surveys whose checks
+  pass cannot hold such a range.
+- When a page fails, the task group cancels the others and the step re-raises
+  the first error itself (`raise first from first.__cause__`), so callers see
+  `ExtractionError`, `ProviderError` or `BudgetExceededError` rather than an
+  exception group.
+- A box that does not have four values (kept only when `boxes` still fails after
+  the retries) is stored as the whole page, and a figure whose box has no width
+  or height once kept inside the page is cut from the whole page, so every
+  figure item still names a crop; the `boxes` issue stays on the page.
+- `no_matching_label` issues gain `details.item_ids` beside the refs the check
+  gives, since refs mean nothing outside the answer. `verifier` issues hold the
+  problem's description as the message and its category and ref in `details`.
+- A page's cost in its log line sums this step's ledger lines for that page,
+  read from `cost.jsonl` after the page is written.
+- Review after the step, at the user's request (2026-11-19), for correctness,
+  contradictions and major repetition in `extraction.py`, `rendering.py` and
+  `utils/files.py`: no code change. Checked against the design's page context,
+  fingerprint, page file, crop, verifier and failure rules; the docstrings match
+  the behavior. Scratchpad `dev009_review_probe.py`: with pages 0 and 1 both
+  failing at `concurrent_pages` 4, one `ProviderError` is raised with no
+  exception group in its traceback, and no temporary file is left. Left as they
+  are: `_cost_of_page` formats spend as the survey's `_spent_since` does
+  (sharing it means changing `costs/` and `surveying/survey.py`), and
+  `plan_pages` warns about damaged page files, which an estimate that only plans
+  would also do; DEV-010 decides that when it adds the estimate.
+- The shared range rule, after the review (same day, same base): Ruff, ty and
+  interrogate on `scripts src` passed; pytest: the same 7 failed and 98 passed;
+  `ty check tests`: the same 2 errors; doctests: 24 passed, 1 skipped (adds
+  `covering_range`'s example, where a range running past the last page is
+  skipped). `dev009_check.py`: 48 of 48 again. Scratchpad
+  `dev009_range_probe.py`, on the rotated PDF's survey with rotation ranges 90
+  for pages 5-99, 270 for page 1 and 180 for pages 0-6: the report's rotation,
+  page extraction's and the survey comparison's profile value agree on every
+  page (180, 270, 180, 180, 180, 180, 180); before the change the report showed
+  90 on pages 5 and 6. Process wording grep of the added lines: no hits.
 
 ---
 
