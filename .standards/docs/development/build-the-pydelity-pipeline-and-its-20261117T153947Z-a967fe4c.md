@@ -6,9 +6,8 @@ Cycle: build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c
 # Development Plan
 
 `Cycle`: `build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c` `Mode`:
-`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`IN_PROGRESS` `Verification Cadence`: `AFTER_IMPLEMENTATION`
-`Current Increment`: `NONE`
+`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`: `COMPLETE`
+`Verification Cadence`: `AFTER_IMPLEMENTATION` `Current Increment`: `NONE`
 
 ## Implementation Contract
 
@@ -2201,7 +2200,7 @@ arm64).
 
 ### DEV-019 — Docs site scaffold and versioned build
 
-`Status`: `PENDING` `Depends On`: `NONE` `Acceptance`: `AC-027, AC-028, AC-030`
+`Status`: `DONE` `Depends On`: `NONE` `Acceptance`: `AC-027, AC-028, AC-030`
 
 **Goal**
 
@@ -2343,6 +2342,24 @@ arm64, Node 23.10.0, pnpm 10.34.5). Downloads were approved by the user.
   - At the user's request (2026-11-18), the credit is bold (weight 700, which
     the built stylesheet shows). `just docs-build`, `just lint` and the hooks
     pass.
+- Reopened on 2026-11-19 by the user's rework of the final review's withdrawn
+  finding
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-003`
+  (recovery frame 1), whose page text is Documenter's. File approved by the user
+  (2026-11-19): `docs/package.json`. Its `engines.node` is now `>=22.23.4`, the
+  floor of the locked Astro 7.4.10 (`docs/pnpm-lock.yaml`), instead of
+  `>=22.12.0`, which Astro has outgrown. CI and the hooks still pin Node
+  24.22.3. Evidence, 2026-11-19, on `ac5e43f` plus this file (macOS arm64, Node
+  23.10.0, outside the sandbox):
+  - `just docs-build`: `pnpm install --frozen-lockfile` reports the lock file up
+    to date with nothing to install, and `pnpm-lock.yaml` keeps the same blob
+    (`d383b7c`), since pnpm does not record the root's `engines` field. The site
+    builds and the link check passes on all 25 pages. The build prints
+    Starlight's notes that the `i18n` collection is empty and the `404` entry is
+    not found, which do not come from `package.json`.
+  - `just lint` passes (STANDARDS check, markdownlint, ruff, ty, interrogate,
+    zizmor with no findings) and leaves `docs/package.json`, `pnpm-lock.yaml`
+    and the 9 reference pages byte-identical (SHA-1 compared).
 
 ### DEV-020 — Docs workflow
 
@@ -2572,6 +2589,21 @@ arm64). No model was called and nothing was spent.
   error table and the docs-site page's Node.js version are Documenter's. No
   Developer assignment was interrupted: the plan was `COMPLETE` when the final
   review started.
+  - DEV-001 and DEV-019 are `DONE` again and the plan is `COMPLETE`, with every
+    full completion condition met. Neither change alters behavior: one
+    docstring, with the reference line generated from it, and the docs site's
+    `engines` field, which only decides when pnpm warns. The verification
+    report's evidence still applies: the suite passes unchanged, and AC-032's
+    check (`just lint` regenerates the reference pages with no diff) passes on
+    the new page (DEV-001 evidence); CI repeats it on push. The implementation
+    review's conclusions do not depend on the docstring's wording, and the final
+    review rechecks the corrected page. So the frame keeps
+    `RerunThrough: REVIEWING_FINAL` and the workflow moves to `DOCUMENTING` with
+    a `RESUME` that skips `TESTING` and `REVIEWING_IMPLEMENTATION`. Documenter
+    fixes the Python guide's error table and the docs-site page's Node.js
+    version, which can now match `docs/package.json`. The final Reviewer then
+    rechecks all three fixes and the changed inputs, and the frame closes back
+    to `SYNCHRONIZING`.
 
 - Recovery, 2026-11-18: implementation review finding
   `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/implementation.md#F-002`

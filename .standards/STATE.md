@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DOCUMENTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -14,8 +14,7 @@
 `.standards/docs/specs/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
 `Development`:
 `.standards/docs/development/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`Continue with reopened DEV-019 (docs/package.json engines).`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
@@ -28,9 +27,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `USER_REWORK` `From`: `SYNCHRONIZING` `FailureType`: `IMPLEMENTATION`
-`Reason`:
-`User asked to fix final review's withdrawn F-001 to F-003: PdfError docstring and reference, Python guide error table, docs-site Node.js version.`
+`Kind`: `RESUME` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
+`PdfError docstring, its reference page and the docs site's Node floor fixed in DEV-001 and DEV-019 with no behavior change. Documenter fixes the Python guide's error table and the docs-site page's Node.js version; final review then rechecks all three.`
 
 ## Recovery
 
@@ -41,7 +39,7 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 `From`: `SYNCHRONIZING` `Owner`: `DEVELOPING` `FailureType`: `IMPLEMENTATION`
 `Reason`:
 `User asked to fix final review's withdrawn F-001 to F-003: PdfError docstring and reference, Python guide error table, docs-site Node.js version.`
-`ResumeAt`: `SYNCHRONIZING` `RerunThrough`: `NONE`
+`ResumeAt`: `SYNCHRONIZING` `RerunThrough`: `REVIEWING_FINAL`
 
 ## Outstanding Obligations
 
