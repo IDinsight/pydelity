@@ -63,24 +63,31 @@ lint-python:
 lint-workflows:
     uv run --locked zizmor --persona=auditor .
 
-# Run the tests in random order and stop at the first failure; KEEP_GOING=1 runs them all and writes every failure to .cache/test-errors
+# Run the tests in parallel, then the docstring examples in src/, in random order and stop at the first failure; KEEP_GOING=1 runs them all and writes every failure to .cache/test-errors
 test:
     #!/usr/bin/env bash
     set -euo pipefail
+    # The tests run in one worker process per CPU (pytest-xdist). The docstring
+    # examples run in a pytest session of their own: collecting src/ puts it on
+    # sys.path, which the tests forbid so that they use the installed package.
     if [[ "${KEEP_GOING:-0}" != "1" ]]; then
-        exec uv run --locked pytest --exitfirst
+        uv run --locked pytest --exitfirst --numprocesses auto
+        exec uv run --locked pytest --exitfirst --doctest-modules src
     fi
 
-    # Run every test, show the output as usual, and keep pytest's failure and error
-    # sections plus its short summary in .cache/test-errors.
+    # Run every test and example, show the output as usual, and keep pytest's failure
+    # and error sections plus its short summaries in .cache/test-errors.
     mkdir -p .cache
     log=".cache/test-output"
     trap 'rm -f "$log"' EXIT
     status=0
-    uv run --locked pytest --tb=long -rfE 2>&1 | tee "$log" || status=$?
+    uv run --locked pytest --numprocesses auto --tb=long -rfE 2>&1 | tee "$log" || status=$?
+    uv run --locked pytest --tb=long -rfE --doctest-modules src 2>&1 | tee -a "$log" || status=$?
     awk '/^=+ (FAILURES|ERRORS) =+$/ { keep = 1 } keep' "$log" > .cache/test-errors
+    # With no failure, keep each session's summary line (an interpreter warning can
+    # print after it, so the log's last line is not always the summary).
     if [[ ! -s .cache/test-errors ]]; then
-        tail -n 1 "$log" > .cache/test-errors
+        grep -E '^=+ .+ in [0-9.]+s' "$log" > .cache/test-errors || tail -n 1 "$log" > .cache/test-errors
     fi
     echo "Test failures and errors written to .cache/test-errors"
     exit "$status"

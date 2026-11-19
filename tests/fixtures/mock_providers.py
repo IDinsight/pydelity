@@ -38,6 +38,7 @@ From the command line, at the repository root, with an answer file such as
 # Standard Library
 import argparse
 import json
+import sys
 import threading
 import time
 import uuid
@@ -77,6 +78,10 @@ _FIRST_SERVER_ERROR_CODE = 500
 
 # The interface the server listens on.
 _HOST = "127.0.0.1"
+
+# How often the server checks whether it was asked to stop, so stopping takes at most
+# this long.
+_POLL_INTERVAL_SECONDS = 0.05
 
 # The provider and route of each path the server answers, after the base URL.
 _ROUTES: dict[str, tuple[Provider, Route]] = {
@@ -490,6 +495,24 @@ class _Server(ThreadingHTTPServer):
         super().__init__(RequestHandlerClass=_Handler, server_address=(_HOST, port))
         self.mock = mock
 
+    def handle_error(self, request: object, client_address: object) -> None:
+        """Ignore a client that went away mid-request; report any other error.
+
+        A test that cancels a run closes its connection while the server still waits
+        to answer, so writing the reply then fails. That is expected, not a failure.
+
+        Parameters
+        ----------
+        request
+            The request's socket.
+        client_address
+            The client's address.
+        """
+
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)  # ty: ignore[invalid-argument-type]
+
 
 @dataclass(frozen=True)
 class RecordedRequest:
@@ -535,6 +558,9 @@ class MockProviders:
         The port to listen on, or 0 for any free port.
     verbose
         Whether to print each request line to stderr.
+    delay_seconds
+        How long to wait before answering each model request, so a test can act while
+        a request is in flight.
 
     Raises
     ------
@@ -542,10 +568,11 @@ class MockProviders:
         If no answer is given.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - one argument per option of the stand-in
         self,
         *,
         answers: Sequence[Mapping[str, object] | str],
+        delay_seconds: float = 0.0,
         input_tokens: int = DEFAULT_INPUT_TOKENS,
         output_tokens: int = DEFAULT_OUTPUT_TOKENS,
         port: int = 0,
@@ -560,9 +587,11 @@ class MockProviders:
             for item in answers
         ]
         self._answers_sent = 0
+        self._delay_seconds = delay_seconds
         self._faults: list[_Fault] = []
         self._files: dict[Provider, set[str]] = {"anthropic": set(), "openai": set()}
         self._lock = threading.Lock()
+        self._model_request_seen = threading.Event()
         self._port = port
         self._requests: list[RecordedRequest] = []
         self._server: _Server | None = None
@@ -634,6 +663,10 @@ class MockProviders:
             return reply
 
         provider, route = target
+        if route == "model":
+            self._model_request_seen.set()
+            if self._delay_seconds:
+                time.sleep(self._delay_seconds)
         parsed = (
             _parse_upload(body=body, content_type=content_type)
             if route == "upload"
@@ -857,7 +890,10 @@ class MockProviders:
             raise RuntimeError("The mock provider server is already running")
         self._server = _Server(mock=self, port=self._port)
         self._thread = threading.Thread(
-            daemon=True, name="mock-providers", target=self._server.serve_forever
+            daemon=True,
+            kwargs={"poll_interval": _POLL_INTERVAL_SECONDS},
+            name="mock-providers",
+            target=self._server.serve_forever,
         )
         self._thread.start()
 
@@ -872,6 +908,22 @@ class MockProviders:
             self._thread.join()
         self._server = None
         self._thread = None
+
+    def wait_for_model_request(self, timeout: float) -> bool:
+        """Wait until the first model request arrives, or the timeout passes.
+
+        Parameters
+        ----------
+        timeout
+            The most seconds to wait.
+
+        Returns
+        -------
+        bool
+            Whether a model request arrived.
+        """
+
+        return self._model_request_seen.wait(timeout)
 
 
 def main(argv: Sequence[str] | None = None) -> None:

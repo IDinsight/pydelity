@@ -14,7 +14,8 @@
 `.standards/docs/specs/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
 `Development`:
 `.standards/docs/development/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
+`Waiting for the user to commit and push Tester's test suite to tz6/pipeline and open a draft pull request to main, so CI runs the Lint and test gate, Python 3.14 and the Windows, macOS and Linux wheel jobs (AC-022, AC-023, AC-024); then re-invoke Tester to record the results.`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
