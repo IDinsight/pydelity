@@ -251,8 +251,7 @@ DEV-002 changes (macOS arm64, Python 3.13.9).
 
 ### DEV-003 — Spend control for page requests
 
-`Status`: `DONE` `Depends On`: `DEV-001` `Acceptance`:
-`AC-028, AC-030, AC-058`
+`Status`: `DONE` `Depends On`: `DEV-001` `Acceptance`: `AC-028, AC-030, AC-058`
 
 **Goal**
 
@@ -308,10 +307,9 @@ DEV-003 changes (macOS arm64, Python 3.13.9).
     to `https://developers.openai.com/api/docs/guides/images-vision`): `detail`
     takes `low`, `high`, `original` and `auto`; patches are 32 x 32 px,
     `ceil(width/32) x ceil(height/32)`, times a 1.2 multiplier on the GPT-5.x
-    models. `original` allows 10,000 patches and 6,000 px on GPT-5.4 and
-    GPT-5.5 and up to 65,535 px per side on GPT-5.6 and GPT-6-astra, with 30,000
-    patches per image at most; GPT-5.2, GPT-4.1 and older do not take
-    `original`.
+    models. `original` allows 10,000 patches and 6,000 px on GPT-5.4 and GPT-5.5
+    and up to 65,535 px per side on GPT-5.6 and GPT-6-astra, with 30,000 patches
+    per image at most; GPT-5.2, GPT-4.1 and older do not take `original`.
   - So `ProviderProfile` holds Anthropic 2,576 px, 4,784 patches of 28 px, no
     detail value and 4,784 tokens per image; OpenAI 6,000 px, 10,000 patches of
     32 px (the design asked Developer to confirm the patch size; it is 32, not
