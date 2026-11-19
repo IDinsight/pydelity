@@ -159,7 +159,7 @@ async def ask_model(
 
     prompts = survey_pdf(
         facts_summary=facts.summary,
-        instructions=config.instructions,
+        instructions=config.advanced.survey.instructions,
         languages=config.languages,
         page_count=pdf.page_count,
         repeated_lines=facts.facts.repeated_lines,

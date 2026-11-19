@@ -75,7 +75,8 @@ What a survey was made from.
 
 - `facts_fingerprint` (string; required): The fingerprint of the
   `pdf_facts.json` the survey used.
-- `instructions` (string or null; required): The user's instructions, if any.
+- `instructions` (string or null; required): The user's survey instructions
+  (`advanced.survey.instructions`), if any.
 - `languages` (list of strings; required): The user's languages, in standard
   form.
 - `model` (string; required): The model, as `<provider>:<model-id>`.
@@ -121,8 +122,6 @@ What later steps depend on: how the PDF's pages are laid out.
 - `start_markers` (list of objects
   ([`profile.start_markers[]`](#profilestart_markers)); required): Text that
   marks where a new unit of content starts.
-- `user_instructions` (string or null; required): The user's instructions for
-  this PDF, if any.
 - `writing_direction` (object
   ([`profile.writing_direction`](#profilewriting_direction)); required): The
   writing direction of the pages.

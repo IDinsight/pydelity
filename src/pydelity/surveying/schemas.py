@@ -672,9 +672,6 @@ class Profile(_Output):
     start_markers: list[StartMarker]
     """Text that marks where a new unit of content starts."""
 
-    user_instructions: str | None
-    """The user's instructions for this PDF, if any."""
-
     writing_direction: WritingDirection
     """The writing direction of the pages."""
 
@@ -741,7 +738,7 @@ class SurveyInputs(_Output):
     """The fingerprint of the ``pdf_facts.json`` the survey used."""
 
     instructions: str | None
-    """The user's instructions, if any."""
+    """The user's survey instructions (``advanced.survey.instructions``), if any."""
 
     languages: list[str]
     """The user's languages, in standard form."""

@@ -164,8 +164,12 @@ class ProviderProfile:
         return self.pdf_image_tokens_per_page + self.pdf_text_tokens_per_page
 
 
-# The model used when the model setting is not given.
-DEFAULT_MODEL = "anthropic:claude-opus-5-5"
+# The page extraction model used when neither ``advanced.extraction.model`` nor
+# ``model`` is set.
+DEFAULT_EXTRACTION_MODEL = "anthropic:claude-opus-5-5"
+
+# The survey model used when ``model`` is not set.
+DEFAULT_SURVEY_MODEL = "anthropic:claude-opus-5-5"
 
 PROFILES: dict[ProviderName, ProviderProfile] = {
     "anthropic": ProviderProfile(
@@ -221,7 +225,8 @@ def parse_model(setting: str) -> ModelChoice:
     provider, separator, model_id = setting.partition(":")
     if not separator or not provider or not model_id:
         raise ValueError(
-            f"{setting!r} is not <provider>:<model-id>, such as {DEFAULT_MODEL!r}"
+            f"{setting!r} is not <provider>:<model-id>, such as "
+            f"{DEFAULT_SURVEY_MODEL!r}"
         )
     if provider == "anthropic":
         return ModelChoice(model_id=model_id, provider="anthropic")

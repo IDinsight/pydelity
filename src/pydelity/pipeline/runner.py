@@ -267,7 +267,11 @@ def _estimate_cost(
         spent_usd=ledger.spent_usd,
     )
     for message in estimate.warnings:
-        warn(message, code="unpriced_model", details={"model": config.model})
+        warn(
+            message,
+            code="unpriced_model",
+            details={"model": config.survey_model.setting},
+        )
     _log_estimate(estimate)
     return estimate
 
@@ -536,7 +540,7 @@ def _prompt_chars(*, config: Config, facts: PdfFacts) -> int:
 
     prompts = survey_pdf(
         facts_summary=facts.summary,
-        instructions=config.instructions,
+        instructions=config.advanced.survey.instructions,
         languages=config.languages,
         page_count=facts.pdf.page_count,
         repeated_lines=facts.facts.repeated_lines,
@@ -722,8 +726,8 @@ async def _survey(
             "structured output",
             effort=survey_settings.effort,
             mode=output_mode(model),
-            model_id=config.model_choice.model_id,
-            provider=config.model_choice.provider,
+            model_id=config.survey_model.model_id,
+            provider=config.survey_model.provider,
         )
 
         estimate = _estimate_cost(

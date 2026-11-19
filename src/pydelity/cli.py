@@ -34,7 +34,7 @@ from pydelity.errors import (
     PydelityWarning,
 )
 from pydelity.pipeline.runner import SUMMARY_LOG_KEY
-from pydelity.providers.profiles import DEFAULT_MODEL
+from pydelity.providers.profiles import DEFAULT_EXTRACTION_MODEL, DEFAULT_SURVEY_MODEL
 
 if TYPE_CHECKING:
     # Third Party Library
@@ -186,16 +186,6 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
             show_default=False,
         ),
     ] = None,
-    instructions: Annotated[
-        str | None,
-        typer.Option(
-            "--instructions",
-            "-i",
-            help="Extra instructions for the model about this PDF.",
-            metavar="TEXT",
-            show_default=False,
-        ),
-    ] = None,
     language: Annotated[
         list[str] | None,
         typer.Option(
@@ -203,6 +193,17 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
             "-l",
             help="A language of the PDF as a BCP-47 tag, such as en; repeat for more.",
             metavar="TAG",
+            show_default=False,
+        ),
+    ] = None,
+    pages: Annotated[
+        str | None,
+        typer.Option(
+            "--pages",
+            "-p",
+            help="Pages to extract, numbered from 1, such as 1-5,8; all pages if "
+            "unset.",
+            metavar="PAGES",
             show_default=False,
         ),
     ] = None,
@@ -221,10 +222,14 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
         typer.Option(
             "--model",
             "-m",
-            help="The model, as <provider>:<model-id> with provider anthropic or "
-            "openai.",
+            help="The model for every step, as <provider>:<model-id> with provider "
+            "anthropic or openai. If unset, the survey uses "
+            f"{DEFAULT_SURVEY_MODEL} and page extraction uses "
+            f"{DEFAULT_EXTRACTION_MODEL}. "
+            "advanced.extraction.model in the config file overrides it for page "
+            "extraction.",
             metavar="MODEL",
-            show_default=DEFAULT_MODEL,
+            show_default=False,
         ),
     ] = None,
     max_cost: Annotated[
@@ -243,6 +248,15 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
             "--overwrite",
             "-o",
             help="Redo steps whose outputs could be reused.",
+            show_default=False,
+        ),
+    ] = None,
+    no_pause: Annotated[
+        bool | None,
+        typer.Option(
+            "--no-pause",
+            "-np",
+            help="Run every step without stopping after the survey.",
             show_default=False,
         ),
     ] = None,
@@ -283,18 +297,20 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
         The PDF to process.
     config
         A JSON or YAML file of settings.
-    instructions
-        Extra instructions for the model.
     language
         The PDF's languages as BCP-47 tags.
+    pages
+        The pages to extract, such as ``1-5,8``.
     output_dir
         The output folder.
     model
-        The model, as ``<provider>:<model-id>``.
+        The model for every step, as ``<provider>:<model-id>``.
     max_cost
         The spending limit in US dollars, checked when settings are validated.
     overwrite
         Whether to redo steps whose outputs could be reused.
+    no_pause
+        Whether to run every step without stopping after the survey.
     yes
         Whether to go ahead without asking.
     verbose
@@ -320,12 +336,13 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
     # print it a second time.
     warnings.filterwarnings("ignore", category=PydelityWarning)
     given = {
-        "instructions": instructions,
         "languages": language or None,
         "max_cost": max_cost,
         "model": model,
         "output_dir": output_dir,
         "overwrite": overwrite,
+        "pages": pages,
+        "pause": False if no_pause else None,
     }
     settings = {name: value for name, value in given.items() if value is not None}
     try:

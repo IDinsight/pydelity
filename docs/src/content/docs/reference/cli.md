@@ -17,17 +17,21 @@ pydelity [OPTIONS] [pdf]
 
 - `pdf`: The PDF to process. Overrides pdf in the config file.
 - `--config`, `-c` `FILE`: A JSON or YAML file of settings.
-- `--instructions`, `-i` `TEXT`: Extra instructions for the model about this
-  PDF.
 - `--language`, `-l` `TAG`: A language of the PDF as a BCP-47 tag, such as en;
   repeat for more.
+- `--pages`, `-p` `PAGES`: Pages to extract, numbered from 1, such as 1-5,8; all
+  pages if unset.
 - `--output-dir`, `-d` `DIR`: The output folder. Default:
   `pydelity-output/<PDF name>`.
-- `--model`, `-m` `MODEL`: The model, as &lt;provider&gt;:&lt;model-id&gt; with
-  provider anthropic or openai. Default: `anthropic:claude-opus-5-5`.
+- `--model`, `-m` `MODEL`: The model for every step, as
+  &lt;provider&gt;:&lt;model-id&gt; with provider anthropic or openai. If unset,
+  the survey uses anthropic:claude-opus-5-5 and page extraction uses
+  anthropic:claude-opus-5-5. advanced.extraction.model in the config file
+  overrides it for page extraction.
 - `--max-cost`, `-mc` `USD`: The most the output folder's model requests may
   cost, in US dollars.
 - `--overwrite`, `-o`: Redo steps whose outputs could be reused.
+- `--no-pause`, `-np`: Run every step without stopping after the survey.
 - `--yes`, `-y`: Go ahead without asking, even over max_cost (after its
   warning).
 - `--verbose`, `-v`: Also show progress and details, such as the settings in

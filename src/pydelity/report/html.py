@@ -430,7 +430,7 @@ def _profile_section(survey: PdfSurvey) -> str:
                 )
                 or "none",
             ),
-            ("Your instructions", profile.user_instructions or "none"),
+            ("Your survey instructions", survey.inputs.instructions or "none"),
         ]
     )
     notes = "<h3>Continuation notes</h3>" + _list(profile.continuation_notes)

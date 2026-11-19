@@ -3,7 +3,7 @@
 A valid ``pdf_survey.json`` whose fingerprint matches the survey's inputs is reused
 unless ``overwrite`` is set. Otherwise the model surveys the PDF, and Python builds the
 profile from its accepted answer. It adds the ``other`` label, merges the languages,
-keeps the user's instructions and converts region boxes to points.
+and converts region boxes to points.
 """
 
 # Standard Library
@@ -261,7 +261,6 @@ def build_survey(
             page_numbering=answer.page_numbering,
             rotation=answer.rotation,
             start_markers=answer.start_markers,
-            user_instructions=config.instructions,
             writing_direction=answer.writing_direction,
         ),
         proposal=Proposal(
@@ -392,8 +391,8 @@ def survey_fingerprint(inputs: SurveyInputs) -> str:
     -------
     str
         The ``sha256:`` fingerprint of the PDF's SHA-256, the facts' fingerprint, the
-        model, the user's instructions and languages, the survey settings, the prompt
-        version and the survey schema version.
+        model, the user's survey instructions and languages, the survey settings, the
+        prompt version and the survey schema version.
     """
 
     return fingerprint(
@@ -432,9 +431,9 @@ def survey_inputs(*, config: Config, facts: PdfFacts) -> SurveyInputs:
     survey_settings = config.advanced.survey
     return SurveyInputs(
         facts_fingerprint=facts.fingerprint,
-        instructions=config.instructions,
+        instructions=config.advanced.survey.instructions,
         languages=config.languages,
-        model=config.model_choice.setting,
+        model=config.survey_model.setting,
         page_count=facts.pdf.page_count,
         pdf_bytes=facts.pdf.bytes,
         pdf_name=facts.pdf.name,

@@ -212,14 +212,14 @@ def estimate_survey(
         go over ``max_cost``.
     """
 
-    model = config.model
+    model = config.survey_model.setting
     survey = config.advanced.survey
     requests_max = 0 if reused else survey.check_retries + 1
-    input_tokens = page_count * config.model_choice.profile.pdf_tokens_per_page
+    input_tokens = page_count * config.survey_model.profile.pdf_tokens_per_page
     input_tokens += math.ceil(prompt_chars / PROMPT_CHARS_PER_TOKEN)
 
     def price(*, input_count: int, output_count: int) -> Decimal | None:
-        """Price token counts for the run's model."""
+        """Price token counts for the survey's model."""
 
         return price_usage(
             input_tokens=input_count,

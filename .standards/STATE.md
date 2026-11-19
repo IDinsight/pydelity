@@ -15,8 +15,11 @@
 `.standards/docs/scope/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
 `Architecture`:
 `.standards/docs/specs/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
-`Development`: `NONE` `PromotionReason`: `NONE` `AuditTarget`: `NONE`
-`BlockedOn`: `NONE` `PendingVerificationCadence`: `NONE`
+`Development`:
+`.standards/docs/development/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
+`DEV-001 is done; approve the files and folders DEV-002 will change before it starts.`
+`PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
 

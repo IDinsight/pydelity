@@ -155,7 +155,7 @@ async def build_model(
             survey, transport = await run_survey(model=model, ...)
     """
 
-    choice = config.model_choice
+    choice = config.survey_model
     settings = choice.profile.effort_settings(effort)
     settings["max_tokens"] = max_output_tokens
     client = _sdk_client(

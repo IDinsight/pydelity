@@ -303,14 +303,14 @@ class LedgerModel(WrapperModel):
         pdf = self._context.pdf
         pdf_tokens = 0
         if pdf is not None:
-            profile = self._config.model_choice.profile
+            profile = self._config.survey_model.profile
             pdf_tokens = pdf.page_count * profile.pdf_tokens_per_page
         input_tokens = _input_tokens(
             messages=messages, parameters=parameters, pdf_tokens=pdf_tokens
         )
         upper_bound = price_usage(
             input_tokens=input_tokens,
-            model=self._config.model,
+            model=self._config.survey_model.setting,
             output_tokens=(model_settings or {}).get("max_tokens", 0),
             overrides=self._config.advanced.models,
         )
@@ -336,7 +336,7 @@ class LedgerModel(WrapperModel):
             temporary failure, the retries made.
         """
 
-        choice = self._config.model_choice
+        choice = self._config.survey_model
         provider_message = _provider_message(error)
         status_code = error.status_code if isinstance(error, ModelHTTPError) else None
         temporary = _is_temporary(error)
@@ -377,9 +377,9 @@ class LedgerModel(WrapperModel):
             The response, with the usage the provider reported.
         """
 
-        choice = self._config.model_choice
+        choice = self._config.survey_model
         cost, source = price_response(
-            model=self._config.model,
+            model=self._config.survey_model.setting,
             overrides=self._config.advanced.models,
             response=response,
         )
