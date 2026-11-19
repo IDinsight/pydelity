@@ -202,7 +202,9 @@ def _check_api(*, provider: str, smoke: _Smoke) -> None:
         env=smoke.env,
     )
     lines = result.stdout.splitlines()
-    imported = Path(lines[0]) if lines else None
+    # The child reports its real path. On macOS the temporary folder is a symbolic
+    # link (/var to /private/var), so both paths are resolved before comparing.
+    imported = Path(lines[0]).resolve() if lines else None
     smoke.checks.add(
         detail=result.stdout + result.stderr,
         name=f"Python API with {provider}: the run completes and load() matches it",
@@ -211,7 +213,7 @@ def _check_api(*, provider: str, smoke: _Smoke) -> None:
     smoke.checks.add(
         detail=f"pydelity was imported from {imported}",
         name=f"Python API with {provider}: pydelity is the installed copy",
-        ok=imported is not None and imported.is_relative_to(smoke.venv.path),
+        ok=imported is not None and imported.is_relative_to(smoke.venv.path.resolve()),
     )
     _check_requests(name=f"Python API with {provider}", smoke=smoke, start=before)
 
