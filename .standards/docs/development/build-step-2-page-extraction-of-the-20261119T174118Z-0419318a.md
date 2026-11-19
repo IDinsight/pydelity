@@ -862,8 +862,7 @@ uncommitted DEV-007 changes (macOS arm64, Python 3.13.9, PydanticAI 2.69).
 
 ### DEV-008 — Stand-in provider for page requests, canned answers and a rotated test PDF
 
-`Status`: `PENDING` `Depends On`: `DEV-007` `Acceptance`:
-`AC-011, AC-045, AC-047`
+`Status`: `DONE` `Depends On`: `DEV-007` `Acceptance`: `AC-011, AC-045, AC-047`
 
 **Goal**
 
@@ -896,6 +895,64 @@ Lint, including `tests` for the changed files; the existing stand-in tests still
 pass; `python -m tests.fixtures.mock_providers` answers a hand-made page request
 in each provider's format; the rotated PDF opens with the expected rotations and
 passes `check-added-large-files`.
+
+Evidence, 2026-11-19, repo root, on the user's DEV-007 commit plus the
+uncommitted DEV-008 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
+
+- `.venv/bin/ruff check` and `ruff format --check` on
+  `scripts src tests/fixtures`, `ty check scripts src tests/fixtures`: passed;
+  `interrogate scripts src tests`: 100%.
+- `.venv/bin/python -m pytest -q --numprocesses auto`: the same 7 failed and 98
+  passed; every existing stand-in test still passes.
+- `prek run check-added-large-files` on the rotated PDF and the answers file:
+  passed. `prek run markdownlint-cli2` on `SOURCES.md`: passed, after fixing a
+  missing blank line before a separator in this plan, which markdownlint read as
+  a heading.
+- `python -m tests.fixtures.mock_providers --help` lists `--page-answers`.
+- The rotated PDF: made by the command recorded in `SOURCES.md`; 187,076 bytes,
+  7 pages with rotation attributes 0, 90, 180, 270, 0, 0, 0, the same text on
+  every page as `irs_w9_instructions.pdf`, its 22 bookmarks and its structure
+  tags. Saving without object streams gave 274 KB, so the command uses them.
+  Running the command again changes only the second part of the trailer's file
+  ID, so `SOURCES.md` records the committed file's hash and says so.
+- Scratchpad `dev008_check.py` (pydelity's survey and `ask_extractor`/
+  `ask_verifier` through the real Anthropic and OpenAI SDKs and `build_model`,
+  sent to the stand-in with a 0.3-second delay per model request): 15 of 15
+  checks passed.
+  - For each provider, a survey of the 1965 scan gets the canned survey answer;
+    then both pages are extracted at once, page 1 started first. Each page gets
+    its own canned answer (20 items on the front, 11 on the back), which passes
+    every check against the profile the survey made, and the verifier's `passed`
+    verdict. The recorded requests carry `page_index` and `agent`: page 1 and
+    page 0 for the extractor, then each for the verifier.
+  - Anthropic requests carry an `image` block with a JPEG `base64` source and no
+    `document`; OpenAI requests carry an `input_image` with a JPEG data URI and
+    `detail: "original"` and no `input_file`. Two model requests were answered
+    at the same time.
+  - With no canned answer for page 1, its request gets HTTP 400 and pydelity
+    raises
+    `ProviderError: anthropic:claude-opus-5-5: No extractor answer for page index 1 (mock provider). The request was for extraction, page 2 (index 1), extractor.`
+  - Hand-made requests: an Anthropic page request gets the extractor's first
+    answer, then its second, which then repeats; an OpenAI request holding "The
+    extraction to review:" gets the verifier's answer; a request naming no page
+    gets the survey answer.
+
+**Implementation Notes**
+
+- The stand-in tells a page request by the `Page index N (` line pydelity's
+  prompts start the page text with, and the verifier by the "The extraction to
+  review:" heading only its requests hold. Changing either in
+  `extracting/prompts.py` means changing `tests/fixtures/mock_providers.py` too.
+- `page_answers` takes one answer or a list per page and agent, as
+  `read_page_answers` reads them from a JSON file keyed by page index, so a test
+  can script retries. A page request without an answer gets HTTP 400 rather than
+  the survey queue, so a routing mistake fails loudly.
+- `RecordedRequest` gains `agent` and `page_index`, and `MockProviders` gains
+  `max_in_flight`, the most model requests it answered at the same time, which
+  DEV-009 uses to show the concurrency limit holds.
+- The canned answers describe the blank 1965 form as printed: headings,
+  instruction text, empty fields and unmarked checkboxes, and the dependents
+  table with its header row and two empty rows.
 
 ---
 
@@ -1174,7 +1231,9 @@ page file, the extraction checks and review-issue names, and the changed
 
 **Self-Check**
 
-`just docs-reference` twice with byte-identical output; `just lint`; `just docs-build`.
+`just docs-reference` twice with byte-identical output; `just lint`;
+`just docs-build`.
+
 ---
 
 ## Plan Notes
