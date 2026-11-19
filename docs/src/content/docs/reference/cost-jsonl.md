@@ -14,6 +14,9 @@ response pydelity received, in the order received.
 
 One model request that returned a response, as a line of `cost.jsonl`.
 
+- `agent` (string or null; required): The step's agent that made the request,
+  such as `extractor` or `verifier`; `None` for a step with one agent, such as
+  the survey.
 - `cache_read_tokens` (integer; required): Input tokens read from the provider's
   prompt cache (included in `input_tokens`).
 - `cache_write_tokens` (integer; required): Input tokens written to the
@@ -23,12 +26,14 @@ One model request that returned a response, as a line of `cost.jsonl`.
 - `input_tokens` (integer; required): All input tokens of the request.
 - `model` (string; required): The model ID pydelity asked for.
 - `output_tokens` (integer; required): Output tokens, thinking included.
+- `page_index` (integer or null; required): The page the request was about
+  (0-based); `None` for a request about the whole PDF, such as the survey's.
 - `price_source` (string or null; required): Where the price came from:
   `genai-prices <version>`, `config` (prices set in `advanced.models`), or
   `None` when unpriced.
 - `provider` (string; required): The provider, `anthropic` or `openai`.
-- `request` (integer; required): The request's number within the step's run,
-  from 1.
+- `request` (integer; required): The request's number, from 1, among this run's
+  requests by the same step, page and agent.
 - `response_model` (string or null; required): The model name the provider
   reported, which may carry a date or version.
 - `run_id` (string; required): The run that made the request.

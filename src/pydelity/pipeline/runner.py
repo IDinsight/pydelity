@@ -189,8 +189,8 @@ async def _ask_before_spending(
 ) -> None:
     """Check the estimate against ``max_cost`` and ask whether to continue.
 
-    If the estimate exceeds ``max_cost``, only the guard's over-``max_cost`` question
-    is asked. Otherwise ``confirm`` is called, if given.
+    If the expected cost would take the folder over ``max_cost``, only the guard's
+    over-``max_cost`` question is asked. Otherwise ``confirm`` is called, if given.
 
     Parameters
     ----------
@@ -210,7 +210,7 @@ async def _ask_before_spending(
     """
 
     if estimate.over_max_cost:
-        await guard.check(check="plan", upper_bound_usd=estimate.max_usd)
+        await guard.check(check="plan", upper_bound_usd=estimate.expected_usd)
     elif confirm is not None and not await run_in_daemon_thread(
         lambda: confirm(estimate)
     ):
@@ -786,18 +786,19 @@ async def _survey(
         )
         survey_settings = config.advanced.survey
         context = LedgerContext(
+            agent=None,
             guard=guard,
             ledger_path=ledger_path,
+            page_index=None,
             pdf=run.pdf,
             run_id=run.run_id,
             step=_SURVEY_STEP,
         )
         async with build_model(
+            choice=config.survey_model,
             config=config,
             context=context,
-            effort=survey_settings.effort,
-            max_output_tokens=survey_settings.max_output_tokens,
-            request_timeout_seconds=survey_settings.request_timeout_seconds,
+            step_settings=survey_settings,
         ) as model:
             logger.info(
                 "Model ready: {model_id} from {provider}, effort {effort}, {mode} "

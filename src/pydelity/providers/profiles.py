@@ -1,15 +1,18 @@
 """Provider profiles and model settings.
 
 pydelity stores no per-model data, such as page, size or context-window limits or a
-list of models, because it would go out of date. A profile holds only facts that apply
-to every model from a provider. Model IDs are sent to the provider unchanged, and the
-provider decides whether the model exists and accepts the PDF and the settings.
+list of models, because it would go out of date. A profile holds only facts about a
+provider, such as the largest image its current models read without shrinking it.
+Model IDs are sent to the provider unchanged, and the provider decides whether the
+model exists and accepts the PDF, the images and the settings.
 """
 
 # Future Library
 from __future__ import annotations
 
 # Standard Library
+import math
+
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
@@ -43,6 +46,13 @@ _ANTHROPIC_PDF_TEXT_TOKENS = 3_000
 # seconds).
 _ANTHROPIC_UPLOAD_EXPIRY_HOURS = (1, 2_160)
 
+# Images Anthropic reads without shrinking them, on Claude 4.7 and later models: at most
+# 2,576 px on the long edge and 4,784 patches of 28 x 28 px, each one input token
+# (Anthropic's vision guide). Older models shrink larger images to their own limit.
+_ANTHROPIC_IMAGE_MAX_LONG_EDGE_PX = 2_576
+_ANTHROPIC_IMAGE_MAX_PATCHES = 4_784
+_ANTHROPIC_IMAGE_PATCH_PX = 28
+
 # Estimated input tokens for one PDF page sent to OpenAI, which reads both the page's
 # extracted text and an image of the page. OpenAI gives no per-page figure, so the text
 # share uses Anthropic's documented upper bound (the same page text), and the image
@@ -53,6 +63,16 @@ _OPENAI_PDF_TEXT_TOKENS = 3_000
 # OpenAI's Files API keeps an upload for 1 hour to 30 days (3,600 to 2,592,000 seconds)
 # when given an expiry.
 _OPENAI_UPLOAD_EXPIRY_HOURS = (1, 720)
+
+# Images OpenAI reads at their own size with detail "original": at most 6,000 px on the
+# long edge and 10,000 patches of 32 x 32 px on the GPT-5.4 and GPT-5.5 models, the
+# lowest limits of the models that take "original" (OpenAI's images guide). Their image
+# tokens are the patches times 1.2.
+_OPENAI_IMAGE_DETAIL = "original"
+_OPENAI_IMAGE_MAX_LONG_EDGE_PX = 6_000
+_OPENAI_IMAGE_MAX_PATCHES = 10_000
+_OPENAI_IMAGE_PATCH_PX = 32
+_OPENAI_IMAGE_TOKENS_PER_PATCH = 1.2
 
 
 def _anthropic_effort_settings(effort: Effort) -> ModelSettings:
@@ -132,6 +152,19 @@ class ProviderProfile:
     ----------
     effort_settings
         Turns pydelity's effort level into the provider's request settings.
+    image_detail
+        The detail value sent with each image so the provider reads it at its own
+        size, or ``None`` when the provider takes no such value.
+    image_max_long_edge_px
+        The longest edge, in pixels, of an image the provider reads without shrinking
+        it.
+    image_max_patches
+        The most patches an image the provider reads without shrinking it may have.
+    image_patch_px
+        The side of the square patches, in pixels, that the provider counts an image
+        in (see `image_patches`).
+    image_tokens
+        The most input tokens one image within these limits can cost.
     max_upload_expiry_hours
         The longest upload expiry the provider allows, and pydelity's default.
     min_upload_expiry_hours
@@ -149,6 +182,11 @@ class ProviderProfile:
     """
 
     effort_settings: Callable[[Effort], ModelSettings]
+    image_detail: str | None
+    image_max_long_edge_px: int
+    image_max_patches: int
+    image_patch_px: int
+    image_tokens: int
     max_upload_expiry_hours: int
     min_upload_expiry_hours: int
     name: ProviderName
@@ -156,6 +194,31 @@ class ProviderProfile:
     pdf_text_tokens_per_page: int
     pdf_transports: tuple[PdfTransport, ...]
     upload_purpose: str | None
+
+    def image_patches(self, *, height_px: int, width_px: int) -> int:
+        """Count the patches the provider divides an image into.
+
+        Parameters
+        ----------
+        height_px
+            The image's height in pixels.
+        width_px
+            The image's width in pixels.
+
+        Returns
+        -------
+        int
+            The patches across times the patches down, counting part of a patch as a
+            whole one.
+
+        Examples
+        --------
+        >>> PROFILES["anthropic"].image_patches(height_px=1000, width_px=1000)
+        1296
+        """
+
+        side = self.image_patch_px
+        return math.ceil(width_px / side) * math.ceil(height_px / side)
 
     @property
     def pdf_tokens_per_page(self) -> int:
@@ -174,6 +237,11 @@ DEFAULT_SURVEY_MODEL = "anthropic:claude-opus-5-5"
 PROFILES: dict[ProviderName, ProviderProfile] = {
     "anthropic": ProviderProfile(
         effort_settings=_anthropic_effort_settings,
+        image_detail=None,
+        image_max_long_edge_px=_ANTHROPIC_IMAGE_MAX_LONG_EDGE_PX,
+        image_max_patches=_ANTHROPIC_IMAGE_MAX_PATCHES,
+        image_patch_px=_ANTHROPIC_IMAGE_PATCH_PX,
+        image_tokens=_ANTHROPIC_IMAGE_MAX_PATCHES,
         max_upload_expiry_hours=_ANTHROPIC_UPLOAD_EXPIRY_HOURS[1],
         min_upload_expiry_hours=_ANTHROPIC_UPLOAD_EXPIRY_HOURS[0],
         name="anthropic",
@@ -184,6 +252,13 @@ PROFILES: dict[ProviderName, ProviderProfile] = {
     ),
     "openai": ProviderProfile(
         effort_settings=_openai_effort_settings,
+        image_detail=_OPENAI_IMAGE_DETAIL,
+        image_max_long_edge_px=_OPENAI_IMAGE_MAX_LONG_EDGE_PX,
+        image_max_patches=_OPENAI_IMAGE_MAX_PATCHES,
+        image_patch_px=_OPENAI_IMAGE_PATCH_PX,
+        image_tokens=math.ceil(
+            _OPENAI_IMAGE_MAX_PATCHES * _OPENAI_IMAGE_TOKENS_PER_PATCH
+        ),
         max_upload_expiry_hours=_OPENAI_UPLOAD_EXPIRY_HOURS[1],
         min_upload_expiry_hours=_OPENAI_UPLOAD_EXPIRY_HOURS[0],
         name="openai",

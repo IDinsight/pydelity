@@ -30,6 +30,10 @@ class _Record(BaseModel):
 class LedgerEntry(_Record):
     """One model request that returned a response, as a line of ``cost.jsonl``."""
 
+    agent: str | None
+    """The step's agent that made the request, such as ``extractor`` or ``verifier``;
+    ``None`` for a step with one agent, such as the survey."""
+
     cache_read_tokens: int
     """Input tokens read from the provider's prompt cache (included in
     ``input_tokens``)."""
@@ -51,6 +55,10 @@ class LedgerEntry(_Record):
     output_tokens: int
     """Output tokens, thinking included."""
 
+    page_index: int | None
+    """The page the request was about (0-based); ``None`` for a request about the
+    whole PDF, such as the survey's."""
+
     price_source: str | None
     """Where the price came from: ``genai-prices <version>``, ``config`` (prices set in
     ``advanced.models``), or ``None`` when unpriced."""
@@ -59,7 +67,8 @@ class LedgerEntry(_Record):
     """The provider, ``anthropic`` or ``openai``."""
 
     request: int
-    """The request's number within the step's run, from 1."""
+    """The request's number, from 1, among this run's requests by the same step, page
+    and agent."""
 
     response_model: str | None
     """The model name the provider reported, which may carry a date or version."""
@@ -91,8 +100,10 @@ class MaxCostWarning(_Record):
     """The ``max_cost`` setting."""
 
     projected_usd: Money | None
-    """The spend the run could reach: the folder's spend so far plus the run's (or the
-    request's) maximum; ``None`` when no price is known for the model."""
+    """The spend the run could reach: the folder's spend so far, plus the most that
+    requests still waiting for an answer can cost, plus the run's expected cost
+    (``plan``) or the request's maximum (``request``); ``None`` when no price is known
+    for the model."""
 
     spent_usd: Money
     """What the output folder's ledger had recorded before the check."""
@@ -102,7 +113,8 @@ class StepEstimate(_Record):
     """The cost estimate for one step."""
 
     expected_usd: Money | None
-    """The likely cost: one request with a typical answer; ``None`` when unpriced."""
+    """The likely cost: one request per agent (and per page, for a page step) with a
+    typical answer; ``None`` when unpriced."""
 
     max_usd: Money | None
     """The most the step can cost: every allowed retry, each with the longest answer
@@ -113,6 +125,10 @@ class StepEstimate(_Record):
 
     name: str
     """The step, such as ``survey``."""
+
+    pages: int | None
+    """How many pages the step would send requests about, for a page step; ``None``
+    for a step that reads the whole PDF at once, such as the survey."""
 
     requests_max: int
     """The most model requests the step can make (provider retries aside)."""
@@ -134,8 +150,9 @@ class CostEstimate(_Record):
     """The most the steps can cost; ``None`` when a model is unpriced."""
 
     over_max_cost: bool
-    """Whether ``max_cost`` is set and either the folder's spend plus ``max_usd``
-    exceeds it or a model has no known price."""
+    """Whether ``max_cost`` is set and either the folder's spend plus
+    ``expected_usd`` exceeds it or a model has no known price. Each request is still
+    checked against its own maximum before it is sent."""
 
     priced: bool
     """Whether a price is known for every model the run uses."""

@@ -201,8 +201,9 @@ DEV-002 changes (macOS arm64, Python 3.13.9).
 - `.venv/bin/ruff check scripts src`, `ruff format`, `ty check scripts src`: all
   passed; `interrogate scripts src`: 100%.
 - `.venv/bin/python -m pytest -q --numprocesses auto`: 100 passed, the same 5
-  failed as after DEV-001 (top-level `instructions`), none new. `ty check tests`:
-  the same 2 errors as after DEV-001. Doctests: 18 passed, 1 skipped.
+  failed as after DEV-001 (top-level `instructions`), none new.
+  `ty check tests`: the same 2 errors as after DEV-001. Doctests: 18 passed, 1
+  skipped.
 - Reference pages regenerated and formatted as in DEV-001 (Prettier outside the
   sandbox): only `reference/run-json.md` (`paused`, `steps[].pages`,
   `review[].item_id`, `review[].step` with `extraction`) and
@@ -235,8 +236,8 @@ DEV-002 changes (macOS arm64, Python 3.13.9).
   (`SurveyCheckName`, `SurveyComparisonName`, formerly `CheckName` and
   `ComparisonName` in `surveying/schemas.py`), because `ReviewIssue.check` needs
   them and `surveying/schemas.py` imports `review.py`. DEV-005 adds page
-  extraction's names there. `CheckResult` stays in `surveying/schemas.py`,
-  since its names are the survey's.
+  extraction's names there. `CheckResult` stays in `surveying/schemas.py`, since
+  its names are the survey's.
 - The runner keeps a `_Step` per started step (outputs, transport, page counts,
   status, error, times). `_finish` ends a step still running as `failed` when
   the run failed and `stopped` otherwise; only the step that was running gets
@@ -250,7 +251,7 @@ DEV-002 changes (macOS arm64, Python 3.13.9).
 
 ### DEV-003 — Spend control for page requests
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-001` `Acceptance`:
 `AC-028, AC-030, AC-058`
 
 **Goal**
@@ -292,6 +293,89 @@ a small `max_cost`, and shows that recorded spend plus reservations never passes
 it without the decision, that a canceled request releases its reservation, and
 that an image adds the profile's tokens to the bound; a stand-in survey run
 whose ledger line has `page_index` and `agent` set to `null`.
+
+Evidence, 2026-11-19, repo root, on `458d1f6` plus the uncommitted DEV-001 to
+DEV-003 changes (macOS arm64, Python 3.13.9).
+
+- Provider image limits, read on 2026-11-19 by a web-fetch subagent from the
+  official guides:
+  - Anthropic, `https://platform.claude.com/docs/en/build-with-claude/vision`:
+    for "Claude 4.7 and later models" the high-resolution tier allows a long
+    edge of 2,576 px and 4,784 visual tokens; an image costs
+    `ceil(width/28) x ceil(height/28)` tokens (28 x 28 px patches); older models
+    shrink to 1,568 px and 1,568 tokens.
+  - OpenAI, `https://platform.openai.com/docs/guides/images-vision` (redirects
+    to `https://developers.openai.com/api/docs/guides/images-vision`): `detail`
+    takes `low`, `high`, `original` and `auto`; patches are 32 x 32 px,
+    `ceil(width/32) x ceil(height/32)`, times a 1.2 multiplier on the GPT-5.x
+    models. `original` allows 10,000 patches and 6,000 px on GPT-5.4 and
+    GPT-5.5 and up to 65,535 px per side on GPT-5.6 and GPT-6-astra, with 30,000
+    patches per image at most; GPT-5.2, GPT-4.1 and older do not take
+    `original`.
+  - So `ProviderProfile` holds Anthropic 2,576 px, 4,784 patches of 28 px, no
+    detail value and 4,784 tokens per image; OpenAI 6,000 px, 10,000 patches of
+    32 px (the design asked Developer to confirm the patch size; it is 32, not
+    28), `detail: "original"` and 12,000 tokens per image (10,000 x 1.2).
+- `.venv/bin/ruff check`, `ruff format`, `ty check` on `scripts src`: passed;
+  `interrogate`: 100%. Doctests: 19 passed, 1 skipped (adds
+  `ProviderProfile.image_patches`).
+- `.venv/bin/python -m pytest -q --numprocesses auto`: 98 passed, 7 failed. The
+  5 from DEV-001, plus 2 that follow from this step's design rules, for Tester
+  to update:
+  `costs/test_budget.py::test_earlier_spend_counts_and_a_disallowed_run_stops_resumably`
+  sets `max_cost` between the run's expected cost and its maximum and expects
+  the up-front warning; the up-front check now uses the expected cost (design
+  decision 12), and the request's own bound stays within `max_cost`, so no
+  warning is issued.
+  `test_cli.py::test_over_max_cost_warns_then_a_yes_completes_with_one_question`
+  matches the old wording "plus this run's maximum makes"; the warning now says
+  "plus what this run may still spend makes". `ty check tests`: the same 2
+  errors as after DEV-001.
+- Reference pages regenerated and formatted (Prettier outside the sandbox): only
+  `reference/cost-jsonl.md` changed (`agent`, `page_index`, the new meaning of
+  `request`). `python-api.md` does not list the estimate's fields, so it is
+  unchanged.
+- Scratchpad `dev003_spend_check.py` (`LedgerModel` over PydanticAI
+  `FunctionModel`s that answer after 0.3 s, models priced at $1 and $5 per
+  million tokens through `advanced.models`, `max_tokens` 10,000): 12 of 12
+  checks passed.
+  - A JPEG part adds 4,784 input tokens to an Anthropic request's bound and
+    12,000 to an OpenAI one's.
+  - Six concurrent page requests (one wrapper per page from `for_page`) with a
+    bound of $0.0548 each and `max_cost` $0.20: at most 3 were in flight, 3 were
+    sent and 3 refused with `BudgetExceededError`, the decision was asked once,
+    nothing stayed held afterward, the recorded spend stayed under $0.20, and
+    the 3 ledger lines carry `page_index` 0–2, `agent: "extractor"`,
+    `request: 1` and `step: "extraction"`.
+  - With a yes, all 6 were sent and the decision was asked once.
+  - A request canceled while waiting held its $0.0548 bound and released it.
+  - A provider HTTP 400 on page index 3 gives
+    `ProviderError: anthropic:test-model: Bad image. The request was for extraction, page 4 (index 3), extractor.`
+    and releases what it held.
+  - `estimate_survey` on the 1965 scan (expected $0.24, maximum $2.55):
+    `max_cost` between the two is not `over_max_cost`; below the expected cost
+    is. The survey's `StepEstimate.pages` is `null`.
+  - A stand-in survey run writes a ledger line with `page_index: null`,
+    `agent: null` and `request: 1`.
+
+**Implementation Notes**
+
+- `build_model` takes the step's `ModelChoice` and its settings section
+  (`advanced.survey` or `advanced.extraction`), which both hold `effort`,
+  `max_output_tokens` and `request_timeout_seconds`. Passing the three values
+  separately with the new `choice` made six parameters, over Ruff's limit of
+  five.
+- `LedgerModel.for_page(agent=..., page_index=...)` makes a wrapper per page and
+  agent on the same provider model and client. `LedgerEntry.request` now counts
+  per step, page and agent, since each wrapper counts its own requests; for the
+  survey it means what it did.
+- `SpendGuard.reserve` checks a request and holds its bound under one lock, and
+  releases it when the block ends, after the ledger line is written. After a no,
+  every later check raises `BudgetExceededError` without asking again, so
+  concurrent page requests ask once per run, as the survey did.
+- `ProviderError` from a page request names the page and the agent here, in
+  `ledger_model.py`, rather than in DEV-007, because the ledger model already
+  knows both.
 
 ---
 
