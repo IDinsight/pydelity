@@ -1,7 +1,9 @@
 name: CI
 
 # Runs the same commands that are executed locally: install, the hooks, every lint
-# recipe and the tests. Pull requests to main include Dependabot's.
+# recipe and the tests on Python 3.13, the tests on Python 3.14, and the build with the
+# wheel smoke test on Linux, macOS and Windows. The "Lint and test" job passes only when
+# all of them pass. Pull requests to main include Dependabot's.
 on:
   pull_request:
     branches: [main]
@@ -17,8 +19,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  # The branch ruleset requires the check named "Lint and test". This job gives it that
+  # name, and the work runs in the jobs it needs.
+  gate:
     name: Lint and test
+    needs: [lint-and-test, test-py314, wheel]
+    # Without this the job is skipped when a needed job fails, and the ruleset counts a
+    # skipped check as passed.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail unless every needed job succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Needed jobs ended with: $RESULTS"
+          for result in $RESULTS; do
+            if [[ "$result" != "success" ]]; then
+              echo "::error::A needed job ended with '$result'."
+              exit 1
+            fi
+          done
+
+  lint-and-test:
+    name: Lint and test (Python 3.13)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -64,3 +89,59 @@ jobs:
 
       - name: Run the tests
         run: uv run --locked just test
+
+  test-py314:
+    name: Test (Python 3.14)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Overrides .python-version for every uv command in the job, the ones the test
+      # recipe runs included, so the tests run on Python 3.14.
+      UV_PYTHON: "3.14"
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          # Kept by hand, with the same version as the lint-and-test job.
+          version: "0.13.8"
+
+      - name: Run the tests
+        run: uv run --locked just test
+
+  wheel:
+    name: Wheel install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      # Each system's result matters, so one failure does not cancel the others.
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        # Git Bash on Windows, so the build recipe's bash commands run on every system.
+        shell: bash
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          # Kept by hand, with the same version as the lint-and-test job.
+          version: "0.13.8"
+
+      - name: Build the wheel and sdist and check their metadata
+        run: uv run --locked just build
+
+      # Installs the wheel with pip in a fresh environment and runs the pydelity command
+      # and the Python API with each provider against a stand-in provider server.
+      - name: Run the wheel smoke test
+        run: uv run --locked python scripts/smoke_installed_wheel.py

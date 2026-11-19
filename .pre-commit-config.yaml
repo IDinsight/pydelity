@@ -66,7 +66,8 @@ repos:
         name: detect-secrets
         entry: uv run --locked detect-secrets-hook --baseline .secrets.baseline
         language: system
-        exclude: \.template\.env$
+        # The docs lock file's package checksums look like secrets to the entropy checks.
+        exclude: (^docs/pnpm-lock\.yaml$|\.template\.env$)
 
       - id: env-template-sync
         name: Ensure .template.env and .env match each other

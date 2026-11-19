@@ -1,0 +1,80 @@
+name: Release
+
+# Publishes the package to PyPI when release-please publishes a GitHub release. The
+# build job checks that the release tag matches the package version, builds the wheel
+# and sdist and checks their metadata. The publish job uploads them with PyPI Trusted
+# Publishing, so no PyPI token is stored anywhere. PyPI trusts this workflow only in the
+# `pypi` environment, which the repository's settings define.
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+# A release is never canceled partway; a second run for the same tag waits instead.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # A release event checks out the commit of the release's tag.
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          # No cache: a release never reuses files that other workflow runs wrote.
+          enable-cache: false
+          # Kept by hand, with the same version as the CI workflow.
+          version: "0.13.8"
+
+      - name: Check that the tag is v plus the package version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="$(uv version --short)"
+          if [[ "$TAG" != "v$version" ]]; then
+            echo "::error::Release tag $TAG does not match the package version $version (expected v$version)."
+            exit 1
+          fi
+
+      - name: Build the wheel and sdist and check their metadata
+        run: uv run --locked just build
+
+      - name: Keep the built package for the publish job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          if-no-files-found: error
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/pydelity/
+    permissions:
+      id-token: write # lets PyPI confirm that this workflow is the trusted publisher
+    steps:
+      - name: Get the built package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

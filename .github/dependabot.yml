@@ -1,7 +1,8 @@
 # Dependabot keeps the repo's pinned versions current: the dev tools in pyproject.toml
-# and uv.lock (uv), the remote hook revs in .pre-commit-config.yaml (pre-commit) and the
-# action SHAs in the workflows (github-actions). Pins it cannot update carry a "Kept by
-# hand" comment where they are set.
+# and uv.lock (uv), the docs site's packages in docs/package.json and its lock file
+# (npm), the remote hook revs in .pre-commit-config.yaml (pre-commit) and the action
+# SHAs in the workflows (github-actions). Pins it cannot update carry a "Kept by hand"
+# comment where they are set.
 #
 # Each ecosystem is checked monthly and its updates arrive as one pull request. A new
 # release waits 7 days (the minimum zizmor accepts) before Dependabot proposes it.
@@ -15,6 +16,18 @@ updates:
     directory: /
     groups:
       github-actions:
+        patterns: ["*"]
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: npm
+    commit-message:
+      prefix: build(deps)
+    cooldown:
+      default-days: 7
+    directory: /docs
+    groups:
+      npm:
         patterns: ["*"]
     schedule:
       interval: monthly
