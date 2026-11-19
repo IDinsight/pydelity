@@ -613,6 +613,51 @@ commit:
   no `__iter__` for type checkers. `measure_facts` issues warnings from the
   coroutine (`pydelity.utils.coroutines.warn`) and logs them; DEV-012 adds them
   to `run.json`.
+- Reopened on 2026-11-18 by implementation review finding
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/implementation.md#F-002`
+  (recovery frame 1): when a PDF's page-label number tree lists one start page
+  twice, PyMuPDF's `Page.get_label()` raises `TypeError`, which `_page_label`
+  did not catch. The probe then failed, and with it `measure`, `run` and the
+  CLI, before `pdf_facts.json` was written. The step's goal and acceptance are
+  unchanged: a page label that cannot be read counts as no label, and the page's
+  printed number then comes from its text, as on a page whose label has no
+  number. The test with such a PDF is Tester's.
+  - File approved by the user (2026-11-18): `src/pydelity/surveying/probe.py`
+    (change only; no new files).
+  - `_page_label` now treats any error from `Page.get_label()` as no label. The
+    document-level check `document.get_page_labels()` reads the same tree, so it
+    moved into the new private helper `_has_page_labels`, which treats any error
+    as no labels. Both comments say why every exception is caught, as
+    `_read_fact` does. No `probe_errors` item is added (the design lists only
+    bookmarks, the form and the structure), and `PROBE_VERSION` stays 1.
+  - Evidence, 2026-11-18, on `b2ba2ae` plus the uncommitted change (macOS arm64,
+    Python 3.13.9). No model was called and nothing was spent:
+    - Scratchpad `f002/dev005_f002_check.py`, 26 of 26:
+      - 14 damaged `/PageLabels` trees, each in a 4-page PDF printing 5 to 8 at
+        the bottom: a start page listed twice, odd-length `/Nums`, a name or a
+        float as a start page, a number as a label, `/Nums` or `/Kids` not an
+        array, a `/Kids` entry that is no dictionary, a `/Kids` tree that points
+        to itself, a negative start page, a huge or text `/St`, an unknown style
+        and a number as `/P`. The probe returns facts for every one.
+      - Of those 14, only the repeated start page raised before the change. Its
+        pages now read 5 to 8 from their text (`source` `text`).
+      - With `Document.get_page_labels` patched to raise, the probe still
+        returns facts, and the numbers come from the text.
+      - `pydelity.measure` writes `pdf_facts.json` for the repeated-start PDF,
+        with no warning and no probe error.
+      - The 9 committed fixture PDFs give the same facts as the probe at
+        `b2ba2ae`.
+    - Scratchpad `f002/dev005_f002_cli.py`, with the mock provider server
+      (outside the sandbox for its loopback port): the committed probe raises
+      the review's `TypeError` on a copy of `irs_form_1040a_1965_scan.pdf` whose
+      label tree lists start page 0 twice. With the change,
+      `python -m pydelity <copy> -d <folder> -m <model> --yes` exits 0 for
+      `anthropic:claude-opus-5-5` and `openai:gpt-6.2-astra`, with no traceback.
+      `run.json` says `completed` and `pdf_facts.json` is written.
+    - `just lint-python`, `just docs-reference` with `just lint-markdown`
+      (reference pages unchanged), `just lint-workflows`, the STANDARDS check
+      and `just test` (104 passed, then the doctests: 17 passed, 1 skipped)
+      pass.
 
 ### DEV-007 — Cost ledger, pricing, estimate and `max_cost` guard
 
@@ -2489,6 +2534,20 @@ arm64). No model was called and nothing was spent.
 
 ## Plan Notes
 
+- Recovery, 2026-11-18: implementation review finding
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/implementation.md#F-002`
+  (recovery frame 1, owned by `DEVELOPING`,
+  `ResumeAt: REVIEWING_IMPLEMENTATION`) reopens DEV-005. The fix stays within
+  the approved intent of DEV-005 and the design's probe rules, so the plan stays
+  approved; as with every step, the user reviews the file list first. No
+  Developer assignment was interrupted: the plan was `COMPLETE` when the review
+  started.
+  - DEV-005 is `DONE` again and the plan is `COMPLETE`, with every full
+    completion condition met. The change to `src/` makes the verification
+    report's evidence out of date, so the frame keeps `RerunThrough: TESTING`
+    and the workflow moves to `TESTING`. Tester adds the test with a damaged
+    page-label tree that the finding leaves to Tester, then resumes the
+    implementation review.
 - Recovery rerun, 2026-11-18: the user's rework for AC-047 (recovery frame 1,
   owned by `SCOPING`, `RerunThrough: DEVELOPING`, `ResumeAt: TESTING`) added
   `AC-047` to the scope (`8c873b1`) and **Example config files** with Build Plan

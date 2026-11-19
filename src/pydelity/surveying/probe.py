@@ -454,6 +454,28 @@ def _form_field(
     )
 
 
+def _has_page_labels(document: pymupdf.Document) -> bool:
+    """Check whether a PDF defines page labels, treating a failure as no labels.
+
+    Parameters
+    ----------
+    document
+        The open PDF.
+
+    Returns
+    -------
+    bool
+        Whether the PDF defines page labels that could be read.
+    """
+
+    # A damaged page-label tree can raise many kinds of exceptions, so catch them
+    # all. The pages then get their printed numbers from their text.
+    try:
+        return bool(document.get_page_labels())
+    except Exception:
+        return False
+
+
 def _kids(*, kind: str, value: str) -> list[tuple[str, str]]:
     """Split a structure element's ``K`` entry into its kids.
 
@@ -791,9 +813,12 @@ def _page_label(page: pymupdf.Page) -> str:
         The label, or an empty string.
     """
 
+    # A damaged page-label tree can raise many kinds of exceptions (PyMuPDF raises
+    # TypeError when two entries start on the same page), so catch them all. The
+    # page then gets its printed number from its text.
     try:
         return page.get_label()
-    except (IndexError, RuntimeError, ValueError):
+    except Exception:
         return ""
 
 
@@ -1316,7 +1341,7 @@ def probe_pdf(path: Path) -> Facts:
     """
 
     with pymupdf.open(path, filetype="pdf") as document:
-        labels_defined = bool(document.get_page_labels())
+        labels_defined = _has_page_labels(document)
         pages: list[PageFacts] = []
         lines_by_page: list[list[_Line]] = []
         for index in range(len(document)):
