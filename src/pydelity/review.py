@@ -12,6 +12,31 @@ from typing import Literal
 # Third Party Library
 from pydantic import BaseModel, ConfigDict
 
+# Page extraction's checks on each answer, in the order they run.
+type ExtractionCheckName = Literal[
+    "labels",
+    "content",
+    "languages",
+    "boxes",
+    "containers",
+    "captions",
+    "reading_order",
+    "artifacts",
+    "form_fields",
+    "text_dropped",
+    "text_added",
+]
+
+# Page extraction's other review issues, which are recorded without sending the answer
+# back: content that no label in the profile fits, and a problem the verifier model
+# found whose correction was not kept.
+type ExtractionIssueName = Literal["no_matching_label", "verifier"]
+
+# The name of what found a review issue, in any step.
+type IssueName = (
+    ExtractionCheckName | ExtractionIssueName | SurveyCheckName | SurveyComparisonName
+)
+
 # The steps whose problems go on the review list.
 type StepName = Literal["survey", "extraction"]
 
@@ -54,12 +79,14 @@ class CheckFailure(_Output):
 class ReviewIssue(_Output):
     """A problem a person should review.
 
-    It comes from a check that still failed on a step's accepted answer, or from a
-    difference between the accepted answer and what pydelity measured.
+    It comes from a check that still failed on a step's accepted answer, from a
+    difference between the accepted answer and what pydelity measured, or from a
+    problem found another way, such as by a verifier model.
     """
 
-    check: SurveyCheckName | SurveyComparisonName
-    """The check or comparison that found the problem."""
+    check: IssueName
+    """What found the problem: a check, a comparison or another source. ``step`` says
+    whose, since two steps can have checks of the same name."""
 
     details: dict[str, object]
     """The values the problem is about, such as ``{"measured": 90, "profile": 0}``."""

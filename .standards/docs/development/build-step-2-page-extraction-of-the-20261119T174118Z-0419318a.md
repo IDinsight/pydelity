@@ -481,7 +481,7 @@ uncommitted DEV-004 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
 
 ### DEV-005 — Page answer, verdict, page file and structural checks
 
-`Status`: `PENDING` `Depends On`: `DEV-002, DEV-004` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-002, DEV-004` `Acceptance`:
 `AC-007, AC-008, AC-010, AC-012, AC-014, AC-016, AC-017, AC-018, AC-020, AC-021, AC-056`
 
 **Goal**
@@ -493,7 +493,10 @@ code wherever code can decide.
 
 `CREATE` `src/pydelity/extracting/schemas.py` and
 `src/pydelity/extracting/validators.py`; `schema_versions.py`
-(`PAGE_SCHEMA_VERSION = "1.0"`); `review.py` (check names).
+(`PAGE_SCHEMA_VERSION = "1.0"`); `review.py` (check names). Added with the
+user's approval during the step (2026-11-19): `CREATE`
+`src/pydelity/utils/text.py` and `MODIFY` `surveying/probe.py`, to share the
+repeated-line normalization the `artifacts` check needs.
 
 **Expected Outcome**
 
@@ -505,9 +508,8 @@ code wherever code can decide.
   labels, languages, instructions, form fields, page facts). The step builds it
   in DEV-009.
 - `PageFile`, `Item`, `Container` and `ExtractionCheckResult` with field
-  docstrings. An answer turns into items with Python-assigned IDs
-  (`p<NNNN>-<nnn>`, `<item id>.<k>`, `p<NNNN>-c<nn>`) and point boxes, and the
-  same answer always gives the same items.
+  docstrings. Turning an answer into items moved to DEV-009 (the user's
+  approval, 2026-11-19), where the page file is written.
 - Checks 1–9 (`labels` to `form_fields`) with messages that name the item ref,
   and the `no_matching_label` issue. A one-figure page passes every check.
 - No document type, language-specific word or default direction anywhere in the
@@ -520,6 +522,95 @@ check, `reading_order` for `ltr`, `rtl` and `ttb` with both `column_order`
 values, table spans and row widths with rowspans, a one-figure page, and the
 same answer turned into items twice with identical results; a search of
 `extracting/` for language, script and document-type words.
+
+Evidence, 2026-11-19, repo root, on the user's DEV-004 commit plus the
+uncommitted DEV-005 changes (macOS arm64, Python 3.13.9).
+
+- `uv sync --locked` outside the sandbox, for the new modules.
+- `.venv/bin/ruff check`, `ruff format`, `ty check` on `scripts src`: passed;
+  `interrogate`: 100%. Doctests: 21 passed, 1 skipped (`normalize_line` replaces
+  the probe's `_normalize` example).
+- `.venv/bin/python -m pytest -q --numprocesses auto`: the same 7 failed and 98
+  passed as after DEV-003; `ty check tests`: the same 2 errors. No test used the
+  probe's private `_normalize`.
+- Moving the normalization: scratchpad code ran the old `_normalize` from
+  `git show HEAD:src/pydelity/surveying/probe.py` beside the new
+  `utils.text.normalize_line` on all 18 repeated lines the probe finds in the
+  test PDFs; the old function, the new one and the stored `normalized` agree on
+  every line.
+- Reference pages regenerated and formatted (Prettier outside the sandbox): only
+  `reference/run-json.md` and `pdf-survey-json.md` changed, where
+  `review[].check` and `issues[].check` now list page extraction's names too.
+- Scratchpad `dev005_checks.py`: 81 of 81 checks passed.
+  - A hand-written two-column left-to-right page (page furniture, heading, text,
+    a list with nested entries, a table with a column span and a row span, a
+    figure and its caption, a formula, code with language `zxx`, a checkbox, a
+    text field, a two-button radio group, a printed field without
+    `fillable_name`, and an aside in a container) passes every check, and the
+    checks run in the order `labels`, `content`, `languages`, `boxes`,
+    `containers`, `captions`, `reading_order`, `artifacts`, `form_fields`.
+  - One change at a time fails exactly the check meant to catch it, such as:
+    a label not in the profile, a label for another role, `other` where a label
+    fits, a container label not in the profile (`labels`); a ref used twice, a
+    text item with a table, a formula without LaTeX, an empty list, a blank
+    figure description, a checkbox without `checked`, and table rows covering 3
+    and 4 columns, a row span past the last row, overlapping cells,
+    `header_rows` 4 of 3, no cell text, no rows, a span of 0 (`content`); the tag
+    `zz`, text without a language, figure text without a language (`languages`);
+    a reversed box, a box reaching 1,010, three values, two items with one box
+    (`boxes`; 1,004 passes); an unknown container, an item outside its container,
+    two containers inside each other (`containers`; 15 units outside and a box
+    inside a box pass); a caption without `caption_of`, of a missing item, of
+    itself, and `caption_of` on a body item (`captions`); dropping the page
+    furniture or giving it role `body` (`artifacts`); a checkbox state or text
+    value that differs, a radio group with one item or both buttons on, a field
+    item naming a field the page lacks, a missing form field (`form_fields`).
+    Whitespace in text values and the order of a radio group's buttons do not
+    matter.
+  - Reading order: right-to-left columns pass on an `rtl` page and fail on an
+    `ltr` one; left-to-right columns pass on `ltr` and fail on `rtl`; three
+    right-to-left columns pass; a jump back up within one column fails. On a
+    `ttb` page, a missing `column_order` fails; two bands of columns read
+    `right_to_left` pass and the same order declared `left_to_right` fails;
+    columns read left to right pass with `left_to_right`. `column_order` on an
+    `ltr` page fails. An aside anywhere in the order passes.
+  - The label `other` on a heading list, which no profile label fits, passes
+    and gives one `no_matching_label` issue (`step: "extraction"`, page 2, role
+    `heading`, kind `list`).
+  - A page that is one figure with a full-page box passes every check.
+  - `check_results` keeps the check order and the attempts; `retry_message`
+    lists each failure on its own line with the item refs; `review_issues` names
+    each item's ID from the ref map (`p0002-003`, `p0002-007`); the same answer
+    gives the same failures.
+  - `VerifierVerdict` accepts passed with nothing else and failed with problems,
+    with or without a correction; it rejects passed with a problem or a
+    correction, and failed with no problem.
+  - The JSON schemas of `PageAnswer` and `VerifierVerdict` have field
+    descriptions and no patterns, bounds or length limits.
+  - A search of `extracting/*.py` for the survey tests' document-type words,
+    language and script names, form names, "left column", "right column",
+    KGForEdGlobal, "step 2", `DEV-0` and `AC-0` finds nothing. The process
+    wording grep of the changed files finds only "cycle" in its graph sense.
+
+**Implementation Notes**
+
+- A failure about one item or container puts its ref in
+  `CheckFailure.details["item_ref"]`, and `review_issues` maps it to the ID that
+  DEV-009 assigns, so `CheckFailure` stays shared with the survey.
+- `labels` also checks that a container's label is in the profile; the design
+  names the rule for items only, and a container's label is from the profile
+  too. The label `other` passes on any item no other label fits, and
+  `unmatched_labels` records those for review.
+- `form_fields` compares a field the PDF has several times on the page, such as
+  a radio group's buttons, as a group: as many field items as widgets, with the
+  same checked states or values in any order. A field item naming a fillable
+  field the page does not have also fails.
+- In `reading_order`, a horizontal page compares top edges, and left edges on
+  `ltr` pages or right edges on `rtl` pages, where columns line up; a vertical
+  page compares right edges for `right_to_left` columns and left edges for
+  `left_to_right` ones.
+- The field-item type is `FieldItemType`, to keep it apart from the survey's
+  `FieldType` of PDF form fields.
 
 ---
 
@@ -668,6 +759,9 @@ Notes); `utils/files.py` if temp-file cleanup needs the new folders.
 - Page context resolved per page by the design's rules, so overlapping, gapped
   or out-of-PDF ranges and missing, repeated or unknown artifact IDs never fail
   the step.
+- An answer turns into items with Python-assigned IDs (`p<NNNN>-<nnn>`,
+  `<item id>.<k>`, `p<NNNN>-c<nn>`) and point boxes, and the same answer always
+  gives the same items (moved here from DEV-005).
 - Each page file's fingerprint and `inputs` cover only that page's inputs. Valid
   matching page files are reused; damaged ones (not valid, another major
   version, or a named crop missing) are extracted again with a `damaged_output`

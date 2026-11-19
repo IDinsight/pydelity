@@ -44,6 +44,7 @@ from pydelity.surveying.schemas import (
     TextFacts,
     TextQuality,
 )
+from pydelity.utils.text import normalize_line
 
 # A page's top band, and its bottom band, as a share of the displayed page's height.
 # Printed page numbers are looked for there, and repeated lines are placed by it.
@@ -611,32 +612,6 @@ def _map_types(*, role_map: dict[str, str], types: Counter[str]) -> Counter[str]
     return mapped
 
 
-def _normalize(text: str) -> str:
-    """Write a line in the form repeated lines are compared in.
-
-    Parameters
-    ----------
-    text
-        The line as printed.
-
-    Returns
-    -------
-    str
-        Without invisible formatting characters (Unicode category Cf, such as a
-        zero-width space), NFKC-normalized, case-folded, whitespace collapsed, each
-        run of digits ``#``. A line with nothing visible becomes empty.
-
-    Examples
-    --------
-    >>> _normalize("Page  12 of 30"), _normalize("Page 12\u200b"), _normalize("\u200b")
-    ('page # of #', 'page #', '')
-    """
-
-    visible = "".join(char for char in text if unicodedata.category(char) != "Cf")
-    folded = unicodedata.normalize("NFKC", visible).casefold()
-    return re.sub(r"\d+", "#", " ".join(folded.split()))
-
-
 def _number_candidates(lines: list[_Line]) -> list[tuple[float, PrintedNumber]]:
     """List the lines in a page's top and bottom bands that read as a page number.
 
@@ -903,7 +878,7 @@ def _repeated_lines(
     for index, lines in enumerate(lines_by_page):
         seen = set()
         for line in lines:
-            normalized = _normalize(line.text)
+            normalized = normalize_line(line.text)
             if normalized and normalized not in seen:
                 seen.add(normalized)
                 occurrences[normalized].append((index, line))
