@@ -18,13 +18,8 @@ from pathlib import Path
 from pydelity.costs.budget import format_usd
 from pydelity.pipeline.schemas import RunRecord
 from pydelity.report.schemas import PageImage, ReportManifest
-from pydelity.surveying.schemas import (
-    Facts,
-    PageFacts,
-    PdfFacts,
-    PdfSurvey,
-    ReviewIssue,
-)
+from pydelity.review import ReviewIssue
+from pydelity.surveying.schemas import Facts, PageFacts, PdfFacts, PdfSurvey
 from pydelity.utils.files import write_text_atomic
 
 # The report's file name in the output folder.

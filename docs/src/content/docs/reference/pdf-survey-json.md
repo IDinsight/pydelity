@@ -98,10 +98,13 @@ A problem a person should review.
   problem.
 - `details` (map of string to any value; required): The values the problem is
   about, such as `{"measured": 90, "profile": 0}`.
+- `item_id` (string or null; required): The item the problem is about, or `None`
+  when no single item applies.
 - `message` (string; required): What is wrong.
 - `page_index` (integer or null; required): The page the problem is on, or
   `None` when no single page applies.
-- `step` (one of `survey`; required): The step whose check found the problem.
+- `step` (one of `survey`, `extraction`; required): The step whose check found
+  the problem.
 
 ## `profile`
 
@@ -142,7 +145,7 @@ The model's answer that is not part of the profile.
 
 ## `checks[].failures[]`
 
-One problem a check found in the model's answer.
+One problem a check found in a model's answer.
 
 - `details` (map of string to any value; required): The proposed value and,
   where it applies, what it was checked against, such as

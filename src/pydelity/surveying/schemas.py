@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict
 
 # Package Library
 from pydelity.providers.profiles import Effort
+from pydelity.review import CheckFailure, ReviewIssue, SurveyCheckName
 
 # A page angle in degrees, counterclockwise.
 type Angle = Literal[0, 90, 180, 270]
@@ -33,22 +34,6 @@ type ArtifactPosition = Literal["top", "bottom", "left", "right", "middle"]
 
 # Where a line sits on the displayed page: the top or bottom band, or between them.
 type Band = Literal["top", "bottom", "middle"]
-
-# The survey's checks, C1 to C7 in order. The names are part of the ``run.json``
-# contract.
-type CheckName = Literal[
-    "labels",
-    "regions",
-    "rotation",
-    "page_numbering",
-    "artifacts",
-    "writing_direction",
-    "languages",
-]
-
-# The survey's comparisons of the accepted answer with the facts, whose differences
-# are review issues. The names are part of the ``run.json`` contract.
-type ComparisonName = Literal["rotation_differs", "page_number_differs"]
 
 # A writing direction: left to right, right to left, or top to bottom.
 type Direction = Literal["ltr", "rtl", "ttb"]
@@ -448,20 +433,6 @@ class Artifact(_Output):
     artifact; empty when no repeated line is."""
 
 
-class CheckFailure(_Output):
-    """One problem a check found in the model's answer."""
-
-    details: dict[str, object]
-    """The proposed value and, where it applies, what it was checked against, such as
-    ``{"proposed": 9, "page_count": 6}``."""
-
-    message: str
-    """What is wrong, starting with the check's name."""
-
-    page_index: int | None
-    """The page the problem is on, or ``None`` when no single page applies."""
-
-
 class CheckResult(_Output):
     """The result of one check on the accepted answer."""
 
@@ -471,7 +442,7 @@ class CheckResult(_Output):
     failures: list[CheckFailure]
     """The problems the check found in the accepted answer."""
 
-    name: CheckName
+    name: SurveyCheckName
     """The check."""
 
     passed: bool
@@ -580,29 +551,6 @@ class Region(_Output):
 
     page_index: int
     """The page (0-based)."""
-
-
-class ReviewIssue(_Output):
-    """A problem a person should review.
-
-    It comes from a check that still failed on the accepted answer, or from a
-    difference between the accepted answer and the measured facts.
-    """
-
-    check: CheckName | ComparisonName
-    """The check or comparison that found the problem."""
-
-    details: dict[str, object]
-    """The values the problem is about, such as ``{"measured": 90, "profile": 0}``."""
-
-    message: str
-    """What is wrong."""
-
-    page_index: int | None
-    """The page the problem is on, or ``None`` when no single page applies."""
-
-    step: Literal["survey"]
-    """The step whose check found the problem."""
 
 
 class RotationRange(_Output):

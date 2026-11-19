@@ -101,10 +101,10 @@ the sandbox, so the tools ran from `.venv/bin` directly.
   `surveying/test_survey.py:246`. Doctests (`--doctest-modules src`): 18 passed,
   1 skipped, including the new `parse_pages` example.
 - Scratchpad `dev001_settings_check.py`: 50 of 50 checks passed. Page lists
-  become canonical (`" 8 , 1-5, 4-6"` gives `1-6,8`, `1-3,4` gives `1-4`, `3`
-  as an integer gives `3`); unset is `None`. `""`, `"0"`, `"5-2"`, `"a"`,
-  `"1,,2"`, `"1 - 3"`, an Arabic-Indic digit, `-3` (text and integer), `true`
-  and `2.5` are each one `- pages:` line, such as
+  become canonical (`" 8 , 1-5, 4-6"` gives `1-6,8`, `1-3,4` gives `1-4`, `3` as
+  an integer gives `3`); unset is `None`. `""`, `"0"`, `"5-2"`, `"a"`, `"1,,2"`,
+  `"1 - 3"`, an Arabic-Indic digit, `-3` (text and integer), `true` and `2.5`
+  are each one `- pages:` line, such as
   `- pages: the range 5-2 ends before it starts`; a bad `pages` and a bad
   language are reported together. `pause` defaults to true. Blank survey and
   extraction instructions are unset; top-level `instructions` as a keyword or in
@@ -118,8 +118,8 @@ the sandbox, so the tools ran from `.venv/bin` directly.
   setting at its default (the placeholder price entry aside). The survey prompt
   ends its system message with the instructions only when they are set, never
   puts them in the user message, and `Profile` has no `user_instructions`.
-  Survey instructions change the survey fingerprint; page extraction's
-  settings, `pages` and `pause` do not.
+  Survey instructions change the survey fingerprint; page extraction's settings,
+  `pages` and `pause` do not.
 - Scratchpad `dev001_standin_check.py` (the stand-in provider from
   `tests/fixtures/mock_providers.py`, the 1965 scan and its canned answer): 12
   of 12 checks passed. For Anthropic and OpenAI, `advanced.survey.instructions`
@@ -145,16 +145,16 @@ the sandbox, so the tools ran from `.venv/bin` directly.
   model, uploads, budget, runner) now reads `config.survey_model`; DEV-003 makes
   it per step. The upload-expiry check uses the survey's model because only the
   survey uploads the PDF.
-- The survey's instructions moved from the user message to the end of the
-  system message, under a sentence saying they add to pydelity's rules (design
-  decision 18). `PROMPT_VERSION` stays 1, as scope requires. The report's
-  profile section shows them from `pdf_survey.json` `inputs`.
+- The survey's instructions moved from the user message to the end of the system
+  message, under a sentence saying they add to pydelity's rules (design decision
+  18). `PROMPT_VERSION` stays 1, as scope requires. The report's profile section
+  shows them from `pdf_survey.json` `inputs`.
 
 ---
 
 ### DEV-002 — Shared review issues, per-step run records and the page check
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`: `AC-002, AC-026`
+`Status`: `DONE` `Depends On`: `DEV-001` `Acceptance`: `AC-002, AC-026`
 
 **Goal**
 
@@ -191,6 +191,60 @@ Lint as in DEV-001; unaffected tests; a stand-in survey run whose `run.json` has
 one survey record, review issues with `step` and `item_id: null`, and warnings
 attributed to `survey`; `pages: "99"` on a 6-page PDF stops before `run.json` is
 written, from `run()` and from `estimate()`.
+
+Evidence, 2026-11-19, repo root, on `458d1f6` plus the uncommitted DEV-001 and
+DEV-002 changes (macOS arm64, Python 3.13.9).
+
+- `uv sync --locked`, run outside the sandbox because uv's cache is in
+  `~/.cache/uv`: the strict editable install links only the files that existed
+  when it was built, so the new `review.py` needed it. It rebuilt only pydelity.
+- `.venv/bin/ruff check scripts src`, `ruff format`, `ty check scripts src`: all
+  passed; `interrogate scripts src`: 100%.
+- `.venv/bin/python -m pytest -q --numprocesses auto`: 100 passed, the same 5
+  failed as after DEV-001 (top-level `instructions`), none new. `ty check tests`:
+  the same 2 errors as after DEV-001. Doctests: 18 passed, 1 skipped.
+- Reference pages regenerated and formatted as in DEV-001 (Prettier outside the
+  sandbox): only `reference/run-json.md` (`paused`, `steps[].pages`,
+  `review[].item_id`, `review[].step` with `extraction`) and
+  `pdf-survey-json.md` (`issues[].item_id` and `step`) changed.
+- Scratchpad `dev002_run_check.py` (the stand-in provider, the 1965 scan and its
+  canned answer, temporary folders): 16 of 16 checks passed.
+  - A new survey in a folder holding another PDF's `pdf_facts.json`, with a
+    language the survey's check rejects (`check_retries: 0`) and a tiny
+    `max_cost` allowed: `run.json` is `completed` with one step record
+    (`survey`, `completed`, `pages: null`, `error: null`, 1 request, outputs
+    `pdf_facts.json` and `pdf_survey.json`, start before end); the
+    `max_cost_exceeded` warning has `step: "survey"` and `other_pdf_in_folder`,
+    issued before the step, has `step: null`; `review` equals
+    `pdf_survey.json`'s one issue, with `step: "survey"` and `item_id: null`;
+    `pydelity.load` reads it back.
+  - The same settings again: the step is `reused`, with 0 requests and both
+    outputs.
+  - A model fault (HTTP 400 on every request): the run and its step are
+    `failed`, the step's `error` is the run's `ProviderError` text, and its
+    outputs are `pdf_facts.json` only.
+  - A tiny `max_cost` declined: the run and its step are `stopped`.
+  - `pages="2,5-99"` on the 6-page W-9: `run()` and `estimate()` raise
+    `ConfigError` with
+    `- pages: 2,5-99 goes past the last page; irs_form_w9.pdf has 6 pages`, and
+    the output folder is not created; `pages="1-6"` is accepted.
+
+**Implementation Notes**
+
+- `review.py` also holds the survey's check and comparison names
+  (`SurveyCheckName`, `SurveyComparisonName`, formerly `CheckName` and
+  `ComparisonName` in `surveying/schemas.py`), because `ReviewIssue.check` needs
+  them and `surveying/schemas.py` imports `review.py`. DEV-005 adds page
+  extraction's names there. `CheckResult` stays in `surveying/schemas.py`,
+  since its names are the survey's.
+- The runner keeps a `_Step` per started step (outputs, transport, page counts,
+  status, error, times). `_finish` ends a step still running as `failed` when
+  the run failed and `stopped` otherwise; only the step that was running gets
+  the error. Warnings carry the step from `running_step` in
+  `utils/coroutines.py`, which replaces counting warnings by position.
+- The page check (`_selected_pages`) lives in the runner and returns the
+  selected page indexes, which DEV-009 to DEV-011 use. Its message follows
+  `resolve_config`'s `N invalid setting:` form.
 
 ---
 

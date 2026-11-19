@@ -10,7 +10,8 @@ Blocking calls that wait for a person, such as a question on the terminal, go th
 immediately.
 
 Each user-facing warning goes through `warn`, which logs it, issues it as a
-`PydelityWarning` and, inside `collect_warnings`, keeps it for ``run.json``.
+`PydelityWarning` and, inside `collect_warnings`, keeps it for ``run.json``, with the
+step that was running when it was issued (see `running_step`).
 """
 
 # Standard Library
@@ -41,6 +42,9 @@ from pydelity.errors import PydelityWarning, WarningCode
 _COLLECTED: ContextVar["list[IssuedWarning] | None"] = ContextVar(
     "pydelity_warnings", default=None
 )
+
+# The step running in this context, inside `running_step`.
+_CURRENT_STEP: ContextVar[str | None] = ContextVar("pydelity_step", default=None)
 
 # Warnings point at the first stack frame outside this package, asyncio, PydanticAI and
 # the libraries PydanticAI runs its agent with (pydantic_graph and anyio). Model
@@ -93,11 +97,15 @@ class IssuedWarning:
         The values the warning is about, such as the damaged file's name.
     message
         The warning's text.
+    step
+        The step that was running when the warning was issued, or ``None`` when no
+        step was.
     """
 
     code: WarningCode
     message: str
     details: dict[str, object] = field(default_factory=dict)
+    step: str | None = None
 
 
 @contextmanager
@@ -217,6 +225,31 @@ def run_sync[**ParamsT, ResultT](
     )
 
 
+@contextmanager
+def running_step(name: str) -> Generator[None]:
+    """Mark the warnings issued in this context as issued by a step.
+
+    Tasks started inside the context, such as those PydanticAI starts, belong to the
+    same step.
+
+    Parameters
+    ----------
+    name
+        The step, such as ``survey``.
+
+    Yields
+    ------
+    None
+        Nothing; the step lasts while the context does.
+    """
+
+    token = _CURRENT_STEP.set(name)
+    try:
+        yield
+    finally:
+        _CURRENT_STEP.reset(token)
+
+
 def warn(
     message: str,
     *,
@@ -224,6 +257,8 @@ def warn(
     details: Mapping[str, object] | None = None,
 ) -> IssuedWarning:
     """Log a warning, issue it as a `PydelityWarning`, and keep it for the run.
+
+    The kept warning names the step running in this context (see `running_step`).
 
     The `PydelityWarning` is attributed to the caller's code.
 
@@ -242,7 +277,12 @@ def warn(
         The warning as kept, whose ``details`` the caller may still complete.
     """
 
-    issued = IssuedWarning(code=code, details=dict(details or {}), message=message)
+    issued = IssuedWarning(
+        code=code,
+        details=dict(details or {}),
+        message=message,
+        step=_CURRENT_STEP.get(),
+    )
     logger.warning(message)
     collected = _COLLECTED.get()
     if collected is not None:

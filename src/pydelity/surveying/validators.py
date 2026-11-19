@@ -21,14 +21,16 @@ from typing import Protocol
 
 # Package Library
 from pydelity.config.schemas import is_language_tag
-from pydelity.surveying.schemas import (
+from pydelity.review import (
     CheckFailure,
-    CheckName,
+    ReviewIssue,
+    SurveyCheckName,
+    SurveyComparisonName,
+)
+from pydelity.surveying.schemas import (
     CheckResult,
-    ComparisonName,
     Facts,
     PageNumberingRange,
-    ReviewIssue,
     RotationRange,
     SurveyAnswer,
 )
@@ -77,7 +79,7 @@ def _covering[RangeT: _PageRange](
 
 
 def _failure(
-    check: CheckName,
+    check: SurveyCheckName,
     message: str,
     *,
     details: dict[str, object],
@@ -108,7 +110,7 @@ def _failure(
 
 
 def _issue(
-    comparison: ComparisonName,
+    comparison: SurveyComparisonName,
     message: str,
     *,
     details: dict[str, object],
@@ -136,6 +138,7 @@ def _issue(
     return ReviewIssue(
         check=comparison,
         details=details,
+        item_id=None,
         message=f"{comparison}: {message}",
         page_index=page_index,
         step="survey",
@@ -236,7 +239,7 @@ def _profile_number(numbering: PageNumberingRange | None, *, page: int) -> int |
 
 
 def _range_failures(
-    check: CheckName, ranges: Sequence[_PageRange], page_count: int
+    check: SurveyCheckName, ranges: Sequence[_PageRange], page_count: int
 ) -> list[CheckFailure]:
     """Check that page ranges lie inside the PDF and do not overlap.
 
@@ -566,7 +569,7 @@ def check_regions(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
 
 
 def check_results(
-    failures: dict[CheckName, list[CheckFailure]], *, attempts: int
+    failures: dict[SurveyCheckName, list[CheckFailure]], *, attempts: int
 ) -> list[CheckResult]:
     """Record each check's result on the accepted answer, C1 to C7 in order.
 
@@ -659,7 +662,7 @@ def compare_with_facts(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
     return _rotation_issues(answer, facts) + _page_number_issues(answer, facts)
 
 
-def retry_message(failures: dict[CheckName, list[CheckFailure]]) -> str:
+def retry_message(failures: dict[SurveyCheckName, list[CheckFailure]]) -> str:
     """Write the message that asks the model to fix its answer.
 
     Parameters
@@ -698,6 +701,7 @@ def review_issues(results: list[CheckResult]) -> list[ReviewIssue]:
         ReviewIssue(
             check=result.name,
             details=failure.details,
+            item_id=None,
             message=failure.message,
             page_index=failure.page_index,
             step="survey",
@@ -709,7 +713,7 @@ def review_issues(results: list[CheckResult]) -> list[ReviewIssue]:
 
 def run_checks(
     answer: SurveyAnswer, facts: Facts
-) -> dict[CheckName, list[CheckFailure]]:
+) -> dict[SurveyCheckName, list[CheckFailure]]:
     """Run checks C1 to C7 on an answer.
 
     Parameters
@@ -721,7 +725,7 @@ def run_checks(
 
     Returns
     -------
-    dict[CheckName, list[CheckFailure]]
+    dict[SurveyCheckName, list[CheckFailure]]
         Each check's failures, C1 to C7 in order; an empty list when it passed.
     """
 
@@ -729,7 +733,7 @@ def run_checks(
 
 
 # The checks, C1 to C7 in order.
-CHECKS: dict[CheckName, Check] = {
+CHECKS: dict[SurveyCheckName, Check] = {
     "labels": check_labels,
     "regions": check_regions,
     "rotation": check_rotation,

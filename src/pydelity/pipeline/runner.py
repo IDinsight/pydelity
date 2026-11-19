@@ -31,7 +31,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 # Package Library
-from pydelity.config.schemas import Config
+from pydelity.config.schemas import Config, parse_pages
 from pydelity.costs.budget import (
     OverMaxCostDecision,
     SpendDeclinedError,
@@ -41,8 +41,9 @@ from pydelity.costs.budget import (
 )
 from pydelity.costs.ledger import LEDGER_FILE_NAME, Ledger, read_ledger
 from pydelity.costs.schemas import CostEstimate
-from pydelity.errors import BudgetExceededError, OutputError
+from pydelity.errors import BudgetExceededError, ConfigError, OutputError
 from pydelity.pipeline.schemas import (
+    PageCounts,
     PdfRecord,
     RunCost,
     RunRecord,
@@ -76,6 +77,7 @@ from pydelity.utils.coroutines import (
     IssuedWarning,
     collect_warnings,
     run_in_daemon_thread,
+    running_step,
     warn,
 )
 from pydelity.utils.files import load_model, remove_stale_temp_files, write_model_atomic
@@ -84,7 +86,7 @@ from pydelity.utils.pdf import PdfInfo, open_pdf
 # How many review issues the summary lists; ``run.json`` holds them all.
 _REVIEW_ISSUES_LISTED = 10
 
-# The step this cycle's pipeline runs.
+# The survey step's name in ``run.json``, ``cost.jsonl`` and the review list.
 _SURVEY_STEP = "survey"
 
 # The run record's file name in the output folder.
@@ -96,6 +98,56 @@ SUMMARY_LOG_KEY = "summary"
 
 # Asks whether to go ahead and spend, given the cost estimate.
 type SpendConfirmation = Callable[[CostEstimate], bool]
+
+
+@dataclass
+class _Step:
+    """What one step of a run has done, for ``run.json``.
+
+    Attributes
+    ----------
+    name
+        The step, such as ``survey``.
+    started_at
+        When the step started (UTC).
+    ended_at
+        When the step ended (UTC), once it has.
+    error
+        Why the step failed or stopped, if it did.
+    outputs
+        The files and folders the step wrote or reused, by name.
+    pages
+        How many pages the step selected, extracted and reused, for a step that
+        works page by page.
+    status
+        How the step ended, or ``None`` while it runs.
+    transport
+        How the step's last request carried the PDF, when one did.
+    """
+
+    name: str
+    started_at: datetime
+    ended_at: datetime | None = None
+    error: str | None = None
+    outputs: list[str] = field(default_factory=list)
+    pages: PageCounts | None = None
+    status: StepStatus | None = None
+    transport: PdfTransport | None = None
+
+    def end(self, status: StepStatus, *, error: BaseException | None = None) -> None:
+        """Record how the step ended, and when.
+
+        Parameters
+        ----------
+        status
+            How the step ended.
+        error
+            Why the step failed or stopped, if it did.
+        """
+
+        self.ended_at = datetime.now(UTC)
+        self.error = None if error is None else _describe_error(error)
+        self.status = status
 
 
 @dataclass
@@ -113,19 +165,13 @@ class _Run:
     started_at
         When the run started (UTC).
     warnings
-        The warnings issued so far, in order.
+        The warnings issued so far, in order, each with the step that issued it.
     facts
         The facts, once measured or reused.
-    step_started_at
-        When the survey step started.
-    step_status
-        How the survey step ended, once it has.
-    step_warnings_from
-        The position in ``warnings`` from which warnings belong to the survey step.
+    steps
+        The steps that started, in the order they started.
     survey
         The survey, once made or reused.
-    transport
-        How the survey's last request carried the PDF, when one did.
     """
 
     config: Config
@@ -134,11 +180,8 @@ class _Run:
     started_at: datetime
     warnings: list[IssuedWarning] = field(default_factory=list)
     facts: PdfFacts | None = None
-    step_started_at: datetime | None = None
-    step_status: StepStatus = "completed"
-    step_warnings_from: int = 0
+    steps: list[_Step] = field(default_factory=list)
     survey: PdfSurvey | None = None
-    transport: PdfTransport | None = None
 
 
 async def _ask_before_spending(
@@ -277,13 +320,12 @@ def _estimate_cost(
 
 
 async def _finish(
-    run: _Run,
-    *,
-    error: BaseException | None,
-    status: RunStatus,
-    step_status: StepStatus,
+    run: _Run, *, error: BaseException | None, status: RunStatus
 ) -> RunRecord:
     """Write the run's final ``run.json`` and the report, and log the summary.
+
+    A step still running when the run ends is recorded as ``failed`` when the run
+    failed, and as ``stopped`` otherwise.
 
     Parameters
     ----------
@@ -293,8 +335,6 @@ async def _finish(
         Why the run did not complete, if it did not.
     status
         How the run ended.
-    step_status
-        How the survey step ended.
 
     Returns
     -------
@@ -302,7 +342,10 @@ async def _finish(
         The record, as written.
     """
 
-    record = _record(run, error=error, status=status, step_status=step_status)
+    for step in run.steps:
+        if step.status is None:
+            step.end("failed" if status == "failed" else "stopped", error=error)
+    record = _record(run, error=error, status=status)
     write_model_atomic(model=record, path=run.config.output_folder / RUN_FILE_NAME)
     report = await _write_report(record, run=run)
     _log_summary(record, report=report, run=run)
@@ -455,7 +498,8 @@ def _log_summary(record: RunRecord, *, report: Path | None, run: _Run) -> None:
             "Run pydelity again to continue. The saved files are reused, and the "
             "spend so far still counts toward max_cost."
         )
-    files = [RUN_FILE_NAME, *(record.steps[0].outputs if record.steps else [])]
+    outputs = [name for step in record.steps for name in step.outputs]
+    files = [RUN_FILE_NAME, *dict.fromkeys(outputs)]
     if report is not None:
         files.append(report.name)
     summary.info(
@@ -555,13 +599,7 @@ def _prompt_chars(*, config: Config, facts: PdfFacts) -> int:
     return len(prompts.system_message) + len(prompts.user_message) + len(schema)
 
 
-def _record(
-    run: _Run,
-    *,
-    error: BaseException | None,
-    status: RunStatus,
-    step_status: StepStatus | None,
-) -> RunRecord:
+def _record(run: _Run, *, error: BaseException | None, status: RunStatus) -> RunRecord:
     """Build the run's record from what it has done.
 
     Parameters
@@ -572,43 +610,40 @@ def _record(
         Why the run did not complete, if it did not.
     status
         The run's status.
-    step_status
-        How the survey step ended, or ``None`` while the run starts.
 
     Returns
     -------
     RunRecord
-        The record for ``run.json``.
+        The record for ``run.json``, with a record for each step that has ended.
     """
 
     ended_at = None if status == "running" else datetime.now(UTC)
     ledger = read_ledger(run.config.output_folder / LEDGER_FILE_NAME)
     cost, mine = _cost(ledger=ledger, run_id=run.run_id)
-    steps = []
-    if step_status is not None:
-        outputs = [FACTS_FILE_NAME] if run.facts is not None else []
-        outputs += [SURVEY_FILE_NAME] if run.survey is not None else []
-        steps.append(
-            StepRecord(
-                cost_usd=cost.by_step.get(_SURVEY_STEP, Decimal(0)),
-                ended_at=ended_at,
-                error=None if error is None else _describe_error(error),
-                name=_SURVEY_STEP,
-                outputs=outputs,
-                pdf_transport=run.transport,
-                requests=sum(1 for p in mine if ledger.entries[p].step == _SURVEY_STEP),
-                started_at=run.step_started_at or run.started_at,
-                status=step_status,
-            )
+    steps = [
+        StepRecord(
+            cost_usd=cost.by_step.get(step.name, Decimal(0)),
+            ended_at=step.ended_at,
+            error=step.error,
+            name=step.name,
+            outputs=step.outputs,
+            pages=step.pages,
+            pdf_transport=step.transport,
+            requests=sum(1 for p in mine if ledger.entries[p].step == step.name),
+            started_at=step.started_at,
+            status=step.status,
         )
+        for step in run.steps
+        if step.status is not None
+    ]
     warnings = [
         WarningItem(
             code=issued.code,
             details=issued.details,
             message=issued.message,
-            step=_SURVEY_STEP if position >= run.step_warnings_from else None,
+            step=issued.step,
         )
-        for position, issued in enumerate(run.warnings)
+        for issued in run.warnings
     ]
     return RunRecord(
         cost=cost,
@@ -662,6 +697,42 @@ def _report_files(record: RunRecord, *, run: _Run) -> Path:
     )
 
 
+def _selected_pages(*, config: Config, pdf: PdfInfo) -> list[int]:
+    """Turn the ``pages`` setting into the indexes of the selected pages.
+
+    Parameters
+    ----------
+    config
+        The run's settings.
+    pdf
+        The opened PDF, for its page count.
+
+    Returns
+    -------
+    list[int]
+        The selected pages' 0-based indexes, in order; every page when ``pages`` is
+        unset.
+
+    Raises
+    ------
+    ConfigError
+        If ``pages`` names a page past the PDF's last page.
+    """
+
+    count = pdf.page_count
+    if config.pages is None:
+        return list(range(count))
+
+    ranges = parse_pages(config.pages)
+    if ranges[-1][1] > count:
+        noun = "page" if count == 1 else "pages"
+        raise ConfigError(
+            f"1 invalid setting:\n- pages: {config.pages} goes past the last page; "
+            f"{pdf.name} has {count} {noun}"
+        )
+    return [index for first, last in ranges for index in range(first - 1, last)]
+
+
 async def _survey(
     run: _Run,
     *,
@@ -671,7 +742,8 @@ async def _survey(
     """Run the survey step: measure the PDF, then reuse or make the survey.
 
     A new survey first checks the API key and the cost estimate, and asks before
-    spending.
+    spending. The step is added to ``run.steps`` when it starts and ended when it
+    reuses or makes the survey; a step that raises is ended by the caller.
 
     Parameters
     ----------
@@ -691,59 +763,67 @@ async def _survey(
     """
 
     config = run.config
-    run.step_started_at = datetime.now(UTC)
-    run.facts = await measure_facts(
-        output_folder=config.output_folder, overwrite=config.overwrite, pdf=run.pdf
-    )
-    run.survey = saved_survey(
-        config=config, facts=run.facts, output_folder=config.output_folder
-    )
-    if run.survey is not None:
-        run.step_status = "reused"
-        return run.survey
-
-    ledger_path = config.output_folder / LEDGER_FILE_NAME
-    guard = SpendGuard(
-        decide=decide_over_max_cost, ledger_path=ledger_path, max_cost=config.max_cost
-    )
-    survey_settings = config.advanced.survey
-    context = LedgerContext(
-        guard=guard,
-        ledger_path=ledger_path,
-        pdf=run.pdf,
-        run_id=run.run_id,
-        step=_SURVEY_STEP,
-    )
-    async with build_model(
-        config=config,
-        context=context,
-        effort=survey_settings.effort,
-        max_output_tokens=survey_settings.max_output_tokens,
-        request_timeout_seconds=survey_settings.request_timeout_seconds,
-    ) as model:
-        logger.info(
-            "Model ready: {model_id} from {provider}, effort {effort}, {mode} "
-            "structured output",
-            effort=survey_settings.effort,
-            mode=output_mode(model),
-            model_id=config.survey_model.model_id,
-            provider=config.survey_model.provider,
+    step = _Step(name=_SURVEY_STEP, started_at=datetime.now(UTC))
+    run.steps.append(step)
+    with running_step(_SURVEY_STEP):
+        run.facts = await measure_facts(
+            output_folder=config.output_folder, overwrite=config.overwrite, pdf=run.pdf
         )
-
-        estimate = _estimate_cost(
-            config=config,
-            page_count=run.pdf.page_count,
-            prompt_chars=_prompt_chars(config=config, facts=run.facts),
-            reused=False,
+        step.outputs.append(FACTS_FILE_NAME)
+        run.survey = saved_survey(
+            config=config, facts=run.facts, output_folder=config.output_folder
         )
-        await _ask_before_spending(confirm=confirm, estimate=estimate, guard=guard)
-        run.survey, run.transport = await run_survey(
-            config=config,
-            facts=run.facts,
-            model=model,
-            output_folder=config.output_folder,
+        if run.survey is not None:
+            step.outputs.append(SURVEY_FILE_NAME)
+            step.end("reused")
+            return run.survey
+
+        ledger_path = config.output_folder / LEDGER_FILE_NAME
+        guard = SpendGuard(
+            decide=decide_over_max_cost,
+            ledger_path=ledger_path,
+            max_cost=config.max_cost,
+        )
+        survey_settings = config.advanced.survey
+        context = LedgerContext(
+            guard=guard,
+            ledger_path=ledger_path,
             pdf=run.pdf,
+            run_id=run.run_id,
+            step=_SURVEY_STEP,
         )
+        async with build_model(
+            config=config,
+            context=context,
+            effort=survey_settings.effort,
+            max_output_tokens=survey_settings.max_output_tokens,
+            request_timeout_seconds=survey_settings.request_timeout_seconds,
+        ) as model:
+            logger.info(
+                "Model ready: {model_id} from {provider}, effort {effort}, {mode} "
+                "structured output",
+                effort=survey_settings.effort,
+                mode=output_mode(model),
+                model_id=config.survey_model.model_id,
+                provider=config.survey_model.provider,
+            )
+
+            estimate = _estimate_cost(
+                config=config,
+                page_count=run.pdf.page_count,
+                prompt_chars=_prompt_chars(config=config, facts=run.facts),
+                reused=False,
+            )
+            await _ask_before_spending(confirm=confirm, estimate=estimate, guard=guard)
+            run.survey, step.transport = await run_survey(
+                config=config,
+                facts=run.facts,
+                model=model,
+                output_folder=config.output_folder,
+                pdf=run.pdf,
+            )
+    step.outputs.append(SURVEY_FILE_NAME)
+    step.end("completed")
     return run.survey
 
 
@@ -901,11 +981,14 @@ async def run_estimate(*, config: Config) -> CostEstimate:
 
     Raises
     ------
+    ConfigError
+        If ``pages`` names a page past the PDF's last page.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
     """
 
     pdf = await _open(config)
+    _selected_pages(config=config, pdf=pdf)
     facts = await measure_facts(
         output_folder=config.output_folder,
         overwrite=config.overwrite,
@@ -957,9 +1040,9 @@ async def run_pipeline(
 ) -> RunResult:
     """Run the pipeline on the PDF and record the run in ``run.json``.
 
-    The PDF is opened before anything is written. Then the output folder is
-    prepared: created, cleared of temporary files left by interrupted writes, and
-    checked for results of another PDF.
+    The PDF is opened, and ``pages`` checked against it, before anything is written.
+    Then the output folder is prepared: created, cleared of temporary files left by
+    interrupted writes, and checked for results of another PDF.
 
     Parameters
     ----------
@@ -981,6 +1064,8 @@ async def run_pipeline(
     ------
     BudgetExceededError
         If the run could go over ``max_cost`` and the decision is no.
+    ConfigError
+        If ``pages`` names a page past the PDF's last page.
     MissingApiKeyError
         If the selected provider's API key is not set.
     PdfError
@@ -996,6 +1081,7 @@ async def run_pipeline(
     """
 
     pdf = await _open(config)
+    _selected_pages(config=config, pdf=pdf)
     folder = config.output_folder
     _prepare_folder(folder)
 
@@ -1005,9 +1091,8 @@ async def run_pipeline(
     with collect_warnings() as collected:
         run.warnings = collected
         _warn_other_pdf(folder=folder, sha256=pdf.sha256)
-        run.step_warnings_from = len(collected)
         write_model_atomic(
-            model=_record(run, error=None, status="running", step_status=None),
+            model=_record(run, error=None, status="running"),
             path=folder / RUN_FILE_NAME,
         )
         try:
@@ -1015,17 +1100,15 @@ async def run_pipeline(
                 run, confirm=confirm, decide_over_max_cost=decide_over_max_cost
             )
         except (BudgetExceededError, SpendDeclinedError) as error:
-            await _finish(run, error=error, status="stopped", step_status="stopped")
+            await _finish(run, error=error, status="stopped")
             raise
         except (KeyboardInterrupt, asyncio.CancelledError) as error:
-            await _finish(run, error=error, status="interrupted", step_status="stopped")
+            await _finish(run, error=error, status="interrupted")
             raise
         except Exception as error:
-            await _finish(run, error=error, status="failed", step_status="failed")
+            await _finish(run, error=error, status="failed")
             raise
-        record = await _finish(
-            run, error=None, status="completed", step_status=run.step_status
-        )
+        record = await _finish(run, error=None, status="completed")
 
     return RunResult(
         facts=run.facts,
