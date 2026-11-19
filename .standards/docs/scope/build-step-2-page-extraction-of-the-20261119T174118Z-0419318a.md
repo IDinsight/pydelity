@@ -45,7 +45,7 @@ profile before paying for page extraction, and it fixes the follow-ups that
   assume a document type, a language or a writing direction. There is no
   hand-written per-document config, no domain Pydantic class and no
   language-specific word list. Document-specific knowledge comes only from the
-  survey's profile and the user's instructions.
+  survey's profile and the instructions the user gives each step.
 - The model's reading of a page is trusted over measured facts such as the text
   layer. Code may send an answer back with the difference it found, but the
   model's final answer is kept, and any difference left goes on the review list.
@@ -64,6 +64,9 @@ profile before paying for page extraction, and it fixes the follow-ups that
   yes. Python callers pass `allow_over_max_cost=True` or get an error and a run
   they can resume.
 - How many times a failed provider request is retried is a setting.
+- Names and defaults the user chose: the CLI option that turns the pauses off is
+  `--no-pause` with the short form `-np`, and page extraction's default model is
+  `anthropic:claude-opus-5-5` at effort `high`.
 - Every Python function that measures, estimates or runs has an async version
   named with an `a` prefix. `load` stays sync.
 - Internal versions stay where they are, because no one uses pydelity yet.
@@ -98,7 +101,9 @@ profile before paying for page extraction, and it fixes the follow-ups that
   reaches `main` as a non-breaking `feat:` commit (the squash-merged pull
   request's title), release-please opens the 0.2.0 release pull request, and
   accepting it publishes 0.2.0 to PyPI and to the docs site. In-cycle evidence
-  covers release readiness, not the upload or the deployment.
+  covers release readiness, not the upload or the deployment. Moving the
+  instructions setting does not make that commit breaking, because no one uses
+  pydelity yet and a breaking commit would make release-please propose 1.0.0.
 
 ## Non-goals
 
@@ -119,7 +124,11 @@ profile before paying for page extraction, and it fixes the follow-ups that
 - Shipping per-model PDF input limits, checking a PDF against them, and
   splitting a PDF a provider rejects.
 - A default spending limit.
-- Migrating output folders written by 0.1.x.
+- Backwards compatibility with 0.1.x, because pydelity has no public users yet.
+  Renamed or removed settings, CLI options, Python functions and output fields
+  get no aliases, deprecation warnings or migration, and no field gets a default
+  only so that files written by 0.1.x still load. Output folders written by
+  0.1.x are not migrated.
 - just recipes that work on Windows without a POSIX shell. Windows support means
   installing and using pydelity.
 - A hosted service, a web UI beyond the HTML report, telemetry, and other Level
@@ -127,11 +136,12 @@ profile before paying for page extraction, and it fixes the follow-ups that
 
 ## Work
 
-### 1. Choose pages, model and pauses
+### 1. Choose pages, model, instructions and pauses
 
-**Intent:** Let a user say which pages to extract and with which model, and stop
-after the survey to check the profile before paying for page extraction. Later
-steps will pause the same way, controlled by the same setting.
+**Intent:** Let a user say which pages to extract and with which model, tell
+each step what is unusual about the PDF, and stop after the survey to check the
+profile before paying for page extraction. Later steps will pause the same way,
+controlled by the same setting, and can have their own instructions.
 
 **Done when:**
 
@@ -156,6 +166,20 @@ steps will pause the same way, controlled by the same setting.
 - `AC-006`: `examples/config.json` and `examples/config.yaml` hold every setting
   the config file accepts, including the new ones, at its default, and pydelity
   reads both without a settings error.
+- `AC-059`: Each step has its own optional instructions setting under
+  `advanced:`, `advanced.survey.instructions` for the survey and
+  `advanced.extraction.instructions` for page extraction, in which the user
+  describes in their own words what is particular, different or nuanced about
+  the PDF. Both are set in the config file or from Python, and neither has a CLI
+  option.
+- `AC-060`: The survey's instructions are sent only to the survey's model. Page
+  extraction's instructions are sent with every page to the page extraction
+  model and to the verifier model, and to no other step's model. A step without
+  instructions sends none.
+- `AC-061`: The top-level `instructions` setting and the `--instructions`/`-i`
+  CLI option are gone. A config file, Python call or command that still uses
+  them stops before any model call with the error any unknown setting or option
+  gives.
 
 **Depends on:** None.
 
@@ -283,10 +307,10 @@ independent, so several run at the same time to finish a long PDF sooner.
   requests run at the same time.
 - `AC-031`: Rerunning with unchanged inputs reuses every valid page file without
   a model call. A page reruns when anything its extraction depends on changes:
-  the PDF, the survey's profile or artifact classification, the instructions,
-  the model, or a setting page extraction uses. Selecting more pages extracts
-  only the newly selected ones. `overwrite` reruns every selected page. A change
-  that affects only page extraction does not rerun the survey.
+  the PDF, the survey's profile or artifact classification, page extraction's
+  instructions, the model, or a setting page extraction uses. Selecting more
+  pages extracts only the newly selected ones. `overwrite` reruns every selected
+  page. A change that affects only page extraction does not rerun the survey.
 - `AC-032`: An interrupted run (an error, a timeout or Ctrl+C) leaves no
   half-written page file or figure crop, and a damaged page file is regenerated
   on the next run.
@@ -430,10 +454,12 @@ tests cannot show.
   and `role` lists, the rendering resolution, how the verifier's corrections are
   applied, whether items carry a language tag or a later adapter fills it from
   the profile's languages, what happens to pages still in extraction when one
-  page fails, any per-model image limit, and page extraction's default model and
-  per-page settings. Copied per page, the survey's default of 32,000 output
-  tokens would bring the `max_cost` question on nearly every run, so page
-  extraction needs its own defaults.
+  page fails, any per-model image limit, and page extraction's other per-page
+  settings. The user asked that the page image size be checked against what the
+  providers recommend rather than kept at 2,000 pixels on the long edge. Copied
+  per page, the survey's default of 32,000 output tokens would bring the
+  `max_cost` question on nearly every run, so page extraction needs its own
+  defaults.
 - Step 2's prompt version starts at 1 and is not raised before 0.2.0. Reruns
   during development use `overwrite`.
 - Narrowing the `pages` selection leaves the page files of pages no longer

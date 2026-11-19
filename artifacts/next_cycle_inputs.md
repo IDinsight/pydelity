@@ -599,7 +599,17 @@ it up. Add to this list whenever work is moved out of the current step.
 - **Model per step (each later step).** The global `model` setting chooses the
   model for every step. Step 2 adds an optional page extraction override under
   `advanced:`, and each later step gets its own optional override the same way.
+- **Instructions per step (each later step).** Instructions live under each
+  step's `advanced:` section, `advanced.survey.instructions` and
+  `advanced.extraction.instructions` in step 2, and go only to that step's
+  models. They are set in the config file or from Python, with no CLI option,
+  because each step's instructions are specific to that step. Step 2 removes the
+  top-level `instructions` setting and `--instructions`/`-i`. Each later step
+  gets its own optional `advanced.<step>.instructions` the same way.
 - **Raising internal versions again (not yet decided).** Step 2 raises no
   `PROBE_VERSION`, `PROMPT_VERSION` or output `schema_version`, because no one
   uses pydelity yet. When to go back to raising them for changed outputs is
-  still open.
+  still open. Step 2 also keeps no backwards compatibility with 0.1.x (no
+  aliases, deprecation warnings, migration or defaults kept only for old files).
+  When pydelity starts keeping compatibility, likely once it has public users,
+  is open too.
