@@ -17,16 +17,21 @@ add the other steps.
 
 ## Install
 
-pydelity needs Python 3.13 or later on Windows, macOS or Linux. To use the
-`pydelity` command anywhere, install it with
-[uv](https://docs.astral.sh/uv/getting-started/installation/):
+pydelity needs Python 3.13 or 3.14 on Windows, macOS or Linux. On a Mac, Python
+3.14 needs macOS 14 or later. Python 3.15 isn't supported yet, because a library
+PyMuPDF needs has no Python 3.15 release.
+
+To use the `pydelity` command anywhere, install it with
+[uv](https://docs.astral.sh/uv/getting-started/installation/), which downloads
+Python 3.13 if you don't have it:
 
 ```sh
-uv tool install pydelity
+uv tool install --python 3.13 pydelity
 ```
 
 To use it from Python, install it into your project's environment instead, for
-example with `pip install pydelity` or `uv add pydelity`.
+example with `pip install pydelity` or `uv add pydelity`, in an environment that
+runs Python 3.13 or 3.14.
 
 pydelity is MIT-licensed. It uses [PyMuPDF](https://pymupdf.readthedocs.io/) to
 read PDFs, which is licensed under the AGPL-3.0 or a commercial license from

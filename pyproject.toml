@@ -2,7 +2,8 @@
 
 [build-system]
 build-backend = "setuptools.build_meta"
-# 77+ supports SPDX `license` expressions with `license-files`.
+# 77+ supports SPDX `license` expressions with `license-files`. Kept by hand:
+# Dependabot ignores setuptools, since a build installs the newest version anyway.
 requires = ["setuptools>=77"]
 
 # Dev tools live in a dependency group, so they never appear in published metadata.

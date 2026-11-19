@@ -19,7 +19,7 @@ each page's content and assemble it into one document.
    Python 3.13 if you don't have it:
 
    ```sh
-   uv tool install pydelity
+   uv tool install --python 3.13 pydelity
    ```
 
 2. Set your Anthropic API key, replacing `[API_KEY]` with your own key:

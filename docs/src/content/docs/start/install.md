@@ -5,8 +5,22 @@ description:
   provider.
 ---
 
-pydelity needs Python 3.13 or later. It runs on Windows, macOS and Linux, and
+pydelity needs Python 3.13 or 3.14. It runs on Windows, macOS and Linux, and
 every change is checked by installing and running it on all three.
+
+## Check your Python
+
+pydelity works with Python 3.13 and 3.14, with two limits:
+
+- On a Mac, Python 3.14 needs macOS 14 (Sonoma) or later. On macOS 13, use
+  Python 3.13.
+- Python 3.15 isn't supported yet. PyMuPDF, which pydelity uses to read PDFs,
+  needs [onnxruntime](https://pypi.org/project/onnxruntime/), and onnxruntime
+  has no release for Python 3.15 yet.
+
+On Python 3.15, installing pydelity fails with an error that names
+`onnxruntime`. The commands below choose Python 3.13, which works everywhere
+pydelity does.
 
 ## Check your platform
 
@@ -25,11 +39,12 @@ Ubuntu.
 ## Install the command
 
 To use the `pydelity` command from any folder, install it as a tool with
-[uv](https://docs.astral.sh/uv/getting-started/installation/). uv also installs
-a suitable Python if you don't have one.
+[uv](https://docs.astral.sh/uv/getting-started/installation/). The
+`--python 3.13` option makes uv run pydelity with Python 3.13, which uv
+downloads if you don't have it.
 
 ```sh
-uv tool install pydelity
+uv tool install --python 3.13 pydelity
 ```
 
 Then check that it works:
@@ -41,7 +56,8 @@ pydelity --version
 If your shell can't find `pydelity`, run `uv tool update-shell` and open a new
 terminal. To upgrade later, run `uv tool upgrade pydelity`.
 
-[pipx](https://pipx.pypa.io/) works the same way: `pipx install pydelity`.
+[pipx](https://pipx.pypa.io/) works the same way, as long as it uses Python 3.13
+or 3.14: `pipx install --python python3.13 pydelity`.
 
 ## Install it for Python code
 
@@ -54,10 +70,12 @@ With uv:
 uv add pydelity
 ```
 
+uv uses the project's Python, which must be 3.13 or 3.14.
+
 With pip, in a virtual environment on macOS or Linux:
 
 ```sh
-python3 -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate
 pip install pydelity
 ```
@@ -65,7 +83,7 @@ pip install pydelity
 On Windows, in PowerShell:
 
 ```powershell
-py -m venv .venv
+py -3.13 -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install pydelity
 ```
