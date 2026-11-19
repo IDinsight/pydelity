@@ -112,9 +112,9 @@ with `--yes`, it continues after the warning. In Python, the run raises
 
 ### Does it work on Windows?
 
-Yes. pydelity runs on Windows, macOS and Linux with Python 3.13 or later. A few
-platforms have no ready-built PyMuPDF 2 package, among them Intel Macs and
-Windows on ARM. See
+Yes. pydelity runs on Windows, macOS and Linux with Python 3.13 or 3.14 (see
+[Check your Python](../start/install/#check-your-python)). A few platforms have
+no ready-built PyMuPDF 2 package, among them Intel Macs and Windows on ARM. See
 [Check your platform](../start/install/#check-your-platform).
 
 ### Can I run it in a script, without the cost question?

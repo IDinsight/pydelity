@@ -47,7 +47,7 @@ Check the version in the release pull request before merging it.
    `Publish to PyPI` job waits for approval if the `pypi` environment requires
    it.
 4. Check that the new version is on [PyPI](https://pypi.org/project/pydelity/)
-   and that `uv tool install pydelity` installs it.
+   and that `uv tool install --python 3.13 pydelity` installs it.
 5. Check that the docs site shows the new version.
 
 If the `Release` workflow fails before publishing, fix the cause and re-run the
