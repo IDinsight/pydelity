@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -28,18 +28,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `RESUME` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
-`Scope adds a no-backwards-compatibility non-goal; Architect's pending rerun covers it, so no other rerun.`
+`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Design rerun done (per-step instructions, effort high, -np, image size from provider limits, no 0.1.x compatibility); frame closed.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `DEVELOPING` `Owner`: `SCOPING` `FailureType`: `SCOPING` `Reason`:
-`User rework: add an optional page extraction instructions setting, then rerun architecture for effort high, -np and the page image size.`
-`ResumeAt`: `DEVELOPING` `RerunThrough`: `ARCHITECTING`
+`Active`: `false`
 
 ## Outstanding Obligations
 

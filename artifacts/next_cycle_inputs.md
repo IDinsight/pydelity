@@ -599,6 +599,9 @@ it up. Add to this list whenever work is moved out of the current step.
 - **Model per step (each later step).** The global `model` setting chooses the
   model for every step. Step 2 adds an optional page extraction override under
   `advanced:`, and each later step gets its own optional override the same way.
+  With neither set, every step defaults to `anthropic:claude-opus-5-5` at effort
+  `high`, as the survey and page extraction do (the user's decision,
+  2026-11-19).
 - **Instructions per step (each later step).** Instructions live under each
   step's `advanced:` section, `advanced.survey.instructions` and
   `advanced.extraction.instructions` in step 2, and go only to that step's

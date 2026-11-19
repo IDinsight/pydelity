@@ -27,7 +27,11 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
   can be enforced (Pydantic, then `extracting/validators.py`, then the verifier
   model); no per-model limits; no default `max_cost`; an async twin for every
   function that measures, estimates or runs; internal versions are not raised
-  and step 2's versions start at 1; 0.1.x output folders are not migrated.
+  and step 2's versions start at 1; no backwards compatibility with 0.1.x (no
+  aliases, deprecation paths, migrations, or defaults kept only so 0.1.x files
+  load); names and defaults the user chose (`--no-pause`/`-np`; page extraction
+  on `anthropic:claude-opus-5-5` at effort `high`); instructions per step under
+  `advanced:`, replacing the top-level setting (`AC-059` to `AC-061`).
 - File and folder names are the user's to approve before the build step that
   creates them. `src/pydelity/extracting/` with `agents.py`, `llm.py`,
   `prompts.py`, `validators.py` and `schemas.py` is fixed by scope. Every other
@@ -53,28 +57,35 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
    optional (`None` by default). The survey uses `model`, else
    `anthropic:claude-opus-5-5`. Page extraction uses
    `advanced.extraction.model`, else `model`, else its own default,
-   `anthropic:claude-opus-5-5`. The two defaults are separate constants so
-   either can change alone. Page extraction defaults to the same model because
-   faithfulness is the product and the verifier uses the same model. The
-   resolved setting, never `config.model`, goes to `build_model`, `LedgerModel`,
-   pricing, the estimate and fingerprints.
+   `anthropic:claude-opus-5-5` at effort `high` (the user's choice). The two
+   defaults are separate constants so either can change alone. The resolved
+   setting, never `config.model`, goes to `build_model`, `LedgerModel`, pricing,
+   the estimate and fingerprints. `Config.model_choice` is removed; callers name
+   the step.
 3. **Pages are selected with `pages`, and runs pause after a new survey.**
    `pages` (`--pages`, `-p`) takes 1-based page numbers and ranges, such as
    `1-5,8`; unset means every page. Its syntax is checked with the other
    settings, and page numbers past the PDF are checked right after the PDF is
    opened, both as `ConfigError` naming `pages`, before anything is written or
-   sent. `pause` (default `true`; `--no-pause`, `-n`) makes `run()` and the CLI
+   sent. `pause` (default `true`; `--no-pause`, `-np`) makes `run()` and the CLI
    stop after a step that wrote new output in this run, before the next step.
    With one later step, the only pause is after a new survey. `extract()` never
    pauses, because its caller asked for page extraction.
 4. **One request per page, from an upright image rendered by pydelity.** Page
    extraction never sends the PDF or uses the survey's upload. For each selected
    page, pydelity renders the displayed page turned clockwise by the profile's
-   rotation for that page, so content is upright, as a JPEG (quality 90) whose
-   long edge is 2,000 pixels. Each extractor and verifier request carries that
-   one image (`AC-058`); several pages run at once as separate requests. OpenAI
-   requests ask for `detail: "high"`. Rendering size and format are constants,
-   not settings.
+   rotation for that page, so content is upright, as a JPEG (quality 90). The
+   image is as large as the providers use without shrinking it, from their
+   documented limits, not a fixed size: the largest that fits Anthropic's
+   high-resolution limits (at most 2,576 px on the long edge and at most 4,784
+   tiles of 28 x 28 px), within OpenAI's `detail: "original"` limits, and never
+   above 300 DPI. That is about 2,180 px on the long edge (about 200 DPI) for a
+   Letter or A4 page. OpenAI requests send the same image with
+   `detail: "original"`, so OpenAI does not shrink it to `high`'s 2,048 px and
+   2,500 patches. Each extractor and verifier request carries that one image
+   (`AC-058`); several pages run at once as separate requests. The limits are
+   provider-level facts in `providers/profiles.py`; the size rule and the format
+   are not settings.
 5. **The model gives boxes on a 0–1000 grid of the upright image.** Integer
    `[x0, y0, x1, y1]` in thousandths of the image's width and height from its
    top left. The grid is independent of any resizing a provider does and costs
@@ -150,14 +161,14 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
     `BudgetExceededError` are unchanged.
 13. **Each page file is reused while its own inputs are unchanged.** A page
     file's fingerprint covers only what that page's requests are made from: the
-    PDF, the page, its resolved page context (labels, languages, instructions,
-    this page's direction and rotation, its repeated lines and their artifact
-    classification, its measured page facts and form fields), the resolved
-    model, the step's settings that change answers, `PROMPT_VERSION`, the
-    rendering constants and the page file's schema version. So a profile change
-    reruns only the pages it touches, a new selection extracts only new pages,
-    `overwrite` reruns every selected page, and no extraction setting reruns the
-    survey.
+    PDF, the page, its resolved page context (labels, languages, page
+    extraction's instructions, this page's direction and rotation, its repeated
+    lines and their artifact classification, its measured page facts and form
+    fields), the resolved model, the step's settings that change answers,
+    `PROMPT_VERSION`, the rendering constants and the page file's schema
+    version. So a profile change reruns only the pages it touches, a new
+    selection extracts only new pages, `overwrite` reruns every selected page,
+    and no extraction setting reruns the survey.
 14. **Review issues and `run.json` become multi-step.** One shared `ReviewIssue`
     model, with `step` and an optional `item_id`, replaces the survey-only one
     and moves out of `surveying/schemas.py` to a module both steps import. The
@@ -193,6 +204,23 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
 
 17. **0.1.0's follow-ups are fixed where they live.** None raises
     `PROBE_VERSION`. Details under **Follow-up fixes**.
+18. **Each step has its own instructions, under `advanced:`.**
+    `advanced.survey.instructions` and `advanced.extraction.instructions`
+    replace the top-level `instructions` setting and `--instructions`/`-i`, with
+    no alias. Each goes only into its own step's instructions to the model (the
+    system message, sent with every request), last, under a heading that says
+    they come from the user and add to pydelity's rules without replacing them.
+    Page extraction's go to the extractor and the verifier alike. A step without
+    instructions sends no heading. The profile no longer carries instructions
+    (`Profile.user_instructions` is removed), so the survey's instructions
+    cannot reach later steps. Each step's fingerprint includes only its own
+    instructions.
+19. **No backwards compatibility with 0.1.x.** Changed models get new required
+    fields (nullable where a value can be absent), with no defaults kept for
+    0.1.x files; removed settings and options are simply unknown. A 0.1.x
+    `pdf_survey.json` or `pdf_facts.json` that no longer validates is treated as
+    damaged and made again; a 0.1.x `cost.jsonl` with more than one line stops
+    the run with `OutputError` naming the file, as any damaged ledger does.
 
 ### Defaults
 
@@ -204,12 +232,17 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
 | `advanced.extraction.model`                   | `null`       | model setting     |
 | `advanced.extraction.check_retries`           | `2`          | 0–5               |
 | `advanced.extraction.concurrent_pages`        | `8`          | 1–32              |
-| `advanced.extraction.effort`                  | `medium`     | low, medium, high |
-| `advanced.extraction.max_output_tokens`       | `24000`      | > 0               |
+| `advanced.extraction.effort`                  | `high`       | low, medium, high |
+| `advanced.extraction.instructions`            | `null`       | text              |
+| `advanced.extraction.max_output_tokens`       | `32000`      | > 0               |
 | `advanced.extraction.request_timeout_seconds` | `600`        | > 0               |
+| `advanced.survey.instructions`                | `null`       | text              |
 
-`effort`, `max_output_tokens` and `request_timeout_seconds` apply to the
-extractor and the verifier alike.
+`effort`, `instructions`, `max_output_tokens` and `request_timeout_seconds`
+apply to the extractor and the verifier alike. `max_output_tokens` includes
+thinking, which effort `high` raises, so a dense page needs the room; a larger
+limit no longer brings the plan-time `max_cost` question, because that check
+uses the expected cost (decision 12).
 
 ## Acceptance Coverage
 
@@ -220,6 +253,9 @@ extractor and the verifier alike.
   same behavior in `run()` and the CLI (decision 3, **Pause**).
 - `AC-005`: Model resolution (decision 2, **Settings**).
 - `AC-006`: **Example config files**; the existing completeness test.
+- `AC-059`, `AC-060`, `AC-061`: Per-step instructions (decision 18,
+  **Settings**, **Requests**, **CLI**); the existing unknown-setting and
+  unknown-option errors for the removed ones.
 - `AC-007`: Page file, item fields, label rule (**Page file**, check `labels`).
 - `AC-008`: ID rule (decision 7).
 - `AC-009`: Coordinate contract and mapping (decision 5); check `boxes`; the
@@ -322,25 +358,34 @@ profile, facts) and the shared review module; `surveying` never imports
 - `model: str | None = None` — "The model for every step, as
   `<provider>:<model-id>`; each step's default if unset."
 - `advanced.extraction` (`ExtractionConfig`, `extra="forbid"`, field
-  docstrings): `check_retries`, `concurrent_pages`, `effort`,
+  docstrings): `check_retries`, `concurrent_pages`, `effort`, `instructions`,
   `max_output_tokens`, `model`, `request_timeout_seconds` (Defaults table).
+- `advanced.survey` gains `instructions: str | None = None`.
+- Both `instructions` fields: "What is particular, different or nuanced about
+  this PDF, in your own words, for this step's model." Blank text counts as
+  unset.
+- The top-level `instructions` setting is removed. A file or keyword that sets
+  it gets the existing unknown-setting `ConfigError` before any model call.
 - `Config` gains properties for the resolved survey and extraction models
-  (`ModelChoice`). `Config.model_choice` goes away or becomes the survey's;
-  callers name the step.
+  (`ModelChoice`); `Config.model_choice` is removed.
 - `advanced.models` prices apply to whichever step uses the model.
 
 ### Example config files
 
 `examples/config.json` and `examples/config.yaml` gain `pages: null`,
-`pause: true`, `model: null` (replacing the current default value) and the whole
-`advanced.extraction` section at its defaults, in alphabetical key order like
-the rest. The existing completeness test covers them.
+`pause: true`, `model: null` (replacing the current default value),
+`advanced.survey.instructions: null` and the whole `advanced.extraction` section
+at its defaults, in alphabetical key order like the rest, and lose the top-level
+`instructions`. The existing completeness test covers them.
 
 ### CLI
 
 - New options: `--pages`/`-p` (`TEXT`, "Pages to extract, numbered from 1, such
-  as 1-5,8; all pages if unset") and `--no-pause`/`-n` ("Run every step without
+  as 1-5,8; all pages if unset") and `--no-pause`/`-np` ("Run every step without
   stopping after the survey"). Given options override the config file, as now.
+- `--instructions`/`-i` is removed; using it gives Typer's unknown-option usage
+  error (exit 2) before any model call. Instructions have no CLI option; they
+  are set in the config file or from Python.
 - `--model` help names both steps and both defaults.
 - Exit codes unchanged: a paused run exits 0; `ExtractionError` exits 1
   (`FAILED`), like other `PydelityError`s.
@@ -404,7 +449,7 @@ Resolved per selected page from `pdf_survey.json` and `pdf_facts.json`, so step
   `content` when `proposal.non_artifact_lines` lists it, else `unclassified`.
   IDs the facts do not have are ignored.
 - Labels: `profile.labels`. Languages: `profile.languages`. Instructions:
-  `profile.user_instructions`.
+  `advanced.extraction.instructions` (never the survey's).
 - Form fields on the page: `facts.form_fields` entries for the page; none when
   the form fact could not be read.
 - Measured page facts: size, rotation attribute, text quality.
@@ -414,7 +459,21 @@ Resolved per selected page from `pdf_survey.json` and `pdf_facts.json`, so step
 - Displayed page: `page.rect` after the rotation attribute, `W` x `H` points,
   origin top left (as the survey's form-field boxes).
 - Upright image: the displayed page turned clockwise by the page context's
-  rotation `r`, long edge 2,000 px, JPEG quality 90, no alpha.
+  rotation `r`, JPEG quality 90, no alpha, at the largest zoom whose image stays
+  within the image limits below and at most 300 DPI:
+  - Anthropic: long edge at most 2,576 px, and
+    `ceil(width/28) * ceil(height/28)` at most 4,784 (28 x 28 px tiles, one
+    visual token each);
+  - OpenAI, at `detail: "original"`: long edge at most 6,000 px and at most
+    10,000 patches, counted with the patch size OpenAI's current images guide
+    gives, which Developer confirms there.
+
+  Each `ProviderProfile` holds its provider's limits, the image detail value to
+  send, and a per-image token figure that is an upper bound for an image within
+  those limits (Anthropic: 4,784). Rendering applies every supported provider's
+  limits, so one image fits either provider without being shrunk. With the
+  figures above, Anthropic's limits bind.
+
 - Grid point `(x, y)` on the upright image gives `u = x/1000`, `v = y/1000`,
   then displayed fractions `(s, t)` and points `(s*W, t*H)`:
 
@@ -439,15 +498,19 @@ Resolved per selected page from `pdf_survey.json` and `pdf_facts.json`, so step
 - Extractor instructions (`PromptPair.system_message`, the same for every page
   of a run, so providers can cache them): the task, the item vocabulary with
   role and kind definitions, the profile's labels with role, kinds and
-  description, the item rules, the box grid, the output rules, and the user's
-  instructions last. Verifier instructions: the audit task, the checklist and
-  the verdict rules, with the same vocabulary and labels.
+  description, the item rules, the box grid, the output rules, and
+  `advanced.extraction.instructions` last (decision 18). Verifier instructions:
+  the audit task, the checklist and the verdict rules, with the same vocabulary,
+  labels and `advanced.extraction.instructions` last. The survey's prompt takes
+  `advanced.survey.instructions` the same way, in place of the top-level
+  setting.
 - User content per request: one text part whose first line is
   `Page index <i> (page <i+1> of <n>)` (logs and the test stand-in rely on it),
   then the page's direction and rotation applied, its repeated lines with their
   classification, its form fields (name, type, value, checked, options, grid
   box), and, when the text quality is `good`, the page's text-layer lines inside
-  `<text_layer>` tags as hints; then the image; then a `CachePoint`. The
+  `<text_layer>` tags as hints; then the image (with `detail: "original"` for
+  OpenAI, as PydanticAI's image vendor metadata); then a `CachePoint`. The
   verifier's text part adds the extractor's answer as JSON and the checks it
   still fails.
 - Anthropic requests also cache the instructions (PydanticAI's Anthropic
@@ -626,9 +689,16 @@ Other review-issue names: `no_matching_label` (above) and `verifier` (decision
 
 Shared `ReviewIssue`: `step` (`survey` or `extraction`), `check` (the survey's
 names, the extraction checks, `no_matching_label`, `verifier`), `message`,
-`details`, `page_index`, `item_id: str | None = None`. `pdf_survey.json` keeps
-using it, so old files still load. `run.json` `review` holds the survey's issues
-and then each selected page's issues in page order.
+`details`, `page_index`, `item_id: str | None` (required, `null` when no item
+applies). `pdf_survey.json` uses it too. `run.json` `review` holds the survey's
+issues and then each selected page's issues in page order.
+
+### Survey changes
+
+- `SurveyInputs.instructions` and the survey fingerprint take
+  `advanced.survey.instructions`; the prompt's "user's instructions" section
+  uses it (decision 18).
+- `Profile.user_instructions` is removed.
 
 ### `run.json`
 
@@ -638,15 +708,15 @@ and then each selected page's issues in page order.
   `reused`) for the extraction step. Its `outputs` names `pages/` and
   `figures/`, not each file. `pdf_transport` is `null` for extraction.
 - `warnings[].step` is the step running when the warning was issued.
-- Schema versions are not raised this cycle; new fields have defaults so 0.1.x
-  files still load.
+- Schema versions are not raised this cycle. New fields are required (decision
+  19).
 
 ### `cost.jsonl`
 
-`LedgerEntry` adds `page_index: int | None = None` and
-`agent: str | None = None` (`extractor` or `verifier`; `null` for the survey).
-`step` is `extraction` for both agents. `RunCost.by_step` and the summary report
-each step and the total.
+`LedgerEntry` adds required `page_index: int | None` and `agent: str | None`
+(`extractor` or `verifier`; both `null` for the survey). `step` is `extraction`
+for both agents. `RunCost.by_step` and the summary report each step and the
+total.
 
 ### Cost estimate and `max_cost`
 
@@ -667,10 +737,10 @@ each step and the total.
   extraction step. `StepEstimate` adds `pages: int | None`.
 - `CostEstimate.over_max_cost` becomes: `max_cost` set and recorded spend plus
   the expected cost exceeds it, or a model is unpriced (decision 12).
-- `LedgerModel` counts each image at `ProviderProfile`'s per-image figure (the
-  one PDF pages already use) and prices the request with its own step's model.
-  It reserves its bound with the guard before sending and releases it after the
-  ledger line or on any error or cancellation.
+- `LedgerModel` counts each image at `ProviderProfile`'s per-image token figure
+  (**Rendering and coordinates**) and prices the request with its own step's
+  model. It reserves its bound with the guard before sending and releases it
+  after the ledger line or on any error or cancellation.
 
 ### HTML report
 
@@ -790,14 +860,27 @@ returns the selected pages' page files. `survey()` is unchanged.
   no extraction request, and its summary says how to continue; the next run
   reuses the survey and extracts; `run()` returns a `RunResult` whose record is
   `paused`, with no exception.
-- `AC-004`: `pause` false (file, `--no-pause`/`-n`, keyword) runs survey and
+- `AC-004`: `pause` false (file, `--no-pause`/`-np`, keyword) runs survey and
   extraction in one run.
 - `AC-005`: the extraction model is `advanced.extraction.model`, else `model`,
-  else its default; the survey's is `model`, else its default; ledger lines,
-  estimates and fingerprints use each step's resolved model.
+  else `anthropic:claude-opus-5-5`; the survey's is `model`, else its default;
+  extraction's default effort is `high`; ledger lines, estimates and
+  fingerprints use each step's resolved model.
 - `AC-006`: both example files hold every setting at its default, including
-  `pages`, `pause`, `model: null` and `advanced.extraction`, and load without a
+  `pages`, `pause`, `model: null`, `advanced.survey.instructions` and
+  `advanced.extraction`, hold no top-level `instructions`, and load without a
   settings error.
+- `AC-059`: `advanced.survey.instructions` and
+  `advanced.extraction.instructions` are accepted from a file and from Python
+  (`advanced={...}`); the CLI has no option for either.
+- `AC-060`: each step's instructions appear in its own agents' instructions only
+  (the survey's agent; the extractor and the verifier), in every request of that
+  step, and in no other step's requests; with the setting unset or blank, no
+  instructions heading is sent; `pdf_survey.json` `profile` holds no
+  instructions; each step's fingerprint includes only its own instructions.
+- `AC-061`: top-level `instructions` in a file or keyword gives the
+  unknown-setting `ConfigError`, and `--instructions` or `-i` gives the
+  unknown-option usage error, both before any request.
 - `AC-007`: every page file item has an ID, a `kind` and `role` from the
   vocabulary, and a profile label whose role and kinds match, or `other` with a
   `no_matching_label` issue when no profile label has that role and kind.
@@ -810,7 +893,8 @@ returns the selected pages' page files. `survey()` is unchanged.
   band change, for `ltr`, `rtl` and `ttb` with either `column_order`.
 - `AC-011`: the image sent is upright per the resolved rotation, for rotation
   attributes 0, 90, 180 and 270 and for sideways content on rotation-0 pages; a
-  grid box maps to the displayed-page points of the same content.
+  grid box maps to the displayed-page points of the same content; the image is
+  the largest within every provider's limits and 300 DPI.
 - `AC-012`: `content` enforces the per-kind fields; list entries get their own
   IDs; tables keep rows, spans and `header_rows`; formulas carry `latex`; code
   text is stored unchanged; fields carry `value` or `checked`.
@@ -888,12 +972,15 @@ code they cover.
 
 1. **Settings and runner shape.** `MODIFY` `config/schemas.py`,
    `config/loading.py`, `examples/config.json`, `examples/config.yaml`,
-   `providers/profiles.py` (second default model): `pages`, `pause`, optional
-   `model`, `advanced.extraction`, model resolution. Move `ReviewIssue` to the
-   shared module (`CREATE` `CANDIDATE` `src/pydelity/review.py`; `MODIFY`
-   `surveying/*`, `pipeline/schemas.py`). Refactor `pipeline/runner.py` to
-   per-step records, step-attributed warnings (`MODIFY` `utils/coroutines.py`),
-   run status `paused` and the pause, with the extraction step still empty.
+   `providers/profiles.py` (second default model, image limits): `pages`,
+   `pause`, optional `model`, `advanced.extraction`, model resolution, and the
+   move of instructions to `advanced.survey.instructions` (`MODIFY`
+   `surveying/prompts.py`, `surveying/survey.py`, `surveying/schemas.py`;
+   `cli.py` loses `-i`). Move `ReviewIssue` to the shared module (`CREATE`
+   `CANDIDATE` `src/pydelity/review.py`; `MODIFY` `surveying/*`,
+   `pipeline/schemas.py`). Refactor `pipeline/runner.py` to per-step records,
+   step-attributed warnings (`MODIFY` `utils/coroutines.py`), run status
+   `paused` and the pause, with the extraction step still empty.
 2. **Costs and models.** `MODIFY` `costs/budget.py` (reservations, expected-cost
    plan check), `costs/schemas.py`, `providers/ledger_model.py` (images, step
    model, page and agent context, reservations), `providers/factory.py` (step
@@ -929,10 +1016,16 @@ code they cover.
 - Text layers that store right-to-left text in visual order, vertical text with
   unusual line order, or legacy font encodings rated `good` can mislead the
   comparison; the reversed-line match and `text_layer_mismatch` reduce this.
-- OpenAI's high detail scales images down (its shortest side to 768 pixels), so
-  small print may read worse on OpenAI models.
-- A dense page can exceed 24,000 output tokens; the run then stops with
-  `ExtractionError` naming the setting.
+- Image limits are provider documentation as of November 2026 (Anthropic's
+  vision guide for Opus 4.7 and later; OpenAI's images guide). Older Claude
+  models shrink the image to their own lower limit, which the grid coordinates
+  tolerate. An OpenAI model that does not accept `detail: "original"` fails with
+  the provider's error, as any unsupported setting does.
+- Effort `high` costs more thinking tokens per page than `medium`; the estimate
+  shows it. A dense page can still exceed 32,000 output tokens; the run then
+  stops with `ExtractionError` naming the setting.
+- A 0.1.x output folder may stop a run on its `cost.jsonl` (decision 19); the
+  user starts a new folder or deletes the old one.
 - Eight concurrent requests can hit low provider rate limits; the SDKs retry
   429s up to `provider_retries`, after which the run stops. Lowering
   `concurrent_pages` is the remedy, and the docs should say so.
@@ -967,3 +1060,10 @@ code they cover.
   atomic and resume simple.
 - **Plan-time check against the maximum** (0.1.0): rejected for multi-page
   steps, where the maximum is far above any real run.
+- **A fixed page image size** (2,000 px on the long edge in the first design):
+  rejected; it used about 85% of what Anthropic's current models take, and
+  OpenAI's `high` detail shrank it. Sizing from the providers' documented limits
+  gives the most detail they use without wasted pixels.
+- **A shared instructions setting for every step**: replaced by the user's
+  choice of instructions per step, since each step's instructions are specific
+  to it.
