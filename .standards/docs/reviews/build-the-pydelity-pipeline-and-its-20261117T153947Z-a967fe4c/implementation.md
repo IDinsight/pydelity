@@ -7,7 +7,7 @@ ReviewKind: IMPLEMENTATION
 # Review Report
 
 `Cycle`: `build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c`
-`ReviewKind`: `IMPLEMENTATION` `Status`: `BLOCKED` `User Style`: `NONE`
+`ReviewKind`: `IMPLEMENTATION` `Status`: `COMPLETE` `User Style`: `NONE`
 
 ## Assessed Inputs and Scope
 
@@ -19,6 +19,10 @@ ReviewKind: IMPLEMENTATION
   `0478a22683d35a06` (`COMPLETE`, `AFTER_IMPLEMENTATION`,
   `Current Increment: NONE`), verification report `af7061899800eecb`
   (`COMPLETE`, `FULL`), context `.standards/CONTEXT.md` `aa4a553cf773451e`.
+  Current at the final assessment (`2c8720c`): scope, design and context
+  unchanged; development plan `4aa6bef88043e791` (`COMPLETE`); verification
+  report `e8e654e6b3ccffcb` (`REVERIFY`, `COMPLETE`, `FULL`); `src` `cae826c`,
+  `tests` `268e597` (see **Progress and Conclusion**).
 - Current acceptance set (43): `AC-001`, `AC-002`, `AC-004` to `AC-011`,
   `AC-014`, `AC-015`, `AC-017` to `AC-047`. Retired, historical only: `AC-003`,
   `AC-012`, `AC-013`, `AC-016`.
@@ -47,34 +51,34 @@ ReviewKind: IMPLEMENTATION
 "Tester" cites the verification report's formal evidence, rechecked against the
 tests named there; "Reviewer" is this review's own inspection or diagnostic.
 
-| Obligation / criterion                                 | Assessed evidence                                                                                                                                                     | Current disposition                                                     |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| AC-001 measured facts                                  | Tester: `test_probe.py` (8 scenarios). Reviewer: probe rules rechecked with built PDFs (rotation, crop box, repeated-line thresholds, labels, forms, structure)       | Finding F-002 (F-001, F-003 to F-005 withdrawn)                         |
-| AC-002 profile                                         | Reviewer: `surveying/survey.py` `build_survey`, `_labels` (Python-owned `other`), schemas. Tester: `test_profile_owns_other...`                                       | Supported                                                               |
-| AC-045 checks C1–C7, retry, last attempt               | Reviewer: `validators.py`, `agents.py` (`ModelRetry`, `last_attempt`), `build_survey` reruns checks on the accepted answer. Tester: `test_validators.py`, retry tests | Supported                                                               |
-| AC-046 facts as hints, disagreements listed            | Reviewer: prompt ("Treat them as hints"), `compare_with_facts` runs once and never retries. Tester: `test_answers_that_differ...`                                     | Supported                                                               |
-| AC-004 instructions and languages                      | Reviewer: prompt sections, `_languages`, no setting skips a check                                                                                                     | Supported                                                               |
-| AC-005 facts correct on the PDF kinds listed           | Tester: fixture tests on Arabic, Japanese, W-9, CAPS, scans, tagged and untagged PDFs                                                                                 | Supported                                                               |
-| AC-006 no document-type rules                          | Reviewer: prompt, checks, schemas and enums read; checks use IDs, ranges and `langcodes` only. Tester: vocabulary test and grep                                       | Supported                                                               |
-| AC-040 facts saved first                               | Reviewer: `measure_facts` runs before `build_model` reads the key, the estimate and any question (`runner.py:691-735`). Tester: API and CLI cases                     | Supported; F-002 stops it for one malformed-PDF case                    |
-| AC-007, AC-008, AC-009, AC-047 CLI and config          | Reviewer: `cli.py`, `config/loading.py`, `config/schemas.py`, `examples/`. Tester: CLI and config tests, example-file test                                            | Supported                                                               |
-| AC-010 import is silent                                | Reviewer: `__init__.py`. Tester: audit-hook import test                                                                                                               | Supported (see the banner observation below)                            |
-| AC-011 both providers                                  | Reviewer: `providers/factory.py`; diagnostic with both providers. Tester: parametrized upload and runner tests                                                        | Supported                                                               |
-| AC-041 provider retries                                | Reviewer: SDK clients built with `max_retries`; connection-error diagnostic. Tester: `test_ledger_model.py` counts                                                    | Supported                                                               |
-| AC-042, AC-043, AC-044 Python API                      | Reviewer: `api.py`, `utils/coroutines.py` (`run_sync` checks for a running loop first), `load_run`. Tester: API tests                                                 | Supported                                                               |
-| AC-014 ledger and cost                                 | Reviewer: `LedgerModel._record`, `costs/ledger.py`, `_cost`. Tester: ledger and summary tests                                                                         | Supported                                                               |
-| AC-015, AC-038, AC-039 spend controls                  | Reviewer: `_ask_before_spending`, `SpendGuard`, CLI `_ask`, `_fixed_decision`. Tester: CLI and budget tests                                                           | Supported                                                               |
-| AC-037 provider rejection                              | Reviewer: profiles hold provider-level data only; `ProviderError` mapping; rejection diagnostic. Tester: 400, 413 and fallback tests                                  | Supported                                                               |
-| AC-017, AC-018 reuse and interruption                  | Reviewer: fingerprints, `write_text_atomic`, temp cleanup, damaged-file handling. Tester: runner and file tests                                                       | Supported                                                               |
-| AC-019 review list and CLI summary                     | Reviewer: `RunRecord.review`, `_log_summary`. Tester: review-summary test                                                                                             | Supported                                                               |
-| AC-020 HTML report                                     | Reviewer: `report/images.py`, escaping in `report/html.py`, boxes placed on the displayed page. Tester: `test_html.py`                                                | Supported                                                               |
-| AC-021 mocked tests                                    | Reviewer: suite run (104 passed); autouse guard; mock server routes. Tester: whole suite                                                                              | Supported                                                               |
-| AC-022, AC-023, AC-024 CI, Windows, wheel              | Reviewer: CI on `b0ca0be` all `SUCCESS`; gate and wheel jobs reviewed. Tester: CI runs and `just build`                                                               | Supported                                                               |
-| AC-025 metadata and README                             | Reviewer: `pyproject.toml` description and classifiers                                                                                                                | Metadata supported; README is a permitted later dependency (Documenter) |
-| AC-026, AC-036 release                                 | Reviewer: `release.yml` and release-please path reviewed (readiness only; publishing follows sign-off). Tester: zizmor, release-please source                         | Supported for readiness                                                 |
-| AC-027 to AC-030, AC-032 docs site and reference pages | Reviewer: `docs.yml`, versioned build and link checker reviewed. Tester: `just docs-build`, scratch-clone versioned build, regeneration check                         | Supported (non-material observations below)                             |
-| AC-031, AC-033, AC-034 docs pages and README examples  | No pages yet; design assigns them to Documenter                                                                                                                       | Permitted later dependency (Documenter)                                 |
-| AC-035 user review of real runs                        | Tester: the user's acceptance recorded 2026-11-18, after the last change to `src/` (`f8c816b`); plan notes record the user's real runs                                | Supported by the user's acceptance                                      |
+| Obligation / criterion                                               | Assessed evidence                                                                                                                                                     | Current disposition                                                     |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| AC-001 measured facts                                                | Tester: `test_probe.py` (9 scenarios). Reviewer: probe rules rechecked with built PDFs (rotation, crop box, repeated-line thresholds, labels, forms, structure)       | Supported (F-002 resolved; F-001, F-003 to F-005 withdrawn)             |
+| AC-002 profile                                                       | Reviewer: `surveying/survey.py` `build_survey`, `_labels` (Python-owned `other`), schemas. Tester: `test_profile_owns_other...`                                       | Supported                                                               |
+| AC-045 checks C1–C7, retry, last attempt                             | Reviewer: `validators.py`, `agents.py` (`ModelRetry`, `last_attempt`), `build_survey` reruns checks on the accepted answer. Tester: `test_validators.py`, retry tests | Supported                                                               |
+| AC-046 facts as hints, disagreements listed                          | Reviewer: prompt ("Treat them as hints"), `compare_with_facts` runs once and never retries. Tester: `test_answers_that_differ...`                                     | Supported                                                               |
+| AC-004 instructions and languages                                    | Reviewer: prompt sections, `_languages`, no setting skips a check                                                                                                     | Supported                                                               |
+| AC-005 facts correct on the PDF kinds listed                         | Tester: fixture tests on Arabic, Japanese, W-9, CAPS, scans, tagged and untagged PDFs                                                                                 | Supported                                                               |
+| AC-006 no document-type rules                                        | Reviewer: prompt, checks, schemas and enums read; checks use IDs, ranges and `langcodes` only. Tester: vocabulary test and grep                                       | Supported                                                               |
+| AC-040 facts saved first                                             | Reviewer: `measure_facts` runs before `build_model` reads the key, the estimate and any question (`runner.py:691-735`). Tester: API and CLI cases                     | Supported (F-002 resolved)                                              |
+| AC-007, AC-008, AC-009, AC-047 CLI and config                        | Reviewer: `cli.py`, `config/loading.py`, `config/schemas.py`, `examples/`. Tester: CLI and config tests, example-file test                                            | Supported                                                               |
+| AC-010 import is silent                                              | Reviewer: `__init__.py`. Tester: audit-hook import test                                                                                                               | Supported (see the banner observation below)                            |
+| AC-011 both providers                                                | Reviewer: `providers/factory.py`; diagnostic with both providers. Tester: parametrized upload and runner tests                                                        | Supported                                                               |
+| AC-041 provider retries                                              | Reviewer: SDK clients built with `max_retries`; connection-error diagnostic. Tester: `test_ledger_model.py` counts                                                    | Supported                                                               |
+| AC-042, AC-043, AC-044 Python API                                    | Reviewer: `api.py`, `utils/coroutines.py` (`run_sync` checks for a running loop first), `load_run`. Tester: API tests                                                 | Supported                                                               |
+| AC-014 ledger and cost                                               | Reviewer: `LedgerModel._record`, `costs/ledger.py`, `_cost`. Tester: ledger and summary tests                                                                         | Supported                                                               |
+| AC-015, AC-038, AC-039 spend controls                                | Reviewer: `_ask_before_spending`, `SpendGuard`, CLI `_ask`, `_fixed_decision`. Tester: CLI and budget tests                                                           | Supported                                                               |
+| AC-037 provider rejection                                            | Reviewer: profiles hold provider-level data only; `ProviderError` mapping; rejection diagnostic. Tester: 400, 413 and fallback tests                                  | Supported                                                               |
+| AC-017, AC-018 reuse and interruption                                | Reviewer: fingerprints, `write_text_atomic`, temp cleanup, damaged-file handling. Tester: runner and file tests                                                       | Supported                                                               |
+| AC-019 review list and CLI summary                                   | Reviewer: `RunRecord.review`, `_log_summary`. Tester: review-summary test                                                                                             | Supported                                                               |
+| AC-020 HTML report                                                   | Reviewer: `report/images.py`, escaping in `report/html.py`, boxes placed on the displayed page. Tester: `test_html.py`                                                | Supported                                                               |
+| AC-021 mocked tests                                                  | Reviewer: suite run (104 passed); autouse guard; mock server routes. Tester: whole suite                                                                              | Supported                                                               |
+| AC-022, AC-023, AC-024 CI, Windows, wheel                            | Reviewer: CI on `b0ca0be` all `SUCCESS`; gate and wheel jobs reviewed. Tester: CI runs and `just build`                                                               | Supported                                                               |
+| AC-025 metadata and README                                           | Reviewer: `pyproject.toml` description and classifiers                                                                                                                | Metadata supported; README is a permitted later dependency (Documenter) |
+| AC-026, AC-036 release                                               | Reviewer: `release.yml` and release-please path reviewed (readiness only; publishing follows sign-off). Tester: zizmor, release-please source                         | Supported for readiness                                                 |
+| AC-027, AC-028, AC-029, AC-030, AC-032 docs site and reference pages | Reviewer: `docs.yml`, versioned build and link checker reviewed. Tester: `just docs-build`, scratch-clone versioned build, regeneration check                         | Supported (non-material observations below)                             |
+| AC-031, AC-033, AC-034 docs pages and README examples                | No pages yet; design assigns them to Documenter                                                                                                                       | Permitted later dependency (Documenter)                                 |
+| AC-035 user review of real runs                                      | Tester: the user's acceptance recorded 2026-11-18, after the last change to `src/` (`f8c816b`); plan notes record the user's real runs                                | Supported by the user's acceptance                                      |
 
 ## Checks and Results
 
@@ -179,9 +183,23 @@ tests named there; "Reviewer" is this review's own inspection or diagnostic.
 
 ### F-002 — A malformed `/PageLabels` tree makes every run on the PDF fail
 
-`Severity`: `P2` `Status`: `OPEN` `Owner`: `DEVELOPER` `FailureType`:
+`Severity`: `P2` `Status`: `RESOLVED` `Owner`: `DEVELOPER` `FailureType`:
 `IMPLEMENTATION`
 
+- **Reassessment (2026-11-18, on resumption at `2c8720c`):** resolved. Fix
+  `e372d91` makes `_page_label` treat any error from `Page.get_label()` as no
+  label and adds `_has_page_labels`, which does the same for
+  `Document.get_page_labels()`; the page's printed number then comes from its
+  text. Reviewer reran the original failure case: `probe_pdf` on
+  `$TMPDIR/rev/probe/duplabel.pdf` returns facts with no probe error, and
+  `pydelity.measure` writes `pdf_facts.json` with no warning. Boundary check:
+  the 9 committed fixture PDFs give facts identical to the probe at `b0ca0be`
+  (old module loaded from `git show b0ca0be:...`), so PDFs whose labels read
+  normally are unaffected. Tester's new
+  `test_a_damaged_page_label_tree_counts_as_no_labels` observes the fix (numbers
+  from the text, offset 12, no probe error) and, by Tester's negative control,
+  fails on the old code. The broad `except Exception` wraps only the two PyMuPDF
+  label calls, matching how `_read_fact` guards the other facts.
 - **Reference:** `src/pydelity/surveying/probe.py:794-797` (`_page_label`
   catches only `IndexError`, `RuntimeError` and `ValueError`), reached from
   `probe_pdf` at `:1323` via `_page` at `:764`; tree `src` `0bb160c`. Contract:
@@ -327,9 +345,14 @@ tests named there; "Reviewer" is this review's own inspection or diagnostic.
   note, how long providers keep uploaded PDFs, reading `rotation_differs` and
   `page_number_differs` issues, and the sync and async forms in Jupyter.
 - The F-002 correction changes behavior only for PDFs whose page-label tree
-  makes PyMuPDF raise, which today cannot be surveyed at all, so the user's
-  acceptance of real runs (`AC-035`) should still apply; Tester confirms on
-  reverification.
+  makes PyMuPDF raise, which could not be surveyed at all before, and the
+  committed fixtures' facts are unchanged, so the user's acceptance of real runs
+  (`AC-035`) still applies to the corrected code.
+- CI has not run on `e372d91` or `2c8720c` (the draft pull request is closed).
+  Tester reused the CI evidence for `AC-022` to `AC-024` with a stated reason;
+  Reviewer agrees: the change is platform-independent exception handling in one
+  Python module, with no change to packaging, dependencies or workflows, and the
+  local suite, doctests and build pass. Not material to this gate.
 - Non-material observations (no correction required by this gate; owners may
   take them up):
   - The Python API leaves PydanticAI's first-run banner on, so the first `run()`
@@ -383,17 +406,32 @@ tests named there; "Reviewer" is this review's own inspection or diagnostic.
   occurs. F-002 stays open: it is the only one that stops a run, with no
   workaround. Inputs are unchanged (`b0ca0be`, clean tree apart from this report
   and `STATE.md`).
-- Gate: **does not pass.** One P2 finding is open, owned by Developer
-  (`IMPLEMENTATION`): F-002 (a malformed page-label tree makes the run fail
-  before any facts are saved). Every other current AC has supporting evidence or
-  a permitted Documenter dependency.
-- Plain-language summary: the work is close but cannot move to documentation
-  yet. The survey, settings, spend controls, resume, the report, CI and the
-  release path all check out, and the tests pass. One real problem remains: a
-  PDF with damaged page-numbering data makes pydelity stop with a crash before
-  it saves anything, and no setting gets around it. The fix is small (treat an
-  unreadable page label as no label). The Developer fixes it and Tester adds a
-  test, then Reviewer rechecks.
-- Next: the Developer corrects F-002 under the recovery frame; on return,
-  Reviewer rechecks the fix against its failure case and the affected
-  boundaries, and reconciles changed inputs.
+- After the second pass, F-002 was routed to Developer (recovery frame 1),
+  corrected in `e372d91`, covered by Tester's test in `2c8720c` and reverified
+  (verification report `REVERIFY`, `COMPLETE`, `FULL`); the frame closed and the
+  review resumed (`Handoff.Kind: RESUME`).
+- Resumption, 2026-11-18, at `2c8720c` (clean tree): changed inputs since
+  `b0ca0be` are `src/pydelity/surveying/probe.py` (tree `src` `cae826c`),
+  `tests/pydelity/surveying/test_probe.py` (tree `tests` `268e597`), the
+  development plan (`4aa6bef88043e791`, `COMPLETE`), the verification report
+  (`e8e654e6b3ccffcb`), this report and `STATE.md`. Scope, design, context,
+  every other source file, scripts, workflows, docs and dependencies are
+  unchanged, so every other conclusion above still applies. Reviewer reran
+  `.venv/bin/python -m pytest -q --numprocesses auto` (105 passed) and
+  `pytest -q --doctest-modules src` (17 passed, 1 skipped), and rechecked F-002
+  as recorded in the finding. The Developer and Tester full gates hold for the
+  current implementation.
+- Gate: **passes.** No material finding is open: F-002 is resolved, and F-001,
+  F-003, F-004 and F-005 are withdrawn. Every current AC and relevant technical
+  criterion has supporting evidence, except `AC-025` (README), `AC-031`,
+  `AC-033` and `AC-034`, which remain permitted later dependencies for
+  Documenter with the evidence named above. No blocking question or review-owned
+  obligation remains. Passing this gate does not finish the cycle:
+  documentation, final review and synchronization follow (`FULL_DELIVERABLE`).
+- Plain-language summary: the implementation is ready for documentation. The one
+  major problem, a crash on PDFs with damaged page-numbering data, is fixed and
+  tested, and nothing else changed. The survey, settings, spend controls,
+  resume, the report, CI and the release path all check out, and the tests pass.
+  Still to come: the README and the docs pages, then a final review of the whole
+  deliverable. Real publishing to PyPI and GitHub Pages can only be checked
+  after sign-off.
