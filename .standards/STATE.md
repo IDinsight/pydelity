@@ -1,8 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `REVIEWING_IMPLEMENTATION` `CycleMode`: `STANDARD`
-`PendingCycleMode`: `UNSET` `PendingCycleRequest`: `UNSET`
-`PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -28,12 +27,20 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
-`Full verification complete at 02b3ea1: every current AC verified or pending Documenter; implementation review requested.`
+`Kind`: `FAILURE` `From`: `REVIEWING_IMPLEMENTATION` `FailureType`:
+`IMPLEMENTATION` `Reason`:
+`Implementation review found an open P2 implementation defect: F-002 in the cycle's implementation review report (a malformed page-label tree fails the run).`
 
 ## Recovery
 
-`Active`: `false`
+`Active`: `true`
+
+### Frame 1
+
+`From`: `REVIEWING_IMPLEMENTATION` `Owner`: `DEVELOPING` `FailureType`:
+`IMPLEMENTATION` `Reason`:
+`Implementation review found an open P2 implementation defect: F-002 in the cycle's implementation review report (a malformed page-label tree fails the run).`
+`ResumeAt`: `REVIEWING_IMPLEMENTATION` `RerunThrough`: `NONE`
 
 ## Outstanding Obligations
 
