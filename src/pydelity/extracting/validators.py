@@ -8,6 +8,12 @@ found is kept, and fillable form fields carry their values. They use positions,
 names, Unicode forms and values only, never word lists, and assume no writing
 direction other than the page's own.
 
+On a page with a readable text layer, two more checks compare the items' text with
+it, as runs of three characters, to find text the answer dropped or added in any
+script. The model's reading wins over the text layer: a difference only sends the
+answer back, saying the model may keep text that is not visible on the page or that
+it read from an image.
+
 Each check returns every failure it finds, so one retry message can name every
 problem and the kept answer can record them all. A failure about one item names the
 item's ref in its message and in ``details["item_ref"]``.
@@ -28,7 +34,9 @@ from pydelity.extracting.schemas import (
     PageAnswer,
     PageContext,
     Table,
+    TextComparison,
 )
+from pydelity.extracting.text_layer import comparison_form, trigrams
 from pydelity.review import CheckFailure, ExtractionCheckName, ReviewIssue
 from pydelity.surveying.schemas import Direction, FormField, ItemKind, ItemRole, Label
 from pydelity.utils.text import normalize_line
@@ -51,6 +59,10 @@ _CONTENT_FIELDS = ("entries", "field", "figure", "latex", "table", "text")
 # follows. Asides, captions, footnotes and page furniture may sit anywhere.
 _FLOW_ROLES = frozenset({ItemRole.BODY, ItemRole.HEADING, ItemRole.NAVIGATION})
 
+# The share of a line's three-character runs that must be found for the line to count
+# as present; a line with fewer found fails a text check.
+_FOUND_SHARE = 0.5
+
 # How far, in grid units, the next item in the flow may jump back against the reading
 # direction without starting a new column or band.
 _JUMP_BACK = 150
@@ -66,14 +78,85 @@ _KIND_FIELDS: dict[ItemKind, frozenset[str]] = {
     ItemKind.TEXT: frozenset({"text"}),
 }
 
+# How much of a line a text failure quotes, in characters.
+_LINE_SHOWN_CHARS = 100
+
 # The field item types that are marked or not, so they need ``checked``.
 _MARKED_FIELD_TYPES = frozenset({"checkbox", "radio"})
+
+# The fewest three-character runs a line must have for a text check to judge it: a
+# line of five letters or digits has three.
+_MIN_TRIGRAMS = 3
 
 # The profile's catch-all label, which every profile has.
 _OTHER_LABEL = "other"
 
+# What the model may keep when a text check sends its answer back.
+_TEXT_NOTE = (
+    "The page's text layer can hold text that is not visible on the page and lacks "
+    "text inside images. Where a line above is not visible on the page, or you read "
+    "it from an image, keep your reading."
+)
+
 # Checks an answer against the page's context and returns every failure found.
 type Check = Callable[[PageAnswer, PageContext], list[CheckFailure]]
+
+# Checks an answer against the page's context and its text-layer lines.
+type TextCheck = Callable[[PageAnswer, PageContext, Sequence[str]], list[CheckFailure]]
+
+
+def _answer_lines(answer: PageAnswer) -> list[tuple[str, str]]:
+    """List the answer's lines of text that the text layer should hold.
+
+    Each item's text, list entries, table cells and field prompts are split at line
+    breaks. Figure text, field values and formula text are left out, since they can
+    come from images or form data rather than the text layer.
+
+    Parameters
+    ----------
+    answer
+        The model's answer.
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        Each line with its item's ref, in reading order.
+    """
+
+    lines = []
+    for item in answer.items:
+        pieces = [item.text] if item.kind != ItemKind.FORMULA else []
+        pieces += [entry.text for entry in item.entries or []]
+        if item.table is not None:
+            pieces += [cell.text for row in item.table.rows for cell in row]
+        if item.field is not None:
+            pieces.append(item.field.prompt)
+        lines += [
+            (item.ref, line) for piece in pieces if piece for line in piece.splitlines()
+        ]
+    return lines
+
+
+def _answer_trigrams(answer: PageAnswer) -> Counter[str]:
+    """Count the three-character runs of all of the answer's text.
+
+    Parameters
+    ----------
+    answer
+        The model's answer.
+
+    Returns
+    -------
+    Counter[str]
+        The runs of every item's text, entries, cells, field prompts and values,
+        figure text and formula text, each piece compared on its own.
+    """
+
+    total: Counter[str] = Counter()
+    for item in answer.items:
+        for piece in _item_text(item).split("\n"):
+            total += trigrams(comparison_form(piece))
+    return total
 
 
 def _backward_jump(
@@ -415,6 +498,38 @@ def _label_fits(item: AnswerItem, label: Label, labels: Sequence[Label]) -> bool
     return label.name.casefold() == _OTHER_LABEL and not _matching_labels(item, labels)
 
 
+def _layer_trigrams(
+    text_lines: Sequence[str], answer_trigrams: Counter[str]
+) -> list[Counter[str]]:
+    """Count each text-layer line's three-character runs, read the way that matches.
+
+    Some PDFs store right-to-left text in visual order, reversed. A line counts in
+    reverse when its reversed text shares more runs with the answer than its stored
+    text does.
+
+    Parameters
+    ----------
+    text_lines
+        The page's text-layer lines.
+    answer_trigrams
+        The runs of the answer's text, from `_answer_trigrams`.
+
+    Returns
+    -------
+    list[Counter[str]]
+        Each line's runs, in the line's order.
+    """
+
+    counted = []
+    for line in text_lines:
+        form = comparison_form(line)
+        forward, backward = trigrams(form), trigrams(form[::-1])
+        found_forward = sum((forward & answer_trigrams).values())
+        found_backward = sum((backward & answer_trigrams).values())
+        counted.append(backward if found_backward > found_forward else forward)
+    return counted
+
+
 def _matching_labels(item: AnswerItem, labels: Sequence[Label]) -> list[Label]:
     """List the profile's labels, other than ``other``, that fit an item.
 
@@ -491,6 +606,26 @@ def _place_cells(table: Table) -> tuple[list[int], list[str]]:
     return widths, problems
 
 
+def _shorten(text: str) -> str:
+    """Cut a line to `_LINE_SHOWN_CHARS` characters for a failure message.
+
+    Parameters
+    ----------
+    text
+        The line.
+
+    Returns
+    -------
+    str
+        The line, with spaces collapsed, ending in ``...`` when it was cut.
+    """
+
+    line = " ".join(text.split())
+    if len(line) <= _LINE_SHOWN_CHARS:
+        return line
+    return line[: _LINE_SHOWN_CHARS - 3] + "..."
+
+
 def _table_problems(table: Table) -> list[str]:
     """List what is wrong with a table's grid.
 
@@ -518,6 +653,48 @@ def _table_problems(table: Table) -> list[str]:
     if not any(cell.text and cell.text.strip() for row in table.rows for cell in row):
         problems.append("has no text in any cell")
     return problems
+
+
+def _unmatched(lines: Sequence[Counter[str]], available: Counter[str]) -> list[int]:
+    """Find the lines that fewer than half of their runs are found for.
+
+    The runs the lines hold beyond what is available are missing. They are handed
+    out one line at a time, each time to the line that misses the largest share of
+    its own runs, so a line that was removed takes its missing runs even when other
+    lines share them. Ties go to the later line, so a repeated line counts against
+    its last copy.
+
+    Parameters
+    ----------
+    lines
+        Each line's three-character runs.
+    available
+        The runs the other side holds.
+
+    Returns
+    -------
+    list[int]
+        The positions of the lines with fewer than half of their runs found, in
+        order. Lines with fewer than `_MIN_TRIGRAMS` runs are never listed.
+    """
+
+    missing = sum(lines, Counter()) - available
+    candidates = [
+        index for index, line in enumerate(lines) if line.total() >= _MIN_TRIGRAMS
+    ]
+    flagged = []
+    while candidates:
+        worst, worst_share = None, 0.0
+        for index in candidates:
+            share = (lines[index] & missing).total() / lines[index].total()
+            if share >= worst_share:
+                worst, worst_share = index, share
+        if worst is None or worst_share <= 1 - _FOUND_SHARE:
+            break
+        flagged.append(worst)
+        missing -= lines[worst]
+        candidates.remove(worst)
+    return sorted(flagged)
 
 
 def check_artifacts(answer: PageAnswer, context: PageContext) -> list[CheckFailure]:
@@ -993,6 +1170,127 @@ def check_results(
     ]
 
 
+def check_text_added(
+    answer: PageAnswer, context: PageContext, text_lines: Sequence[str]
+) -> list[CheckFailure]:
+    """Find lines the answer has that the page's text layer does not.
+
+    It runs only when `comparison_status` is ``compared``.
+
+    Parameters
+    ----------
+    answer
+        The model's answer.
+    context
+        The page's context, for its text quality.
+    text_lines
+        The page's text-layer lines.
+
+    Returns
+    -------
+    list[CheckFailure]
+        One failure per answer line of at least three runs with fewer than half of
+        them in the text layer, naming the line's item.
+    """
+
+    if comparison_status(answer, context, text_lines) != "compared":
+        return []
+    answer_lines = _answer_lines(answer)
+    layer = sum(_layer_trigrams(text_lines, _answer_trigrams(answer)), Counter())
+    counted = [trigrams(comparison_form(line)) for _, line in answer_lines]
+    failures = []
+    for index in _unmatched(counted, layer):
+        ref, line = answer_lines[index]
+        failure = _failure(
+            "text_added",
+            f"item {ref!r} has the line {_shorten(line)!r}, which is not in the "
+            "page's text layer",
+            context=context,
+            item_ref=ref,
+        )
+        failure.details["line"] = line
+        failures.append(failure)
+    return failures
+
+
+def check_text_dropped(
+    answer: PageAnswer, context: PageContext, text_lines: Sequence[str]
+) -> list[CheckFailure]:
+    """Find lines the page's text layer has that the answer does not.
+
+    It runs only when `comparison_status` is ``compared``. A line also counts as
+    found when its reversed text is in the answer.
+
+    Parameters
+    ----------
+    answer
+        The model's answer.
+    context
+        The page's context, for its text quality.
+    text_lines
+        The page's text-layer lines.
+
+    Returns
+    -------
+    list[CheckFailure]
+        One failure per text-layer line of at least three runs with fewer than half
+        of them in the answer.
+    """
+
+    if comparison_status(answer, context, text_lines) != "compared":
+        return []
+    answer_trigrams = _answer_trigrams(answer)
+    layer = _layer_trigrams(text_lines, answer_trigrams)
+    failures = []
+    for index in _unmatched(layer, answer_trigrams):
+        failure = _failure(
+            "text_dropped",
+            f"the page's text layer has the line {_shorten(text_lines[index])!r}, "
+            "which is not in your answer",
+            context=context,
+        )
+        failure.details["line"] = text_lines[index]
+        failures.append(failure)
+    return failures
+
+
+def comparison_status(
+    answer: PageAnswer, context: PageContext, text_lines: Sequence[str]
+) -> TextComparison:
+    """Decide whether the answer's text can be compared with the text layer.
+
+    Parameters
+    ----------
+    answer
+        The model's answer.
+    context
+        The page's context, for its measured text quality.
+    text_lines
+        The page's text-layer lines.
+
+    Returns
+    -------
+    TextComparison
+        ``no_text_layer`` when the page has no text layer, ``garbled_text_layer``
+        when it is garbled, ``text_layer_mismatch`` when fewer than half of the
+        answer's three-character runs are in the text layer, so it cannot be relied
+        on, and otherwise ``compared``.
+    """
+
+    if context.text_quality == "garbled":
+        return "garbled_text_layer"
+    if context.text_quality == "none" or not any(
+        comparison_form(line) for line in text_lines
+    ):
+        return "no_text_layer"
+    answer_trigrams = _answer_trigrams(answer)
+    layer = sum(_layer_trigrams(text_lines, answer_trigrams), Counter())
+    found = (answer_trigrams & layer).total()
+    if found < _FOUND_SHARE * answer_trigrams.total():
+        return "text_layer_mismatch"
+    return "compared"
+
+
 def retry_message(failures: Mapping[ExtractionCheckName, list[CheckFailure]]) -> str:
     """Write the message that asks the model to fix its answer.
 
@@ -1004,14 +1302,19 @@ def retry_message(failures: Mapping[ExtractionCheckName, list[CheckFailure]]) ->
     Returns
     -------
     str
-        Every failure, one per line, after a line asking for a corrected answer.
+        Every failure, one per line, after a line asking for a corrected answer,
+        and, when a text check failed, that the model may keep text it read that
+        the text layer cannot show.
     """
 
     lines = [f"- {failure.message}" for found in failures.values() for failure in found]
-    return (
+    message = (
         "Your answer has problems that can be checked without reading the page. Fix "
         "each problem below and answer again with the whole page:\n" + "\n".join(lines)
     )
+    if failures.get("text_dropped") or failures.get("text_added"):
+        message += "\n" + _TEXT_NOTE
+    return message
 
 
 def review_issues(
@@ -1051,9 +1354,9 @@ def review_issues(
 
 
 def run_checks(
-    answer: PageAnswer, context: PageContext
+    answer: PageAnswer, context: PageContext, text_lines: Sequence[str]
 ) -> dict[ExtractionCheckName, list[CheckFailure]]:
-    """Run every check on an answer, in order.
+    """Run every check on an answer, in order, the text checks last.
 
     Parameters
     ----------
@@ -1061,15 +1364,21 @@ def run_checks(
         The model's answer.
     context
         The page's context.
+    text_lines
+        The page's text-layer lines, from
+        `pydelity.extracting.text_layer.read_lines`.
 
     Returns
     -------
     dict[ExtractionCheckName, list[CheckFailure]]
         Each check's failures, in the order the checks run; an empty list when it
-        passed.
+        passed or, for a text check, did not run.
     """
 
-    return {name: check(answer, context) for name, check in CHECKS.items()}
+    failures = {name: check(answer, context) for name, check in CHECKS.items()}
+    for name, text_check in TEXT_CHECKS.items():
+        failures[name] = text_check(answer, context, text_lines)
+    return failures
 
 
 def unmatched_labels(answer: PageAnswer, context: PageContext) -> list[ReviewIssue]:
@@ -1125,4 +1434,11 @@ CHECKS: dict[ExtractionCheckName, Check] = {
     "reading_order": check_reading_order,
     "artifacts": check_artifacts,
     "form_fields": check_form_fields,
+}
+
+# The checks that compare the answer's text with the page's text layer, in the order
+# they run, after `CHECKS`.
+TEXT_CHECKS: dict[ExtractionCheckName, TextCheck] = {
+    "text_dropped": check_text_dropped,
+    "text_added": check_text_added,
 }

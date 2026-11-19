@@ -616,8 +616,7 @@ uncommitted DEV-005 changes (macOS arm64, Python 3.13.9).
 
 ### DEV-006 — Text layer and text comparison
 
-`Status`: `PENDING` `Depends On`: `DEV-004, DEV-005` `Acceptance`:
-`AC-022, AC-023`
+`Status`: `DONE` `Depends On`: `DEV-004, DEV-005` `Acceptance`: `AC-022, AC-023`
 
 **Goal**
 
@@ -648,6 +647,93 @@ English test page: an answer built from the page's own lines passes, removing a
 line of at least 5 letters or digits fails `text_dropped`, and adding one fails
 `text_added`; the 1965 scan is `no_text_layer`. Thresholds stay at the design's
 values unless this shows they break the guarantee.
+
+Evidence, 2026-11-19, repo root, on the user's DEV-005 commit plus the
+uncommitted DEV-006 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
+
+- `uv sync --locked` outside the sandbox, for the new module.
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` on `scripts src`:
+  passed; `interrogate`: 100%. Doctests: 23 passed, 1 skipped (adds
+  `comparison_form` and `trigrams`).
+- `.venv/bin/python -m pytest -q --numprocesses auto`: the same 7 failed and 98
+  passed; `ty check tests`: the same 2 errors.
+- Scratchpad `dev006_experiment.py` compared ways to decide which text-layer
+  line the answer is missing, removing each line of 5 or more letters or digits
+  in turn from an answer made of the page's own lines joined five to a
+  paragraph:
+  - Handing the answer's runs to the text-layer lines in reading order, a
+    literal reading of the design's consumption rule, caught 25 of 53 removals
+    on the Arabic page, 42 of 43 on the Chinese, 12 of 15 on the Japanese and 15
+    of 124 on the English (`irs_w9_instructions.pdf` page 2): a removed line
+    whose runs also occur elsewhere takes later lines' runs, and the shortfall
+    spreads thin.
+  - Counting a run as found when it occurs in the answer at all caught 7, 40, 10
+    and 0.
+  - Handing the missing runs out one line at a time, each time to the line that
+    misses the largest share of its own, caught 53, 43, 14 and 123. In the two
+    other cases a near or exact copy of the removed line was flagged instead, so
+    every removal still failed the check.
+  - None of the three flagged anything on the correct answers, and all caught
+    every added line.
+
+  The checks use the last rule (see Implementation Notes).
+
+- Vertical Japanese: PyMuPDF stores each character of the gazette's columns as a
+  line of its own (222 lines, 216 of one character, direction `(0, 1)`), so only
+  3 lines were long enough to judge. `read_lines` joins pieces that continue one
+  another along their writing direction, which gives 26 lines, the longest 45
+  characters, 15 of them long enough to judge.
+- Scratchpad `dev006_checks.py` (lines read through `PdfWorker`): 29 of 29
+  checks passed.
+  - On the Arabic and Simplified Chinese page 1, the vertical Japanese page and
+    the English page, an answer made of the page's own lines is `compared` with
+    no text failure.
+  - Removing each line of 5 or more letters or digits makes `text_dropped` fail
+    every time: Arabic 53 of 53, Chinese 43 of 43, Japanese 15 of 15, English
+    124 of 124, and the failure names the removed line itself in all but one
+    English case, where it names a near-identical line.
+  - Adding each such line from the next page of the same PDF as a new item makes
+    `text_added` fail naming that item: Arabic 133 of 133, Chinese 137 of 137,
+    English 118 of 118; an added Japanese line is caught too.
+  - Text quality `none`, `garbled` or no lines gives `no_text_layer` or
+    `garbled_text_layer`, and the 1965 scan has no text-layer lines; an Arabic
+    answer against the English text layer is `text_layer_mismatch`; none of
+    these sends anything back.
+  - Arabic lines stored reversed, as visual order stores them, are found by
+    their reversed text, both ways.
+  - A text-layer line written twice in the answer fails `text_added` once,
+    naming the second copy.
+  - Figure text, a field value and formula text that the text layer lacks are
+    not flagged.
+  - `run_checks` gives all 11 checks with the text checks last; `retry_message`
+    ends with the note that the model may keep text not visible on the page or
+    read from an image, and leaves it out when no text check failed; long lines
+    are cut in messages.
+- `dev005_checks.py`, rerun with empty text-layer lines for the new `run_checks`
+  argument: 81 of 81. On its first rerun it caught a form name in a
+  `text_layer.py` doctest example, now neutral text.
+
+**Implementation Notes**
+
+- Which lines miss their runs: the runs the lines hold beyond what the other
+  side has are missing, and they are handed out one line at a time to the line
+  that misses the largest share of its own runs, ties to the later line. This
+  keeps the design's runs of three characters, its half-found threshold, its
+  3-run minimum, the reversed match and its exclusions, and changes only how
+  missing runs are shared out among lines. The design's rule as written met its
+  own guarantee on none of the four pages (see the evidence). The same rule
+  serves both checks; for `text_added` it still counts a repeated line against
+  its last copy, as the design's reading-order rule did.
+- `read_lines` joins stored lines that continue each other along one writing
+  direction: same direction, lined up across it, with a gap of at most two line
+  thicknesses. That turns vertical text stored a character at a time into lines,
+  and joins a horizontal line stored in pieces, while the lines of a paragraph
+  or of sideways text, which sit side by side, stay apart.
+- `run_checks` takes the page's text-layer lines as a third argument, so they
+  are not stored in each page file's context.
+- The text flags are a copy of the probe's private `_TEXT_FLAGS`, since
+  `probe.py` was not in this step; DEV-013, which changes `probe.py` anyway, can
+  move both to one shared place if the user wants.
 
 ---
 
