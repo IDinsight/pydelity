@@ -379,7 +379,7 @@ DEV-003 changes (macOS arm64, Python 3.13.9).
 
 ### DEV-004 — Upright page images, box mapping and figure crops
 
-`Status`: `PENDING` `Depends On`: `DEV-003` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-003` `Acceptance`:
 `AC-009, AC-011, AC-013, AC-058`
 
 **Goal**
@@ -413,6 +413,69 @@ attributes 90, 180 and 270 and on CAPS's sideways pages: image sizes and
 Anthropic tile counts within the limits; the images, viewed, are upright; text
 spans' PyMuPDF boxes sent through the inverse and forward mappings land within 1
 pt of where they started; crops are upright and cover their box.
+
+Evidence, 2026-11-19, repo root, on the user's DEV-003 commit plus the
+uncommitted DEV-004 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
+
+- `uv sync --locked` outside the sandbox, to link the new `extracting/` folder
+  into the strict editable install.
+- `.venv/bin/ruff check`, `ruff format`, `ty check` on `scripts src`: passed;
+  `interrogate`: 100%. Doctests (`--doctest-modules src`): 21 passed, 1 skipped,
+  including `grid_box_to_points` and `points_box_to_grid`.
+- `.venv/bin/python -m pytest -q --numprocesses auto`: the same 7 failed and 98
+  passed as after DEV-003; `ty check tests`: the same 2 errors. No test imports
+  `extracting/` yet.
+- PyMuPDF behavior checked first with scratchpad `probe_pymupdf.py` on
+  `irs_w9_instructions.pdf`: `Matrix(z, z).prerotate(90)` turns the rendered
+  image a quarter turn clockwise (the title then runs down the right side), so
+  `prerotate(r)` with the profile's clockwise rotation gives the upright image.
+  With the page's rotation attribute set to 90, a `get_pixmap` clip in
+  displayed-page coordinates captures a span's text, and the same span's
+  unrotated box captures other text, so PyMuPDF 2.1 takes the clip in
+  displayed-page coordinates.
+- Scratchpad `dev004_rendering_check.py`: 16 of 16 checks passed.
+  - Sizes: Letter gives 1,688 x 2,184 px at 199 DPI upright (2,184 x 1,688 when
+    turned), with 4,758 of Anthropic's 4,784 patches and 3,657 of OpenAI's
+    10,000; A4 gives 1,624 x 2,296 px at 196 DPI (4,756 and 3,672 patches). An
+    image 0.2% larger does not fit, so the size is the largest; a 300 x 200 pt
+    page stops at 300 DPI. Anthropic's patch limit binds, as the design
+    expected.
+  - A scratchpad copy of `irs_w9_instructions.pdf` with pages 2, 3 and 4 at
+    rotation attributes 90, 180 and 270, rendered with the rotation that undoes
+    each (270, 180 and 90), gives the same 1,688 x 2,184 image as the original
+    page rendered as is: for attribute 90 no sample differs; for 180 and 270 the
+    mean difference is about 6 of 255 and 0.009–0.012% of samples differ by more
+    than 128, which is anti-aliasing at a sub-pixel offset. Viewed, the
+    attribute-180 page reads upright with its page number at the bottom right.
+  - For 25 text spans on each of those pages, the grid box from the rotated copy
+    equals the one from the original page (difference 0 units), and points to
+    grid and back lands within 0.39 pt.
+  - A crop of a span's displayed box with each rotation is a PNG of the box's
+    size at 200 DPI within 2 px, such as 610 x 37 px for a 609 x 36 estimate;
+    viewed, the attribute-270 crop reads upright.
+  - CAPS page 0 (595 x 842 pt portrait, rotation attribute 0, text at 90
+    degrees) rendered with rotation 90 gives a 2,296 x 1,624 px landscape image;
+    viewed, its table reads upright, and a crop of the table's title reads
+    upright.
+  - Eight concurrent `call`s all ran on the thread `pydelity-pymupdf_0`.
+    Rendering 7 pages concurrently took 0.89 s, and the event loop's longest
+    pause was 0.138 s, about one page's rendering: PyMuPDF keeps Python's GIL
+    while it renders, so the loop waits during each render even though the
+    render runs on the worker thread. Next to model requests that take tens of
+    seconds, this does not matter.
+
+**Implementation Notes**
+
+- Crops pass the item's displayed-page box to PyMuPDF's clip as it is, because
+  PyMuPDF 2.1 takes the clip in displayed-page coordinates (see the evidence);
+  mapping it back to unrotated coordinates first, as the design's rendering
+  section describes, would clip the wrong area. The crop is still the item's
+  box, upright, at 200 DPI.
+- The largest zoom is found by halving a range 40 times, counting part pixels as
+  whole, because the image only grows with the zoom.
+- `PdfWorker` is an async context manager over a one-thread executor. `call`
+  runs any function of the open PDF there, which DEV-006 uses for text-layer
+  lines.
 
 ---
 
@@ -902,3 +965,18 @@ page file, the extraction checks and review-issue names, and the changed
   `styles/css.md` for DEV-012.
 - Project references loaded: `NONE` (`.standards/project-references/developer/`
   does not exist).
+- No shipped wording from the development process (user's rule, 2026-11-19,
+  after `extracting/__init__.py` opened with "Step 2, page extraction"): every
+  step's self-check also greps the files it adds or changes for numbered
+  pipeline steps, `DEV-` and `AC-` IDs, cycle, design, scope, workflow role
+  names and KGForEdGlobal, and rewords any hit. Naming a step ("the survey",
+  "page extraction") or saying "later steps" is fine; the public docs describe
+  the pipeline that way. The docstring now reads "Page extraction: each selected
+  page's items, in reading order, as a page file", and a repo-wide search on
+  2026-11-19 (tracked and new files outside `.standards/`, `.claude/`,
+  `.agents/`, `.codex/` and `artifacts/`) found no other such wording in files
+  Developer owns. For Tester: `tests/pydelity/surveying/test_survey.py:39` says
+  "AC-006 keeps them out of prompts", which should name the rule itself instead.
+  The comments in `.markdownlint-cli2.yaml`, `.pre-commit-config.yaml`,
+  `.prettierrc.yaml` and `scripts/format_markdown.mjs` about how the tooling
+  treats STANDARDS files describe repo tooling, not the process, and stay.
