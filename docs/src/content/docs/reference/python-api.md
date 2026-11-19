@@ -365,7 +365,7 @@ requests, but no `run.json` and no report. It does not prompt for input.
 - `MissingApiKeyError`: The API key for the selected model provider is missing
   or empty.
 - `OutputError`: An output folder, or a file in it, cannot be read back.
-- `PdfError`: The PDF is missing, empty, password-protected or cannot be opened.
+- `PdfError`: The PDF is empty, password-protected or cannot be opened.
 - [`PdfFacts`](../pdf-facts-json/): The contents of `pdf_facts.json`: the
   measured facts and their summary.
 - [`PdfSurvey`](../pdf-survey-json/): The contents of `pdf_survey.json`: the

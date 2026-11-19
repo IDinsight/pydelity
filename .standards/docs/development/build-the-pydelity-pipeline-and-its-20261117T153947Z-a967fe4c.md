@@ -6,8 +6,9 @@ Cycle: build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c
 # Development Plan
 
 `Cycle`: `build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c` `Mode`:
-`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`: `COMPLETE`
-`Verification Cadence`: `AFTER_IMPLEMENTATION` `Current Increment`: `NONE`
+`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
+`IN_PROGRESS` `Verification Cadence`: `AFTER_IMPLEMENTATION`
+`Current Increment`: `NONE`
 
 ## Implementation Contract
 
@@ -187,6 +188,26 @@ Python 3.13.9). The `run_coroutine` evidence above is superseded.
 - `arun`/`run` take only `pdf` and return `None` for now. DEV-014 gives them the
   designed signature and `RunResult`. The CLI requires `PDF` until DEV-004 and
   DEV-015 add `--config`.
+- Reopened on 2026-11-19 by the user's rework of the final review's withdrawn
+  finding
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-001`
+  (recovery frame 1). Files approved by the user (2026-11-19):
+  `src/pydelity/errors.py` and the regenerated
+  `docs/src/content/docs/reference/python-api.md`. The `PdfError` docstring now
+  reads "The PDF is empty, password-protected or cannot be opened.", as in the
+  design's **Data and Control Flow** step 2. A missing PDF path fails the
+  settings check first and raises `ConfigError`; `open_pdf` still raises
+  `PdfError` for a file that disappears after that check, which "cannot be
+  opened" covers. No behavior changed. Evidence, 2026-11-19, on `e32220d` plus
+  these files (macOS arm64, outside the sandbox for the pseudo-terminal):
+  - `just lint` passes (STANDARDS check, markdownlint, ruff, ty, interrogate
+    100%, zizmor with no findings). It regenerated the reference pages, and only
+    the `PdfError` line of `python-api.md` changed. A second `just lint` left
+    the 9 reference pages, `errors.py` and this plan byte-identical (SHA-1
+    compared), so CI's `git diff --exit-code` passes on these files.
+  - `just test`: 105 passed; doctests 17 passed, 1 skipped.
+  - `pydelity.PdfError.__doc__` prints the new sentence.
+  - `just docs-build` (Node 23.10.0): the link check passes on all 25 pages.
 
 ### DEV-002 — Real public-domain PDF set
 
@@ -2180,7 +2201,7 @@ arm64).
 
 ### DEV-019 — Docs site scaffold and versioned build
 
-`Status`: `DONE` `Depends On`: `NONE` `Acceptance`: `AC-027, AC-028, AC-030`
+`Status`: `PENDING` `Depends On`: `NONE` `Acceptance`: `AC-027, AC-028, AC-030`
 
 **Goal**
 
@@ -2533,6 +2554,24 @@ arm64). No model was called and nothing was spent.
   for clarity.
 
 ## Plan Notes
+
+- Recovery, 2026-11-19: the user asked to fix the final review's withdrawn
+  findings
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-001`,
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-002`
+  and
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/final-deliverable.md#F-003`
+  (recovery frame 1, owned by `DEVELOPING`, `ResumeAt: SYNCHRONIZING`).
+  Developer's parts are the `PdfError` docstring, which says a missing PDF
+  raises it although a missing path is a `ConfigError`, with the reference page
+  generated from it; and the `docs/package.json` engines field (`>=22.12.0`),
+  which is below the locked Astro's own floor of 22.23.4. DEV-001 (the errors
+  component) and DEV-019 (the docs site's `package.json`) are reopened for them.
+  Both fixes stay within the approved intent, so the plan stays approved; as
+  with every step, the user reviews the file list first. The Python guide's
+  error table and the docs-site page's Node.js version are Documenter's. No
+  Developer assignment was interrupted: the plan was `COMPLETE` when the final
+  review started.
 
 - Recovery, 2026-11-18: implementation review finding
   `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/implementation.md#F-002`

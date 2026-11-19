@@ -62,7 +62,7 @@ class OutputError(PydelityError):
 
 
 class PdfError(PydelityError):
-    """The PDF is missing, empty, password-protected or cannot be opened."""
+    """The PDF is empty, password-protected or cannot be opened."""
 
 
 class ProviderError(PydelityError):
