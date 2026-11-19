@@ -57,6 +57,21 @@ ReviewKind: FINAL_DELIVERABLE
   review last assessed (see **Questions, Limitations, and Later Dependencies**).
 - Project references loaded: `NONE` (`.standards/project-references/` does not
   exist). User style: none selected.
+- Recovery rerun (2026-11-19, frame 1, `RerunThrough: REVIEWING_FINAL`,
+  `ResumeAt: SYNCHRONIZING`), at HEAD `f2df723`, clean tree. Changed since
+  `ae81cb5` (besides `STATE.md`): `src/pydelity/errors.py` `4a52ef2` (tree `src`
+  `f37825c`; `PdfError` docstring only, `ac5e43f`), generated
+  `reference/python-api.md` `aadbd13` (tree `reference` `70524e5`; the
+  `PdfError` line only), `docs/package.json` `398fe9f` (`engines.node`
+  `>=22.23.4`, `8ba5dae`), `guides/python.md` `9c8365b` and
+  `contributing/docs-site.md` `1a72c55` (`f2df723`), development plan
+  `06983d3c3a3e01c2` (DEV-001 and DEV-019 reopened and done; plan `COMPLETE`),
+  documentation record `1a9e821f300fbca7` (`COMPLETE`, rerun evidence). This
+  report was `a7bc9825d5b08246` at the rerun's start. Unchanged: scope, design,
+  verification report, implementation review, context, protocol and Reviewer
+  skill; trees `tests` `268e597`, `examples` `235e934`, `scripts` `19567bb`,
+  `.github` `4cc0d13`; `pyproject.toml`, `uv.lock`, `justfile`,
+  `docs/pnpm-lock.yaml` `d383b7c`, `README.md` and `docs/astro.config.mjs`.
 - Session: a fresh conversation started for this review; it holds none of the
   scope, design, implementation, test, implementation-review or documentation
   authoring history. Client metadata cannot certify freshness, and the models
@@ -121,21 +136,21 @@ dependencies are unchanged since that evidence was produced.
   Disposition: Supported.
 - **AC-031 user can install and use pydelity from the docs.** Evidence:
   Reviewer: Start here, Guides, FAQ, Need Help? read against the code; examples
-  rerun. Disposition: Supported (withdrawn F-002 is a non-material error-table
-  wording issue).
+  rerun; the error table corrected in the rerun (F-002 resolved). Disposition:
+  Supported.
 - **AC-032 reference pages match the code.** Evidence: Tester: regeneration is
-  byte-identical. Reviewer: `reference/python-api.md:368` describes `PdfError`
-  differently from the code's behavior, a non-material wording issue (withdrawn
-  F-001). Disposition: Supported.
+  byte-identical. Rerun: Developer's `just lint` and Reviewer's regenerate and
+  format leave the tree unchanged at `f2df723`; `python-api.md` now describes
+  `PdfError` as the code raises it (F-001 resolved). Disposition: Supported.
 - **AC-033 contributor pages.** Evidence: Reviewer and helper: `development.md`,
   `docs-site.md`, `releases.md` against `justfile`, hooks, workflows,
-  release-please config, `docs/pnpm-lock.yaml`. Disposition: Supported, with
-  non-material observations below (withdrawn F-003 among them).
+  release-please config, `docs/pnpm-lock.yaml`; the Node.js version corrected in
+  the rerun (F-003 resolved). Disposition: Supported, with non-material
+  observations below.
 - **AC-034 README and docs commands and examples match behavior.** Evidence:
   Reviewer: README and guide examples rerun or traced to code; Documenter's
-  command runs. `just docs` and `just docs-build` fail on part of the Node range
-  `docs-site.md` states, with Astro's own message naming the version it needs
-  (withdrawn F-003). Disposition: Supported.
+  command runs. The Node.js version `docs-site.md` states now builds the site
+  (F-003 resolved). Disposition: Supported.
 - **AC-035 user review of real runs.** Evidence: Tester: the user's acceptance
   (2026-11-18); `src` has changed since only by the probe fix, which leaves the
   committed fixtures' facts unchanged (Impl. review). Disposition: Supported.
@@ -194,12 +209,41 @@ record.
   (`justfile:68-80`). About 80 other concrete claims (recipes, paths, triggers,
   permissions, environments, the release flow, all relative links) matched.
 
+- Recovery rerun, Reviewer diagnostics on `f2df723`, 2026-11-19, macOS arm64:
+  - `node .standards/bin/check.mjs`: "STANDARDS check passed." before the rerun
+    work.
+  - `.venv/bin/python scripts/generate_reference_docs.py`, then
+    `.venv/bin/prek run prettier-markdown --all-files` (outside the sandbox):
+    `git status` clean afterwards, so the committed reference pages match the
+    code, as CI's check requires.
+  - `.venv/bin/python -m pytest -q --numprocesses auto` (outside the sandbox,
+    for the stand-in server's loopback port): 105 passed. Doctests
+    (`--doctest-modules src`): 17 passed, 1 skipped.
+  - `pnpm run build` in `docs/` (Node 23.10.0): 25 pages built;
+    `pnpm run check-links`:
+    `Checked local links and fragments in 25 HTML pages.`
+  - `.venv/bin/prek run markdownlint-cli2 --all-files`: `Passed`.
+  - `pydelity.PdfError.__doc__` reads "The PDF is empty, password-protected or
+    cannot be opened."; `pydelity.measure("missing.pdf")` still raises
+    `ConfigError` (`pdf: no such file: missing.pdf`).
+  - `grep` over `README.md`, `docs/src/content/docs`, `src` and
+    `docs/package.json` finds no remaining "22.12" or "is missing, empty".
+
 ## Findings
 
 ### F-001 — The `PdfError` description says a missing PDF raises it
 
-`Severity`: `P2` `Status`: `WITHDRAWN` `Owner`: `DEVELOPER` `FailureType`:
+`Severity`: `P2` `Status`: `RESOLVED` `Owner`: `DEVELOPER` `FailureType`:
 `IMPLEMENTATION`
+
+- **Resolution (2026-11-19, recovery rerun, at the user's request):** `ac5e43f`
+  changes the docstring to "The PDF is empty, password-protected or cannot be
+  opened.", matching design **Data and Control Flow** step 2, and the
+  regenerated `python-api.md:368` says the same. Reviewer reran the failure
+  case: a missing path still raises `ConfigError`, which the corrected text no
+  longer contradicts, and a file that vanishes after the settings check falls
+  under "cannot be opened". Regeneration and formatting leave the tree
+  unchanged; tests and doctests pass. No behavior changed.
 
 - **Reassessment (2026-11-19, second pass at the user's request to keep only
   major issues):** withdrawn as not material. The error is a wording slip in one
@@ -238,9 +282,14 @@ record.
 
 ### F-002 — The Python guide's error table sends a missing PDF to `PdfError`
 
-`Severity`: `P2` `Status`: `WITHDRAWN` `Owner`: `DOCUMENTER` `FailureType`:
+`Severity`: `P2` `Status`: `RESOLVED` `Owner`: `DOCUMENTER` `FailureType`:
 `DOCUMENTATION`
 
+- **Resolution (2026-11-19, recovery rerun, at the user's request):** the
+  **Errors** table in `guides/python.md` (`9c8365b`) now gives `ConfigError` for
+  "a setting is invalid, such as a PDF path that doesn't exist" and `PdfError`
+  for an empty, password-protected or unopenable PDF. Reviewer's diagnostic
+  confirms both rows; the table matches the docstring and reference.
 - **Reassessment (2026-11-19, second pass):** withdrawn as not material, for the
   reasons under F-001: one table row repeats the docstring's wording, the
   guide's examples and the CLI exit codes are right, and the misnamed case still
@@ -264,9 +313,15 @@ record.
 
 ### F-003 — The docs-site page states a Node.js floor that Astro rejects
 
-`Severity`: `P2` `Status`: `WITHDRAWN` `Owner`: `DOCUMENTER` `FailureType`:
+`Severity`: `P2` `Status`: `RESOLVED` `Owner`: `DOCUMENTER` `FailureType`:
 `DOCUMENTATION`
 
+- **Resolution (2026-11-19, recovery rerun, at the user's request):**
+  `contributing/docs-site.md` (`1a72c55`) now asks for Node.js 22.23.4 or later,
+  the locked Astro 7.4.10's floor (`docs/pnpm-lock.yaml`), and names CI's and
+  the hooks' 24.22.3. Developer raised `docs/package.json`'s `engines.node` to
+  `>=22.23.4` (`8ba5dae`), so the page, the package and Astro agree; the lock
+  file is unchanged and the docs build passes.
 - **Reassessment (2026-11-19, second pass):** withdrawn as not material. It
   affects only contributors who build the docs site on Node 22.12 to 22.23.3;
   Astro stops at once with a message naming the version it needs, so the fix is
@@ -299,7 +354,7 @@ record.
   README, `AC-031`, `AC-033`, `AC-034`, owner Documenter) now have
   owner-produced evidence sufficient for this gate.
 - Non-material observations (no correction required by this gate; owners may
-  take them up later): withdrawn F-001 to F-003 above, and:
+  take them up later):
   - `docs-site.md:99-101` says manual runs build every released version and that
     the site is published once the version has its tag; `docs.yml:61-69`
     publishes only on a `push`, so a manual run never publishes. Worth saying
@@ -323,15 +378,14 @@ record.
     every pull request.
   - `faq.md` ("a survey setting" reruns the survey) is looser than `reruns.md`,
     which correctly says `request_timeout_seconds` keeps the saved survey.
-  - `docs/package.json:9` engines `>=22.12.0` is below Astro's floor
-    (Developer's config; Astro enforces its own floor, so only the warning is
-    lost).
-- Limitations: CI has not run on `ae81cb5`; the commit changes only Markdown,
-  the sidebar and a presentation component, and the docs build, link check and
-  markdownlint pass locally. GitHub settings (squash-merge title, environments,
-  Pages source), remote tags and the PyPI Trusted Publisher cannot be checked
-  before sign-off; `.standards/CONTEXT.md` records the squash-title rule the
-  docs repeat. None of these changes this gate's outcome.
+- Limitations: CI has not run on `ae81cb5` or the rerun's commits; they change
+  only Markdown, the sidebar, a presentation component, one docstring and the
+  docs site's `engines` field, and the docs build, link check, markdownlint,
+  reference regeneration, tests and doctests pass locally. GitHub settings
+  (squash-merge title, environments, Pages source), remote tags and the PyPI
+  Trusted Publisher cannot be checked before sign-off; `.standards/CONTEXT.md`
+  records the squash-title rule the docs repeat. None of these changes this
+  gate's outcome.
 
 ## Progress and Conclusion
 
@@ -366,10 +420,25 @@ record.
   required outcome: F-001 for Developer, F-002 and F-003 for Documenter. The
   rerun must include `DOCUMENTING` and `REVIEWING_FINAL`, where Reviewer
   rechecks the three corrections and any changed inputs before synchronization.
-- Plain-language summary: the whole deliverable is ready for the final
-  consistency check. The code, tests, release setup, docs site and docs all
-  check out against each other, and the docs build with no broken links. A few
-  small wording slips remain in the docs (listed in this report), none of which
-  stops anyone from installing, running or releasing pydelity. Not checked
-  before sign-off: real publishing to PyPI and GitHub Pages, and CI on the last
-  docs commit.
+- Recovery rerun (2026-11-19, `REVIEWING_FINAL` as frame 1's `RerunThrough`):
+  Developer fixed F-001 and the docs site's `engines` field, and, as frame
+  owner, skipped `TESTING` and `REVIEWING_IMPLEMENTATION` with a recorded reason
+  (a docstring and an `engines` field change no behavior; AC-032's check passes
+  on the new page). Reviewer agrees: the tests, doctests and the reference check
+  pass on the current tree, nothing the verification report or the
+  implementation review relied on changed, and the Developer and Tester full
+  gates therefore still hold for the current implementation. Documenter fixed
+  F-002 and F-003 and updated the record. Reviewer rechecked all three against
+  the original failure cases and every changed input above: F-001 to F-003 are
+  resolved. Every other conclusion in this report stands, since no other input
+  changed.
+- Gate after the rerun: **passes.** No material finding or assessment gap is
+  open, every current AC has sufficient current evidence, and no blocking
+  question or review-owned obligation remains. Frame 1 closes at this boundary
+  and the workflow resumes at `SYNCHRONIZING`.
+- Plain-language summary: the three wording fixes you asked for are in and
+  correct, and nothing else changed. The code, tests, release setup, docs site
+  and docs all check out against each other, and the docs build with no broken
+  links. The work is ready for the final consistency check. Not checked before
+  sign-off: real publishing to PyPI and GitHub Pages, and CI on the latest
+  commits.
