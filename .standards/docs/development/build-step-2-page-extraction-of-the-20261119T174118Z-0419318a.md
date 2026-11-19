@@ -549,24 +549,24 @@ uncommitted DEV-005 changes (macOS arm64, Python 3.13.9).
     `fillable_name`, and an aside in a container) passes every check, and the
     checks run in the order `labels`, `content`, `languages`, `boxes`,
     `containers`, `captions`, `reading_order`, `artifacts`, `form_fields`.
-  - One change at a time fails exactly the check meant to catch it, such as:
-    a label not in the profile, a label for another role, `other` where a label
+  - One change at a time fails exactly the check meant to catch it, such as: a
+    label not in the profile, a label for another role, `other` where a label
     fits, a container label not in the profile (`labels`); a ref used twice, a
     text item with a table, a formula without LaTeX, an empty list, a blank
     figure description, a checkbox without `checked`, and table rows covering 3
     and 4 columns, a row span past the last row, overlapping cells,
-    `header_rows` 4 of 3, no cell text, no rows, a span of 0 (`content`); the tag
-    `zz`, text without a language, figure text without a language (`languages`);
-    a reversed box, a box reaching 1,010, three values, two items with one box
-    (`boxes`; 1,004 passes); an unknown container, an item outside its container,
-    two containers inside each other (`containers`; 15 units outside and a box
-    inside a box pass); a caption without `caption_of`, of a missing item, of
-    itself, and `caption_of` on a body item (`captions`); dropping the page
-    furniture or giving it role `body` (`artifacts`); a checkbox state or text
-    value that differs, a radio group with one item or both buttons on, a field
-    item naming a field the page lacks, a missing form field (`form_fields`).
-    Whitespace in text values and the order of a radio group's buttons do not
-    matter.
+    `header_rows` 4 of 3, no cell text, no rows, a span of 0 (`content`); the
+    tag `zz`, text without a language, figure text without a language
+    (`languages`); a reversed box, a box reaching 1,010, three values, two items
+    with one box (`boxes`; 1,004 passes); an unknown container, an item outside
+    its container, two containers inside each other (`containers`; 15 units
+    outside and a box inside a box pass); a caption without `caption_of`, of a
+    missing item, of itself, and `caption_of` on a body item (`captions`);
+    dropping the page furniture or giving it role `body` (`artifacts`); a
+    checkbox state or text value that differs, a radio group with one item or
+    both buttons on, a field item naming a field the page lacks, a missing form
+    field (`form_fields`). Whitespace in text values and the order of a radio
+    group's buttons do not matter.
   - Reading order: right-to-left columns pass on an `rtl` page and fail on an
     `ltr` one; left-to-right columns pass on `ltr` and fail on `rtl`; three
     right-to-left columns pass; a jump back up within one column fails. On a
@@ -574,8 +574,8 @@ uncommitted DEV-005 changes (macOS arm64, Python 3.13.9).
     `right_to_left` pass and the same order declared `left_to_right` fails;
     columns read left to right pass with `left_to_right`. `column_order` on an
     `ltr` page fails. An aside anywhere in the order passes.
-  - The label `other` on a heading list, which no profile label fits, passes
-    and gives one `no_matching_label` issue (`step: "extraction"`, page 2, role
+  - The label `other` on a heading list, which no profile label fits, passes and
+    gives one `no_matching_label` issue (`step: "extraction"`, page 2, role
     `heading`, kind `list`).
   - A page that is one figure with a full-page box passes every check.
   - `check_results` keeps the check order and the attempts; `retry_message`
