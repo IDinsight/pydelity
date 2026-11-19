@@ -215,3 +215,39 @@ def test_a_fact_that_cannot_be_read_is_null_with_a_probe_error(
     ]
     assert facts.form_fields == []
     assert facts.structure is not None
+
+
+def test_a_damaged_page_label_tree_counts_as_no_labels(tmp_path: Path) -> None:
+    """A page-label tree PyMuPDF cannot read leaves the numbers to the page text.
+
+    The tree lists page 0 as the start of two ranges, which makes PyMuPDF raise
+    while it sorts them. The pages' printed numbers then come from their text.
+    """
+
+    document = pymupdf.open()
+    for number in (12, 13, 14):
+        page = document.new_page()
+        page.insert_text(
+            (72, 300), "Body text that changes on each page.", fontname="helv"
+        )
+        page.insert_text((290, 820), str(number), fontname="helv")
+    document.xref_set_key(
+        document.pdf_catalog(), "PageLabels", "<</Nums [0 <</S/D>> 0 <</S/r>>]>>"
+    )
+    path = tmp_path / "damaged_labels.pdf"
+    document.save(path)
+    document.close()
+
+    facts = probe_pdf(path)
+
+    numbers = [page.printed_number for page in facts.pages]
+    assert [(n.value, n.source) for n in numbers if n] == [
+        (12, "text"),
+        (13, "text"),
+        (14, "text"),
+    ]
+    assert [
+        (block.first_page_index, block.last_page_index, block.offset)
+        for block in facts.page_numbering
+    ] == [(0, 2, 12)]
+    assert facts.probe_errors == []

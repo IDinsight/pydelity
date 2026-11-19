@@ -1,7 +1,8 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
-`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `REVIEWING_IMPLEMENTATION` `CycleMode`: `STANDARD`
+`PendingCycleMode`: `UNSET` `PendingCycleRequest`: `UNSET`
+`PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -27,19 +28,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
-`F-002 fixed in DEV-005: a page label that cannot be read now counts as no label, so a damaged page-label tree no longer stops the probe. Testing reruns before the implementation review resumes.`
+`Kind`: `RESUME` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
+`F-002 correction verified with a damaged page-label test; full verification passes on e372d91, recovery frame 1 closed, implementation review resumes.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `REVIEWING_IMPLEMENTATION` `Owner`: `DEVELOPING` `FailureType`:
-`IMPLEMENTATION` `Reason`:
-`Implementation review found an open P2 implementation defect: F-002 in the cycle's implementation review report (a malformed page-label tree fails the run).`
-`ResumeAt`: `REVIEWING_IMPLEMENTATION` `RerunThrough`: `TESTING`
+`Active`: `false`
 
 ## Outstanding Obligations
 

@@ -6,8 +6,8 @@ Cycle: build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c
 # Verification Report
 
 `Cycle`: `build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c` `Mode`:
-`VERIFY` `Status`: `COMPLETE` `User Style`: `tony` `Assessment Purpose`: `FULL`
-`Assessment Target`: `NONE`
+`REVERIFY` `Status`: `COMPLETE` `User Style`: `tony` `Assessment Purpose`:
+`FULL` `Assessment Target`: `NONE`
 
 ## Assessed Inputs
 
@@ -40,8 +40,20 @@ Cycle: build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c
   `docs/package.json` (CI pins Node 24.22.3). Tests that start the stand-in
   provider server bind a loopback port, which this session's sandbox blocks, so
   test runs ran outside the sandbox.
-- Reason: first formal verification of the cycle, after Developer's full
-  completion and the closed AC-047 recovery frame (`Handoff.Kind: RESUME`).
+- Reverification (2026-11-18): implementation review finding
+  `.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/implementation.md#F-002`
+  reopened DEV-005 (recovery frame 1, owner `DEVELOPING`,
+  `RerunThrough: TESTING`, `ResumeAt: REVIEWING_IMPLEMENTATION`). Developer's
+  fix `e372d91` changes only `src/pydelity/surveying/probe.py`: any error from
+  reading a page's label, or from checking whether labels exist, counts as no
+  label (new private `_has_page_labels`). Scope, design, context, the other
+  source files and the dependencies are unchanged. Assessed tree: `e372d91` plus
+  Tester's uncommitted test for the finding and this report; SHA-256 over
+  `tests/` (PDFs excluded), `justfile`, `pyproject.toml` and `uv.lock`:
+  `208cd623cb90dcd9…`.
+- Reason for the first pass: first formal verification of the cycle, after
+  Developer's full completion and the closed AC-047 recovery frame
+  (`Handoff.Kind: RESUME`).
 - Session: this Tester conversation holds no Developer authoring history; client
   metadata cannot certify session freshness.
 - Project references loaded: `NONE` (`.standards/project-references/` does not
@@ -59,7 +71,7 @@ reaches a provider.
 
 | AC     | Tests or checks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Disposition                                                                                                   |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| AC-001 | `surveying/test_probe.py` (8 scenarios: text quality none/good/garbled, bookmarks, form values and checkbox states, tags, repeated lines, angle on rotation-0 pages, printed numbers and offsets, unreadable fact); `_normalize` doctest (Cf removal)                                                                                                                                                                                                                                                                                       | VERIFIED. Facts copy in `pdf_survey.json`: `test_profile_owns_other_dedupes_kinds_and_converts_region_boxes`. |
+| AC-001 | `surveying/test_probe.py` (9 scenarios: text quality none/good/garbled, bookmarks, form values and checkbox states, tags, repeated lines, angle on rotation-0 pages, printed numbers and offsets, unreadable fact, a damaged page-label tree); `_normalize` doctest (Cf removal)                                                                                                                                                                                                                                                            | VERIFIED. Facts copy in `pdf_survey.json`: `test_profile_owns_other_dedupes_kinds_and_converts_region_boxes`. |
 | AC-002 | `surveying/test_survey.py::test_profile_owns_other_dedupes_kinds_and_converts_region_boxes`                                                                                                                                                                                                                                                                                                                                                                                                                                                 | VERIFIED                                                                                                      |
 | AC-004 | `test_user_languages_lead_and_rejected_model_tags_become_review_issues`, `test_request_sends_the_facts_as_hints_with_every_repeated_line`; inspection: no setting disables a check or the comparison                                                                                                                                                                                                                                                                                                                                        | VERIFIED                                                                                                      |
 | AC-005 | `test_probe.py`: Arabic two columns, Japanese vertical, W-9 filled form with checkboxes, CAPS sideways tables, scanned pages, W-9 instructions with bookmarks and tags, untagged PDFs                                                                                                                                                                                                                                                                                                                                                       | VERIFIED                                                                                                      |
@@ -157,7 +169,7 @@ charged again.
 | `surveying/agents.py`       | 3 / 5       | last attempt accepted, retry, failures recorded                                                                 |
 | `surveying/facts.py`        | 3 / 5       | save and reuse, new probe version, damaged facts                                                                |
 | `surveying/llm.py`          | 5 / 5       | retry request, request content, unparseable answer, re-upload, fallback rejection                               |
-| `surveying/probe.py`        | 8 / 9       | `test_probe.py` (8)                                                                                             |
+| `surveying/probe.py`        | 9 / 9       | `test_probe.py` (9)                                                                                             |
 | `surveying/prompts.py`      | 2 / 5       | request content, neutral vocabulary                                                                             |
 | `surveying/schemas.py`      | 1 / 5       | neutral field names and enums                                                                                   |
 | `surveying/survey.py`       | 12 / 12     | profile, languages, disagreements, spellings, reuse, 5 changed inputs, probe version, damaged survey            |
@@ -169,6 +181,36 @@ charged again.
 | `examples/config.yaml`      | 1 / 5       | example file                                                                                                    |
 
 ## Execution Evidence
+
+Reverification for
+`.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/implementation.md#F-002`,
+2026-11-18, on `e372d91` plus the new test:
+
+- New scenario `test_a_damaged_page_label_tree_counts_as_no_labels`
+  (`surveying/test_probe.py`): a 3-page PDF printing 12 to 14 at the bottom,
+  whose `/PageLabels` lists page 0 as the start of two ranges. Passes on
+  `e372d91`: the numbers come from the text (`source` `text`, offset 12) with no
+  probe error. Negative control: with `probe.py` from `b0ca0be` in place, the
+  test fails with the finding's
+  `TypeError: '<' not supported between instances of 'PdfObj' and 'PdfObj'`; the
+  file was then restored (`git diff --quiet HEAD -- src`).
+- `just test`: 105 passed (12 workers), then 17 doctests passed, 1 skipped; two
+  more `pytest -n auto` runs: 105 passed each. Ruff, ty and interrogate (100%)
+  pass on `scripts`, `src` and `tests`. `just build`: `twine check --strict`
+  PASSED for the wheel and sdist. `just lint` passes once this report names the
+  finding by its record path, as the STANDARDS check requires.
+- Reused, with reason: the CI evidence for AC-022, AC-023 and AC-024 from run
+  `44432796735` on `02b3ea1`. Those criteria concern CI configuration,
+  packaging, dependencies and installation on each system, none of which
+  `e372d91` touches; the change is pure Python exception handling that runs the
+  same way on every platform, and the smoke test's scanned PDF defines no page
+  labels. The suite above covers the changed behavior. The next push to
+  IDinsight/pydelity#3 reruns CI on the new commits.
+- Reused, with reason: every other result below, since the change affects only
+  page-label reading in the probe and the full suite, doctests, lint and build
+  passed again on the new tree.
+
+First pass:
 
 All at the repo root on `f8c816b` plus Tester's uncommitted changes, macOS
 arm64, 2026-11-18.
@@ -268,16 +310,15 @@ arm64, 2026-11-18.
 
 ## Resume or Handoff
 
-Full verification is complete for the implementation at `02b3ea1`, with
-`Assessment Purpose: FULL`. Every current AC has passing evidence above except
-the Documenter dependencies listed under Open Findings, which stay pending
-downstream under the same IDs. No Tester-owned obligation, unresolved failure or
-user question remains. Developer's `COMPLETE` plan and its claims were checked
-against the code and the contract; the one defect found, in the smoke script's
-check, was a test defect and is corrected and verified in CI.
+Reverification complete for `e372d91` plus the new test, with
+`Assessment Purpose: FULL`. The correction for
+`.standards/docs/reviews/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c/implementation.md#F-002`
+is verified: a damaged page-label tree no longer stops the probe. Every current
+AC has passing evidence except the Documenter dependencies under Open Findings,
+which stay pending downstream under the same IDs. No Tester-owned obligation,
+unresolved failure or user question remains.
 
-Handoff to Reviewer, review kind `IMPLEMENTATION`, in a fresh session separate
-from the conversations that wrote the artifacts under review. Evidence lives in
-this report, the suite under `tests/`, CI runs `44432796735`, `44432796564` and
-`44432796565` on IDinsight/pydelity#3, and the scratch-clone docs checks
-recorded under Execution Evidence (rerunnable with the commands listed there).
+Testing was the rerun boundary of recovery frame 1, so the frame is closed and
+the workflow resumes the implementation review (`IMPLEMENTATION`), in a session
+separate from the conversations that wrote the artifacts under review. Reviewer
+reassesses the finding's status; this report does not change it.
