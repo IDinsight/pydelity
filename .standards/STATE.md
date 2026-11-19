@@ -18,7 +18,7 @@
 `Development`:
 `.standards/docs/development/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-006 is done; approve the files and folders DEV-007 will change before it starts.`
+`DEV-007 is done; approve the files and folders DEV-008 will change before it starts.`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

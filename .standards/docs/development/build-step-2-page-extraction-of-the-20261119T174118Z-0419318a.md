@@ -739,7 +739,7 @@ uncommitted DEV-006 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
 
 ### DEV-007 — Extractor and verifier prompts, agents and requests
 
-`Status`: `PENDING` `Depends On`: `DEV-003, DEV-005, DEV-006` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-003, DEV-005, DEV-006` `Acceptance`:
 `AC-010, AC-017, AC-018, AC-020, AC-021, AC-023, AC-024, AC-033, AC-058, AC-060`
 
 **Goal**
@@ -783,6 +783,80 @@ instructions only when set, `detail` on OpenAI-shaped parts) and drives the
 retry rule (a failing answer retried, the last one kept with its failures); a
 search of the prompts for language, script, document-type and direction
 defaults.
+
+Evidence, 2026-11-19, repo root, on the user's DEV-006 commit plus the
+uncommitted DEV-007 changes (macOS arm64, Python 3.13.9, PydanticAI 2.69).
+
+- PydanticAI research in the installed package: the OpenAI Responses model sends
+  `BinaryContent.vendor_metadata["detail"]` as the image's `detail` unchanged
+  (`binary_content_to_response_content`), so `"original"` reaches OpenAI;
+  Anthropic caches the instructions with the model setting
+  `anthropic_cache_instructions`; a refusal raises `ContentFilterError` only for
+  a response with no text and `finish_reason` `content_filter`.
+- `uv sync --locked` outside the sandbox, for the new modules.
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` on `scripts src`:
+  passed; `interrogate`: 100%. Doctests: 23 passed, 1 skipped.
+- `.venv/bin/python -m pytest -q --numprocesses auto`: the same 7 failed and 98
+  passed; `ty check tests`: the same 2 errors.
+- Reference pages regenerated and formatted: only `reference/cli.md` changed,
+  its exit code 1 now naming page extraction errors.
+- Scratchpad `dev007_check.py` (`ask_extractor` and `ask_verifier` over
+  `LedgerModel`s wrapping PydanticAI `FunctionModel`s that answer scripted JSON,
+  on a page context with rotation 90, writing direction `rtl`, a repeated line,
+  a checkbox, a push button and two text-layer lines): 32 of 32 checks passed.
+  - A failing answer (label not in the profile) is sent back with a message that
+    names item `'t1'`, and the fixed answer is kept: 2 attempts, no failures,
+    and two ledger lines with `agent: "extractor"`, `page_index: 3`, `request` 1
+    and 2. With `check_retries` 0 the failing answer is kept with its `labels`
+    failure.
+  - The request content is the page text, one JPEG image and a cache point, with
+    no PDF; the text starts `Page index 3 (page 4 of 9)` and gives the
+    direction, the rotation applied, the repeated line with what the survey
+    found, the checkbox with its grid box (not the push button) and, on a `good`
+    page only, the `<text_layer>` hints.
+  - Anthropic requests carry `anthropic_cache_instructions` and an image without
+    a detail value; OpenAI requests carry `detail: "original"` and no cache
+    setting.
+  - Page extraction instructions end the extractor's and the verifier's
+    instructions, under the sentence saying they add to pydelity's rules.
+  - The verifier gets the page text, the extraction as JSON and
+    `Checks it still fails: none`; a passed verdict is kept (1 attempt, no
+    correction); a correction that fails the checks is sent back with "Your
+    corrected extraction does not pass every check" and the fixed one kept (2
+    attempts); one still failing on the last attempt is kept as given with its
+    failures; a verdict that breaks its own rules (passed with a problem) is
+    sent back; verifier requests are recorded with `agent: "verifier"`.
+  - A refusal, running out of output tokens and an answer that is not JSON each
+    raise `ExtractionError` starting `Page 4 (index 3), extractor:`, the second
+    naming `advanced.extraction.max_output_tokens`.
+  - The extractor's instructions are the same for every page; a `ttb` page's
+    text asks for `column_order`. The instructions run to 6,506 characters for
+    the extractor and 8,508 for the verifier.
+  - Neutral wording: the prompts and `prompts.py`, `agents.py` and `llm.py` hold
+    none of the survey tests' document-type words, language or script names,
+    form names, "left column before", KGForEdGlobal's schema names or
+    "curriculum". The first run caught "slide" and "report" from that word list
+    in the prompt text; they now read "a page made of a single picture" and
+    "List only".
+  - The rules describe all three writing directions, none as a default.
+- Process wording grep of the changed files: no hits.
+
+**Implementation Notes**
+
+- KGForEdGlobal pieces taken, reworded (as approved before the step): the image
+  as the source of truth; text exactly as printed, not completed; scanning every
+  margin; ignoring drawn lines; tight, unique boxes; heading versus caption by
+  role; content per kind; its table rules; list markers as printed; figure
+  descriptions; text-layer hints for spelling only; the verifier's auditing
+  stance, checklist and full correction. Everything else in the prompts is
+  written for pydelity.
+- `ask_extractor` and `ask_verifier` take a `StepModel` (the model, its choice
+  and the settings, shared by a run's pages) and a `PageInput` (the page's
+  context, image and text-layer lines); passing them as separate arguments made
+  six or more parameters, over Ruff's limit of five. Each makes its own ledger
+  wrapper with `LedgerModel.for_page`.
+- `ask_verifier` returns the verdict as given and the checks its correction
+  fails; DEV-009 decides whether the correction replaces the extraction.
 
 ---
 
