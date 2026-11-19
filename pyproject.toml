@@ -3,7 +3,7 @@
 [build-system]
 build-backend = "setuptools.build_meta"
 # 77+ supports SPDX `license` expressions with `license-files`.
-requires = ["setuptools>=77"]
+requires = ["setuptools>=84.2.1"]
 
 # Dev tools live in a dependency group, so they never appear in published metadata.
 [dependency-groups]
