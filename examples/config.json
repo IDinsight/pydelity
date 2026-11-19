@@ -1,0 +1,29 @@
+{
+  "advanced": {
+    "models": {
+      "anthropic:your-model-id": {
+        "cache_read_usd_per_mtok": 0.1,
+        "cache_write_usd_per_mtok": 1.25,
+        "input_usd_per_mtok": 1.0,
+        "output_usd_per_mtok": 5.0
+      }
+    },
+    "provider_retries": 2,
+    "survey": {
+      "check_retries": 2,
+      "effort": "high",
+      "max_output_tokens": 32000,
+      "request_timeout_seconds": 900
+    },
+    "uploads": {
+      "expiry_hours": null
+    }
+  },
+  "instructions": null,
+  "languages": [],
+  "max_cost": null,
+  "model": "anthropic:claude-opus-5-5",
+  "output_dir": null,
+  "overwrite": false,
+  "pdf": "document.pdf"
+}

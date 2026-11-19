@@ -14,20 +14,39 @@ dev = [
     "pytest==9.2.0",
     "pytest-cov==7.1.0",
     "pytest-randomly==5.1.0",
+    "pytest-xdist==3.8.0",
     "ruff==0.17.5",
     "rust-just==1.59.0",
-    "ty==0.0.104",
+    "twine==7.0.0",
+    "ty==0.0.105",
     "zizmor==1.32.0",
 ]
 
 [project]
 authors = [{name = "IDinsight DSEM", email = "dsem@idinsight.org" }]
 classifiers = [
-    "Development Status :: 1 - Planning",
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
 ]
-dependencies = []
-description = "Under development and not yet usable. PDF to structured JSON, faithfully."
+# Runtime dependencies are minimum versions. PyMuPDF 2.x fixes page-label and hang bugs
+# that 1.x keeps, but requires onnxruntime, numpy and more, and has no wheels for Intel
+# Macs, Windows ARM, 32-bit Windows or musl Linux.
+dependencies = [
+    "genai-prices>=0.2.4",
+    "langcodes>=3.5.1",
+    "loguru>=0.8.0",
+    "pydantic>=2.14.3",
+    "pydantic-ai-slim[anthropic,openai]>=2.69.0",
+    "pydantic-settings[yaml]>=2.16.3",
+    "pymupdf>=2.1",
+    "typer>=0.29.1",
+]
+description = "Survey any PDF with Anthropic or OpenAI models: page numbers, rotation, writing direction and repeated lines, as JSON with a list of things to review."
 keywords = ["agents", "genai", "JSON", "llm", "PDF", "structured"]
 license = "MIT"
 license-files = ["LICENSE"]
@@ -38,7 +57,11 @@ requires-python = ">=3.13"
 # Bumped by release-please's release pull requests, with uv.lock; not edited by hand.
 version = "0.0.1"
 
+[project.scripts]
+pydelity = "pydelity.cli:main"
+
 [project.urls]
+Documentation = "https://idinsight.github.io/pydelity/"
 Homepage = "https://github.com/IDinsight/pydelity"
 Issues = "https://github.com/IDinsight/pydelity/issues"
 Repository = "https://github.com/IDinsight/pydelity"
@@ -154,6 +177,10 @@ convention = "numpy"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+# Files other than Python modules that the package reads at run time.
+[tool.setuptools.package-data]
+pydelity = ["report/*.css"]
 
 [tool.setuptools.packages.find]
 include = ["pydelity*"]

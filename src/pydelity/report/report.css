@@ -1,0 +1,124 @@
+:root {
+  --border: #c8ccd2;
+  --field: #8a4b00;
+  --muted: #555b63;
+  --region: #0b57d0;
+  --surface: #f6f7f9;
+  --text: #1c1f23;
+  color: var(--text);
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+body {
+  margin: 0 auto;
+  max-inline-size: 72rem;
+  padding: 1.5rem;
+}
+
+h1 {
+  margin-block: 0 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+h2 {
+  border-block-end: 1px solid var(--border);
+  margin-block-start: 2.5rem;
+}
+
+dl {
+  display: grid;
+  gap: 0.25rem 1rem;
+  grid-template-columns: max-content 1fr;
+}
+
+dt {
+  color: var(--muted);
+}
+
+dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+table {
+  border-collapse: collapse;
+  inline-size: 100%;
+  margin-block: 1rem;
+}
+
+caption {
+  font-weight: 600;
+  text-align: start;
+}
+
+th,
+td {
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.5rem;
+  text-align: start;
+  vertical-align: top;
+}
+
+th {
+  background: var(--surface);
+}
+
+.page {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  margin-block: 1.5rem;
+  padding: 1rem;
+}
+
+.page figure {
+  margin: 0;
+}
+
+.page-image {
+  max-inline-size: 50rem;
+  position: relative;
+}
+
+.page-image img {
+  block-size: auto;
+  border: 1px solid var(--border);
+  display: block;
+  inline-size: 100%;
+}
+
+.box {
+  box-sizing: border-box;
+  position: absolute;
+}
+
+.box.region {
+  border: 2px solid var(--region);
+}
+
+.box.field {
+  border: 2px dashed var(--field);
+}
+
+.box-label {
+  background: rgb(255 255 255 / 85%);
+  font-size: 0.75rem;
+  left: 0;
+  padding-inline: 0.25rem;
+  position: absolute;
+  top: 0;
+}
+
+.box.region .box-label {
+  color: var(--region);
+}
+
+.box.field .box-label {
+  color: var(--field);
+}
+
+figcaption {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin-block-start: 0.5rem;
+}

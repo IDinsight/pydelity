@@ -1,0 +1,60 @@
+# Every pydelity setting at its default value. Copy this file, change what you need
+# and pass it with `pydelity --config config.yaml`. Options given on the command line
+# win over this file. Relative paths are relative to this file's folder.
+
+# Settings most runs never need to change.
+advanced:
+  # Prices for models, in US dollars per million tokens, by <provider>:<model-id>.
+  # An entry replaces the price pydelity would look up for that model. This entry is
+  # a placeholder for a model that does not exist: change it or remove it.
+  models:
+    "anthropic:your-model-id":
+      # Price of input tokens read from the prompt cache; the input price if null.
+      cache_read_usd_per_mtok: 0.1
+      # Price of input tokens written to the prompt cache; the input price if null.
+      cache_write_usd_per_mtok: 1.25
+      # Price of input tokens.
+      input_usd_per_mtok: 1.0
+      # Price of output tokens.
+      output_usd_per_mtok: 5.0
+  # How many times a request to the provider is retried after a temporary failure,
+  # from 0 to 10.
+  provider_retries: 2
+  # Settings for the survey step.
+  survey:
+    # How many times the model may answer again after failing the survey's checks,
+    # from 0 to 5.
+    check_retries: 2
+    # How hard the model thinks before answering: low, medium or high.
+    effort: high
+    # The most tokens one model answer may contain, thinking included.
+    max_output_tokens: 32000
+    # How many seconds to wait for one model request before it counts as failed.
+    request_timeout_seconds: 900
+  # Settings for PDFs uploaded to the provider.
+  uploads:
+    # How many hours the provider keeps an uploaded PDF; the provider's maximum if
+    # null.
+    expiry_hours: null
+
+# Extra instructions for the model about this PDF.
+instructions: null
+
+# The PDF's languages as BCP-47 tags, such as [en] or [en, ar].
+languages: []
+
+# The most the output folder's model requests may cost, in US dollars; no limit if
+# null.
+max_cost: null
+
+# The model, as <provider>:<model-id>; provider anthropic or openai.
+model: anthropic:claude-opus-5-5
+
+# The output folder; pydelity-output/<PDF name> in the current folder if null.
+output_dir: null
+
+# Whether to redo steps whose outputs could be reused.
+overwrite: false
+
+# The PDF to process. A PDF given on the command line wins over this one.
+pdf: document.pdf
