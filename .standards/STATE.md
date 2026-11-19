@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `REVIEWING_FINAL` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -27,12 +27,20 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `DOCUMENTING` `FailureType`: `NONE` `Reason`:
-`Documentation complete and approved by the user: README, docs site pages, FAQ, Need Help? and the overview sticker; final deliverable review next.`
+`Kind`: `USER_REWORK` `From`: `SYNCHRONIZING` `FailureType`: `IMPLEMENTATION`
+`Reason`:
+`User asked to fix final review's withdrawn F-001 to F-003: PdfError docstring and reference, Python guide error table, docs-site Node.js version.`
 
 ## Recovery
 
-`Active`: `false`
+`Active`: `true`
+
+### Frame 1
+
+`From`: `SYNCHRONIZING` `Owner`: `DEVELOPING` `FailureType`: `IMPLEMENTATION`
+`Reason`:
+`User asked to fix final review's withdrawn F-001 to F-003: PdfError docstring and reference, Python guide error table, docs-site Node.js version.`
+`ResumeAt`: `SYNCHRONIZING` `RerunThrough`: `NONE`
 
 ## Outstanding Obligations
 
