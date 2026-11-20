@@ -1,8 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `REVIEWING_IMPLEMENTATION` `CycleMode`: `STANDARD`
-`PendingCycleMode`: `UNSET` `PendingCycleRequest`: `UNSET`
-`PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -31,12 +30,20 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
-`Full verification complete on a0afbfa (CI run 44805308210 green); implementation review requested.`
+`Kind`: `FAILURE` `From`: `REVIEWING_IMPLEMENTATION` `FailureType`:
+`IMPLEMENTATION` `Reason`:
+`Implementation review findings F-002 (the probe reads two buttons of one radio group as checked) and F-005 (report item boxes take the item list's styles).`
 
 ## Recovery
 
-`Active`: `false`
+`Active`: `true`
+
+### Frame 1
+
+`From`: `REVIEWING_IMPLEMENTATION` `Owner`: `DEVELOPING` `FailureType`:
+`IMPLEMENTATION` `Reason`:
+`Implementation review findings F-002 (the probe reads two buttons of one radio group as checked) and F-005 (report item boxes take the item list's styles).`
+`ResumeAt`: `REVIEWING_IMPLEMENTATION` `RerunThrough`: `NONE`
 
 ## Outstanding Obligations
 
