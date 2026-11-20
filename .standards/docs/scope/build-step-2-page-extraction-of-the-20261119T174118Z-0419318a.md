@@ -49,7 +49,7 @@ profile before paying for page extraction, and it fixes the follow-ups that
 - The model's reading of a page is trusted over measured facts such as the text
   layer. Code may send an answer back with the difference it found, but the
   model's final answer is kept, and any difference left goes on the review list,
-  except text differences on a page the verifier passes.
+  except text differences on a page the verifier passes or corrects.
 - Each check sits where it can be enforced. What a Pydantic model can check
   stays in the Pydantic classes. What code can check deterministically goes in
   step 2's `validators.py`. What is too complex to check in code is left to the
@@ -261,19 +261,22 @@ leave a person only what neither resolves.
   spaces between words, so that text dropped from the page or added to it is
   found. On test pages in Arabic, Chinese, Japanese and English, removing a line
   from a correct answer or adding one to it is caught.
-- `AC-062`: A text difference is sent back to the model within the check
-  retries, telling it that it may keep its reading when the text is not visible
-  on the page or was read from an image. Unlike other checks still failing
-  (`AC-021`), differences left after the retries go on the review list only when
-  the verifier does not pass the page. On a page the verifier passes, they are
-  not listed for review. Pages whose text layer is missing or garbled skip the
-  comparison, and their page file says so.
-- `AC-024`: After the code checks, a second vision-model pass reviews every
+- `AC-063`: A text difference is sent back to the model whose answer it is in,
+  the page extraction model for its extraction or the verifier for its
+  correction, within the check retries, telling it that it may keep its reading
+  when the text is not visible on the page or was read from an image. Unlike
+  other checks still failing (`AC-021`), text differences left after the retries
+  go on the review list only when the page keeps the extraction and the verifier
+  does not pass it. They are not listed when the verifier passes the page or
+  when the page keeps the verifier's correction. Pages whose text layer is
+  missing or garbled skip the comparison, and their page file says so.
+- `AC-064`: After the code checks, a second vision-model pass reviews every
   extracted page against the page image for problems code cannot judge, such as
   missed, merged or misclassified items, a wrong reading order in a complex
-  layout, or boxes on the wrong content. When it finds problems, the page file
-  holds a corrected extraction that passes the code checks, or the problems go
-  on the review list.
+  layout, or boxes on the wrong content. When it finds problems and its
+  corrected extraction passes every code check other than the text comparison,
+  the page file holds the correction. Otherwise the page file keeps the
+  extraction and the problems go on the review list.
 - `AC-025`: Every verifier verdict is saved in the output folder with its page,
   so that how often the verifier finds and fixes problems can be measured.
 - `AC-026`: Review issues from page extraction name the step, the page and,
@@ -455,6 +458,13 @@ tests cannot show.
   because a PDF's stored text can be wrong, as with broken Arabic letter forms
   or ligatures, and listing those differences only adds review noise; replaced
   by `AC-062`.
+- `AC-024`: Retired by user decision. A verifier correction no longer has to
+  pass the text comparison to be kept, because on a PDF whose stored text is
+  wrong a correction that reads the page image correctly fails it, so the
+  verifier could never fix such a page; replaced by `AC-064`.
+- `AC-062`: Retired by user decision. Text differences are also not listed for
+  review when the page keeps the verifier's correction, and the verifier's
+  correction gets the same text retries as the extraction; replaced by `AC-063`.
 
 ## Assumptions
 
