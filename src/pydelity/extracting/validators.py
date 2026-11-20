@@ -63,6 +63,9 @@ _FLOW_ROLES = frozenset({ItemRole.BODY, ItemRole.HEADING, ItemRole.NAVIGATION})
 # as present; a line with fewer found fails a text check.
 _FOUND_SHARE = 0.5
 
+# How many places a page furniture line's failure names before counting the rest.
+_FURNITURE_PLACES_SHOWN = 3
+
 # How far, in grid units, the next item in the flow may jump back against the reading
 # direction without starting a new column or band.
 _JUMP_BACK = 150
@@ -748,11 +751,14 @@ def check_artifacts(
     """Keep the page furniture the survey found inside items with role artifact.
 
     Each line the survey classed as page furniture is found on the page in the
-    stored text, which gives its box. The line passes when the center of each of
-    its boxes lies inside the box of an item with role ``artifact``, within 20 grid
-    units. Its text is never compared with the answer's, since the stored text can
+    stored text, at every place a line with its normalized form sits. The line
+    passes when the center of at least one of those places lies inside the box of an
+    item with role ``artifact``, within 20 grid units. One is enough, since body
+    lines can share the furniture's form, such as a table's numbers beside a page
+    number. Its text is never compared with the answer's, since the stored text can
     differ from what is printed. A furniture line the page's stored text does not
-    hold is skipped.
+    hold is skipped, and an artifact item with a malformed box is left out, since
+    the ``boxes`` check reports it.
 
     Parameters
     ----------
@@ -766,28 +772,35 @@ def check_artifacts(
     Returns
     -------
     list[CheckFailure]
-        One failure per furniture line with a box that no item with role
-        ``artifact`` covers, naming the line and where it is on the grid.
+        One failure per furniture line that no item with role ``artifact`` covers
+        at any of its places, naming the line and where it is on the grid.
     """
 
-    boxes = [item.box for item in answer.items if item.role == ItemRole.ARTIFACT]
+    boxes = [
+        item.box
+        for item in answer.items
+        if item.role == ItemRole.ARTIFACT and _box_problem(item.box) is None
+    ]
     failures = []
     for line in context.repeated_lines:
-        uncovered = [
-            found
-            for found in page_text.furniture.get(line.id, ())
-            if not any(_covers(box, _center(found)) for box in boxes)
-        ]
-        if uncovered:
-            failures.append(
-                _failure(
-                    "artifacts",
-                    f"the repeated line {line.id}, {line.text!r}, is page furniture at "
-                    f"{list(uncovered[0])} on the grid, but no item with role artifact "
-                    "covers it",
-                    context=context,
-                )
+        places = page_text.furniture.get(line.id, ())
+        if not places or any(
+            _covers(box, _center(place)) for place in places for box in boxes
+        ):
+            continue
+        shown = ", ".join(
+            str(list(place)) for place in places[:_FURNITURE_PLACES_SHOWN]
+        )
+        more = len(places) - _FURNITURE_PLACES_SHOWN
+        failures.append(
+            _failure(
+                "artifacts",
+                f"the repeated line {line.id}, {line.text!r}, is page furniture at "
+                f"{shown}{f' and {more} more' if more > 0 else ''} on the "
+                "grid, but no item with role artifact covers it",
+                context=context,
             )
+        )
     return failures
 
 
@@ -802,6 +815,8 @@ def check_boxes(
         The model's answer.
     context
         The page's context, for its index.
+    page_text
+        The page's text layer, which this check does not use.
 
     Returns
     -------
@@ -856,6 +871,8 @@ def check_captions(
         The model's answer.
     context
         The page's context, for its index.
+    page_text
+        The page's text layer, which this check does not use.
 
     Returns
     -------
@@ -908,6 +925,8 @@ def check_containers(
         The model's answer.
     context
         The page's context, for its index.
+    page_text
+        The page's text layer, which this check does not use.
 
     Returns
     -------
@@ -964,6 +983,8 @@ def check_content(
         The model's answer.
     context
         The page's context, for its index.
+    page_text
+        The page's text layer, which this check does not use.
 
     Returns
     -------
@@ -1015,6 +1036,8 @@ def check_form_fields(
         The model's answer.
     context
         The page's context, for its fillable form fields.
+    page_text
+        The page's text layer, which this check does not use.
 
     Returns
     -------
@@ -1074,6 +1097,8 @@ def check_labels(
         The model's answer.
     context
         The page's context, for the profile's labels.
+    page_text
+        The page's text layer, which this check does not use.
 
     Returns
     -------
@@ -1126,6 +1151,8 @@ def check_languages(
         The model's answer.
     context
         The page's context, for its index.
+    page_text
+        The page's text layer, which this check does not use.
 
     Returns
     -------
@@ -1165,6 +1192,8 @@ def check_reading_order(
         The model's answer.
     context
         The page's context, for its writing direction.
+    page_text
+        The page's text layer, which this check does not use.
 
     Returns
     -------
@@ -1469,22 +1498,6 @@ def unmatched_labels(answer: PageAnswer, context: PageContext) -> list[ReviewIss
         The kept answer.
     context
         The page's context, for the profile's labels.
-    page_text
-        The page's text layer, which this check does not use.
-    page_text
-        The page's text layer, which this check does not use.
-    page_text
-        The page's text layer, which this check does not use.
-    page_text
-        The page's text layer, which this check does not use.
-    page_text
-        The page's text layer, which this check does not use.
-    page_text
-        The page's text layer, which this check does not use.
-    page_text
-        The page's text layer, which this check does not use.
-    page_text
-        The page's text layer, which this check does not use.
 
     Returns
     -------

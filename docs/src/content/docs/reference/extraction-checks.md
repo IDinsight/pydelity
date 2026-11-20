@@ -61,11 +61,14 @@ or to a new band on a page written top to bottom.
 Keep the page furniture the survey found inside items with role artifact.
 
 Each line the survey classed as page furniture is found on the page in the
-stored text, which gives its box. The line passes when the center of each of its
-boxes lies inside the box of an item with role `artifact`, within 20 grid units.
+stored text, at every place a line with its normalized form sits. The line
+passes when the center of at least one of those places lies inside the box of an
+item with role `artifact`, within 20 grid units. One is enough, since body lines
+can share the furniture's form, such as a table's numbers beside a page number.
 Its text is never compared with the answer's, since the stored text can differ
 from what is printed. A furniture line the page's stored text does not hold is
-skipped.
+skipped, and an artifact item with a malformed box is left out, since the
+`boxes` check reports it.
 
 ### `form_fields`
 

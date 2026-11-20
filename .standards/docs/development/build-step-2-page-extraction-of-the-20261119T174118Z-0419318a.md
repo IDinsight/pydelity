@@ -6,8 +6,9 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
 # Development Plan
 
 `Cycle`: `build-step-2-page-extraction-of-the-20261119T174118Z-0419318a` `Mode`:
-`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`: `COMPLETE`
-`Verification Cadence`: `AFTER_IMPLEMENTATION` `Current Increment`: `NONE`
+`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
+`COMPLETE` `Verification Cadence`: `AFTER_IMPLEMENTATION`
+`Current Increment`: `NONE`
 
 ## Implementation Contract
 
@@ -2235,6 +2236,87 @@ the uncommitted DEV-020 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
 
 ---
 
+### DEV-021 — Pass a furniture line on any covered occurrence
+
+`Status`: `DONE` `Depends On`: `DEV-020` `Acceptance`: `AC-018`
+
+**Goal**
+
+Apply decision 22 as the design settled it after the second review: a furniture
+line passes when at least one of its occurrences on the page lies inside an
+`artifact` item, and malformed `artifact` boxes are left out rather than
+raising. Also put the `page_text` parameter descriptions that DEV-020 misplaced
+into the eight checks that take it.
+
+**Affected Area**
+
+`extracting/validators.py` (`check_artifacts`; the docstrings of the eight
+context-only checks and of `unmatched_labels`), and the regenerated
+`reference/extraction-checks.md`.
+
+**Expected Outcome**
+
+- A furniture line passes when the center of at least one of its occurrences on
+  the page lies inside the box of an `artifact` item, within 20 grid units. A
+  failure names the line and where its occurrences are on the grid.
+- An `artifact` item whose box `_box_problem` rejects is left out of the check,
+  as `boxes` reports it; the check never raises.
+- `unmatched_labels` documents only its own parameters, and each of the eight
+  checks documents `page_text`.
+- No change to `PageText`, `read_page_text`, prompts, fingerprints or the page
+  file.
+
+**Self-Check**
+
+Lint; unaffected tests; `dev020_check.py` updated for the new rule; a scratchpad
+script: a page with a page number and a table of numbers passes with only the
+page number marked `artifact`, and fails, naming every occurrence, with none
+marked; "GRADE 1" on `caps_english_hl_pages_28_35.pdf` passes with only the
+header marked; an `artifact` item with a 2-value box gives a `boxes` failure and
+no error, in a full stand-in run. The DEV-009 to DEV-020 self-checks again; the
+reference pages regenerated twice, byte-identical.
+
+Evidence, 2026-11-20, repo root, on the user's commit `8b99075` plus the
+uncommitted DEV-021 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
+
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` on `scripts src`:
+  passed; `interrogate`: 100%. Doctests: 27 passed, 1 skipped. Each of the 11
+  checks documents `page_text`, and `unmatched_labels` no longer does.
+- `.venv/bin/python -m pytest -q --numprocesses auto`: 81 passed, 24 failed, the
+  same 24 as before.
+- Scratchpad `dev021_check.py`: 4 of 4 checks passed.
+  - A 3-page PDF with a page number at the bottom and a table of years and
+    figures in the body: the probe reports one repeated line `#`, and on page
+    index 1 seven stored lines share its form. With only the page number marked
+    `artifact`, `check_artifacts` passes; with nothing marked, it gives one
+    failure naming three places "and 4 more on the grid".
+  - `caps_english_hl_pages_28_35.pdf` with "GRADE 1" classed as furniture:
+    three places on each of its pages; marking one passes and marking none
+    fails, on every page.
+  - The rotated W9 PDF, page 5, with an `artifact` item whose box is
+    `[485, 950]`: `pydelity.run` completes, and the page lists a `boxes` issue
+    ("has 2 values instead of 4") and `artifacts` issues, with no error.
+- `dev020_check.py` 6 of 6 unchanged: its cases (every place covered passes,
+  every artifact item moved away fails once per line) hold under the new rule.
+  `dev009_check.py` 48 of 48, `dev010_check.py` 32 of 32, `dev011_check.py` 16
+  of 16, `dev012_check.py` 35 of 35, `dev013_check.py` 11 of 11,
+  `dev017_check.py` 11 of 11, `dev018_check.py` 7 of 7 and `dev019_check.py` 8
+  of 8 again.
+- The generator then Prettier, twice: byte-identical; `extraction-checks.md`
+  describes one covered place and the malformed boxes left out.
+- Process wording grep of the added lines: no hits.
+
+**Implementation Notes**
+
+- `check_artifacts` leaves out `artifact` items whose box `_box_problem`
+  rejects, and passes a line when any of its places is covered. A failure names
+  up to `_FURNITURE_PLACES_SHOWN` (3) places and counts the rest.
+- The repeated line's text in a failure is the survey's (its first occurrence),
+  which can be a body line, as "2019" on the numbers PDF; the places still show
+  where every occurrence is.
+
+---
+
 ## Plan Notes
 
 ### Design rerun after the code review
@@ -2292,6 +2374,17 @@ radio button now carries its group's value; checks compare only checked states);
 an interrupted overwrite can leave an old page file naming a new figure crop; a
 table header cell spanning into body rows shifts body cells in the report; the
 report header names no model for a step that failed.
+
+### Second design rerun
+
+Reconciled on resuming (2026-11-20), in the rerun that recovery frame 1 asks of
+Developer (`RerunThrough`: `DEVELOPING`, `ResumeAt`: `TESTING`). The design
+settled decision 22: one covered occurrence passes a furniture line, and
+malformed `artifact` boxes are left out. DEV-021 makes that change in
+`check_artifacts` and fixes the docstrings DEV-020 misplaced; DEV-020's other
+outcomes stand. The plan returns to `PROPOSED` for DEV-021. After it, the frame
+closes and the workflow resumes at `TESTING`. The user approved the revised plan
+and DEV-021's files (2026-11-20).
 
 ### Second review findings sent to the Architect
 
@@ -2405,6 +2498,10 @@ Changes after the code review, in the design rerun of recovery frame 1:
 - `artifacts` checks page furniture by position (decision 22, DEV-020). Every
   check, and `run_checks`, takes a `PageText` from `read_page_text` instead of
   the text lines. The probe has a public `line_boxes`.
+
+After the second review: a furniture line passes when any of its places on the
+page is covered by an `artifact` item, and malformed `artifact` boxes are left
+out of that check (decision 22 as settled, DEV-021).
 
 Not yet run: CI on GitHub, including the wheel jobs on ubuntu, macOS and
 Windows, which run after the user pushes.

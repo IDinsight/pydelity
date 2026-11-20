@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -30,19 +30,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
-`Decision 22 settled: a furniture line passes when at least one occurrence on the page lies inside an artifact item, and malformed artifact boxes are left out; Developer reruns.`
+`Kind`: `RESUME` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
+`Rerun done: DEV-021 applies decision 22 as settled (one covered occurrence, malformed boxes left out); frame closed, full verification resumes.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `TESTING` `Owner`: `ARCHITECTING` `FailureType`: `ARCHITECTURE`
-`Reason`:
-`Decision 22 leaves open which stored line is a page's furniture line: every line with its normalized form must be an artifact, so body lines fail; see the plan's second review findings.`
-`ResumeAt`: `TESTING` `RerunThrough`: `DEVELOPING`
+`Active`: `false`
 
 ## Outstanding Obligations
 
