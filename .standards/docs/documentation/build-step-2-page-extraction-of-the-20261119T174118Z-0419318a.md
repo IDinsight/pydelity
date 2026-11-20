@@ -159,11 +159,14 @@ after `just lint-markdown` formatted them:
   `just lint-markdown` after `just docs-reference`, and CI also fails on
   untracked pages (`AC-042`); a manual run never publishes, and how to
   republish.
-- `docs/src/content/docs/contributing/releases.md` `37144730caa5`. `AC-044`:
-  `perf:` and `revert:` also make a patch release, from release-please's default
-  changelog sections; a breaking change below 1.0.0 gives 1.0.0. Replaced the
-  out-of-date "first release" section with where the version comes from.
-  `AC-050`.
+- `docs/src/content/docs/contributing/releases.md` `dd569f254cb0` (was
+  `37144730caa5`; corrected for DOC-001). `AC-044`: `fix:`, `perf:`, `revert:`,
+  `docs:` and `deps:` make a patch release, from the changelog sections of
+  release-please's Python release type; `chore:`, `test:`, `ci:`, `build(deps):`
+  and `ci(deps):` make none; a `docs:` pull request opens a release pull
+  request, and nothing publishes until it is merged; a breaking change below
+  1.0.0 gives 1.0.0. Replaced the out-of-date "first release" section with where
+  the version comes from. `AC-050`.
 - No change, assessed: `docs/src/content/docs/need-help.md` (nothing
   step-specific); generated reference pages (current per Tester, `AC-052`);
   `AGENTS.md` and `CLAUDE.md` (managed block only); `CHANGELOG.md`
@@ -207,6 +210,28 @@ Accounting for every current acceptance condition (retired `AC-015`, `AC-023`,
 ## Checks and Applicability
 
 All run on 2026-11-20 from the repository root unless noted.
+
+DOC-001 correction (from the final review's finding), on HEAD `02186fb`; `src`,
+`scripts`, `tests`, `.github`, `justfile`, `pyproject.toml` and
+`release-please-config.json` unchanged since `daab6a9`; the async-first files
+still match their identities below:
+
+- release-please rules at the bundled version, fetched read-only from
+  `raw.githubusercontent.com`: `release-please-action` at the pinned
+  `45996ed1f6d0` locks `release-please` `17.6.0` (`package-lock.json`). At
+  `v17.6.0`, `src/strategies/python.ts` sets `CHANGELOG_SECTIONS` with `feat`,
+  `fix`, `perf`, `deps`, `revert` and `docs` shown and `style`, `chore`,
+  `refactor`, `test`, `build` and `ci` hidden, used unless `changelog-sections`
+  is set. `release-please-config.json` sets `release-type: python` and no
+  `changelog-sections`. `src/versioning-strategies/default.ts`
+  `determineReleaseType` read at the same tag. This supersedes the earlier
+  release-please check below, which read the default strategy's sections.
+- `grep` of `README.md` and the hand-written docs for other statements about
+  which commits make a release: only `releases.md`.
+- `just lint-markdown` (outside the sandbox): `markdownlint-cli2 ... Passed`;
+  STANDARDS check passed; exit 0. `just docs-build` (outside the sandbox):
+  `Checked local links and fragments in 28 HTML pages.`; exit 0.
+- Saved `releases.md` inspected after formatting (lines 30–46).
 
 Async-first rework, same inputs (HEAD `daab6a9`, `src` `72daf0b4293b`, user
 style `7aa74f1cc62d`):
@@ -289,10 +314,30 @@ Earlier checks:
 
 ## Discrepancies, Dependencies, and Remaining Work
 
-`NONE`. No documentation discrepancy is open, and no other owner's defect was
-found. Final review depends on this record and the saved documents; the user's
-real runs (`AC-054`) remain before sign-off as the implementation review
-recorded.
+### DOC-001 — The release guide said `docs:` commits make no release
+
+`Status`: `RESOLVED` `Owner`: `DOCUMENTER`
+
+- Source:
+  `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/final-deliverable.md#F-001`
+  (`DOCUMENTATION` failure, recovery frame 1). Affects `AC-044`.
+- Evidence and impact: `releases.md` (`37144730caa5`) listed `docs:` under "no
+  release" and credited release-please's default changelog sections. With
+  `release-type: python`, release-please 17.6.0 uses the Python strategy's
+  sections, which show `docs` and `deps`, so a `docs:` merge opens a release
+  pull request for a patch version. The earlier check read the default sections
+  on `master`, not the Python strategy at the bundled version.
+- Correction, verified: `releases.md` `dd569f254cb0` lists `docs:` and `deps:`
+  as patch releases, keeps `chore:`, `test:`, `ci:`, `build(deps):` and
+  `ci(deps):` as none, names the Python release type as the source, and says
+  nothing publishes until the release pull request is merged. Checks above. The
+  finding's disposition stays with final review.
+
+No other documentation discrepancy is open. The final review's limitations L-3,
+L-7, L-8 and L-9 name wording in other pages as not material; they are left as
+they are, since none of those pages changed in this correction. Final review
+depends on this record and the saved documents; the user's real runs (`AC-054`,
+final review gap G-1) remain before sign-off.
 
 ## Resume and Conclusion
 
@@ -303,11 +348,17 @@ recorded.
   sync versions mentioned as the same names without the `a`. Request and scope
   unchanged. Applied, inspected and checked as recorded above.
 - Example form chosen: snippets use top-level `await`, which runs as is in
-  Jupyter; the Python guide and README show one full `asyncio.run` script.
+  Jupyter; the Python guide and README show one full `asyncio.run` script. That
+  frame popped and final review ran.
+- Final review failure (2026-11-20, recovery frame 1, from `REVIEWING_FINAL`,
+  resume there):
+  `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/final-deliverable.md#F-001`,
+  corrected as DOC-001.
 - Blocking question: `NONE`.
-- No downstream work to rerun: final review had not produced a report for this
-  cycle, so the frame pops and the workflow resumes at `REVIEWING_FINAL`, review
-  kind `FINAL_DELIVERABLE`.
+- No downstream work to rerun: the correction changes only `releases.md`, which
+  final review reassesses on resume, and synchronization has produced no record
+  for this cycle. The frame pops and the workflow resumes at `REVIEWING_FINAL`,
+  review kind `FINAL_DELIVERABLE`.
 - Selected target `ACTIVE_CHANGE` and the full Documenter gate are complete for
   the inputs above. This is not cycle completion or sign-off.
 - On resumption: compare the identities above, rerun `just lint-markdown`,

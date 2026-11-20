@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DOCUMENTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `REVIEWING_FINAL` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -30,20 +30,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FAILURE` `From`: `REVIEWING_FINAL` `FailureType`: `DOCUMENTATION`
-`Reason`:
-`Final review F-001: contributing/releases.md says docs: commits make no release; under release-type python they make a patch release.`
+`Kind`: `RESUME` `From`: `DOCUMENTING` `FailureType`: `NONE` `Reason`:
+`F-001 corrected as DOC-001: releases.md lists docs: and deps: as patch releases under release-please's Python release type; no rerun needed; final review re-review requested.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `REVIEWING_FINAL` `Owner`: `DOCUMENTING` `FailureType`: `DOCUMENTATION`
-`Reason`:
-`Final review F-001: contributing/releases.md says docs: commits make no release; under release-type python they make a patch release.`
-`ResumeAt`: `REVIEWING_FINAL` `RerunThrough`: `NONE`
+`Active`: `false`
 
 ## Outstanding Obligations
 

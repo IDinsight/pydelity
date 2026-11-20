@@ -29,18 +29,20 @@ the changelog by hand.
 
 The commit type decides the version:
 
-| Commit message                                                           | Release                      |
-| ------------------------------------------------------------------------ | ---------------------------- |
-| `fix: ...`, `perf: ...` or `revert: ...`                                 | Patch, such as 0.1.0 → 0.1.1 |
-| `feat: ...`                                                              | Minor, such as 0.1.1 → 0.2.0 |
-| `feat!: ...`, or a `BREAKING CHANGE:` footer                             | Major                        |
-| Other types, such as `docs:`, `chore:`, `test:`, `ci:` or `build(deps):` | None                         |
+| Commit message                                                               | Release                      |
+| ---------------------------------------------------------------------------- | ---------------------------- |
+| `fix: ...`, `perf: ...`, `revert: ...`, `docs: ...` or `deps: ...`           | Patch, such as 0.1.0 → 0.1.1 |
+| `feat: ...`                                                                  | Minor, such as 0.1.1 → 0.2.0 |
+| `feat!: ...`, or a `BREAKING CHANGE:` footer                                 | Major                        |
+| Other types, such as `chore:`, `test:`, `ci:`, `build(deps):` or `ci(deps):` | None                         |
 
-These follow release-please's default changelog sections, which this repo
-doesn't change: types with a section of their own in the changelog make a
-release, and the rest don't. While the version is below 1.0.0, a breaking change
-still makes the next version 1.0.0. Check the version in the release pull
-request before merging it.
+These follow the changelog sections of release-please's Python release type,
+which this repo doesn't change: types with a section of their own in the
+changelog make a release, and the rest don't. So a pull request titled
+`docs: ...` opens a release pull request for a patch version too. Nothing is
+published until that release pull request is merged. While the version is below
+1.0.0, a breaking change still makes the next version 1.0.0. Check the version
+in the release pull request before merging it.
 
 ## Make a release
 
