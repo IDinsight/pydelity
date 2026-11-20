@@ -66,6 +66,7 @@ from pydelity.extracting.schemas import (
 )
 from pydelity.extracting.text_layer import read_lines
 from pydelity.extracting.validators import (
+    TEXT_CHECKS,
     check_results,
     comparison_status,
     review_issues,
@@ -484,10 +485,15 @@ def _page_issues(
     list[ReviewIssue]
         The checks still failing on the kept answer, then content no label fits,
         with its items' IDs added, then the verifier's problems when its correction
-        was not kept.
+        was not kept. Text differences are left out when the verifier passed the
+        page, since it saw them beside the image and accepted the reading. They
+        stay in the page file's check results.
     """
 
-    issues = review_issues(checks, item_ids=built.ids)
+    listed = checks
+    if kept.verification.verdict.passed:
+        listed = [result for result in checks if result.name not in TEXT_CHECKS]
+    issues = review_issues(listed, item_ids=built.ids)
     for issue in unmatched_labels(kept.answer, context):
         refs = issue.details.get("item_refs")
         item_ids = (

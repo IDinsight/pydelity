@@ -563,7 +563,9 @@ class PageFile(_Output):
 
     issues: list[ReviewIssue]
     """The page's review issues: checks still failing on the kept answer, content no
-    label fits, and verifier problems that were not corrected."""
+    label fits, and verifier problems that were not corrected. Text differences
+    from the stored text are listed only when the verifier did not pass the page.
+    The ``checks`` list keeps them either way."""
 
     items: list[Item]
     """The page's items, in reading order."""

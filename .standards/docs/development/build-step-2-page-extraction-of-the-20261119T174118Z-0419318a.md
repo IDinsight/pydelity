@@ -616,7 +616,7 @@ uncommitted DEV-005 changes (macOS arm64, Python 3.13.9).
 
 ### DEV-006 — Text layer and text comparison
 
-`Status`: `DONE` `Depends On`: `DEV-004, DEV-005` `Acceptance`: `AC-022, AC-023`
+`Status`: `DONE` `Depends On`: `DEV-004, DEV-005` `Acceptance`: `AC-022, AC-062`
 
 **Goal**
 
@@ -740,7 +740,7 @@ uncommitted DEV-006 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
 ### DEV-007 — Extractor and verifier prompts, agents and requests
 
 `Status`: `DONE` `Depends On`: `DEV-003, DEV-005, DEV-006` `Acceptance`:
-`AC-010, AC-017, AC-018, AC-020, AC-021, AC-023, AC-024, AC-033, AC-058, AC-060`
+`AC-010, AC-017, AC-018, AC-020, AC-021, AC-024, AC-033, AC-058, AC-060, AC-062`
 
 **Goal**
 
@@ -1616,7 +1616,7 @@ page file, the extraction checks and review-issue names, and the changed
 ### DEV-017 — Prompted output on Anthropic and page reading from the image only
 
 `Status`: `DONE` `Depends On`: `DEV-007, DEV-010` `Acceptance`:
-`AC-005, AC-022, AC-023, AC-029`
+`AC-005, AC-022, AC-029, AC-062`
 
 **Goal**
 
@@ -1716,6 +1716,85 @@ PydanticAI 2.69).
 
 ---
 
+### DEV-018 — No text review issues on pages the verifier passes
+
+`Status`: `DONE` `Depends On`: `DEV-009` `Acceptance`: `AC-062`
+
+**Goal**
+
+Apply the user's rework after DEV-011's real runs: on a page the verifier
+passes, the text differences left after the check retries stay in the page
+file's check results but are not review issues, since the verifier saw them
+beside the image and accepted the reading.
+
+**Affected Area**
+
+`extracting/extraction.py` (`_page_issues`), `extracting/schemas.py` (the
+`PageFile.issues` docstring).
+
+**Expected Outcome**
+
+- When the verdict passed, `text_dropped` and `text_added` failures left on the
+  kept answer are not review issues in the page file, so they are not in
+  `run.json`, the run summary or the report either. Every other check still
+  failing is listed as before.
+- When the verdict did not pass, they are review issues as before.
+- The page file's `checks` keeps every failure either way, and the page's log
+  line counts only the listed issues.
+- No prompt, answer, verdict, page file field or fingerprint input changes. A
+  saved page file keeps the issues it was written with until its page is
+  extracted again.
+
+**Self-Check**
+
+Lint; unaffected tests; a scratchpad script with the stand-in on the rotated
+PDF: a page whose last extractor answer still fails `text_dropped` and a passing
+verdict lists no text issues while its `checks` keeps the failure; the same page
+with a verdict that finds problems and no correction lists the text issues and
+the verifier's problems; on a passed page another check still failing is listed;
+`run.json`'s review matches the page files. The DEV-009 to DEV-011 and DEV-017
+self-checks again. The rule applied to the saved real OpenAI page file (verdict
+passed, 11 text issues) leaves no issues, with no model call.
+
+Evidence, 2026-11-20, repo root, on the user's commit `3e2c3cb` plus the
+uncommitted DEV-018 changes (macOS arm64, Python 3.13.9, PydanticAI 2.69).
+
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` on `scripts src`:
+  passed; `interrogate`: 100%. Doctests: 24 passed, 1 skipped.
+- `.venv/bin/python -m pytest -q --numprocesses auto`: 81 passed, 24 failed, the
+  same 24 as after DEV-017 (listed under DEV-010 and DEV-011). None asserts text
+  issues on a page the verifier passed.
+- Scratchpad `dev018_check.py` (the stand-in, `pydelity.run` on the rotated
+  PDF's pages 1-3 with `pause=False`, every extractor answer missing its longest
+  text item, so `text_dropped` fails through all 3 attempts): 7 of 7 checks
+  passed.
+  - Page index 0, verdict passed: `checks` keeps `text_dropped` with 16
+    failures; no review issues.
+  - Page index 1, a verifier problem and no correction: 19 `text_dropped`
+    issues, one per failure, then the `verifier` issue.
+  - Page index 2, verdict passed, one item's box turned inside out: `boxes` and
+    `reading_order` are listed; its 23 `text_dropped` failures stay in `checks`
+    only.
+  - `run.json`'s `review` and `RunResult.record.review` are the survey's issues,
+    then each page file's (28 in all); each page's log line counts its listed
+    issues (0, 20 and 2).
+  - The saved real OpenAI page file (`real-openai-2/pages/0000.json`, verdict
+    passed): 11 text issues as written, none under the rule.
+- `dev009_check.py` 48 of 48, `dev010_check.py` 32 of 32, `dev011_check.py` 16
+  of 16 and `dev017_check.py` 11 of 11 again.
+- Process wording grep of the added lines: no hits.
+
+**Implementation Notes**
+
+- `_page_issues` drops the text checks' results by the names in
+  `validators.TEXT_CHECKS` before turning failures into issues, so the rule
+  follows the text checks if one is added or renamed.
+- A verifier correction that replaced the answer has a verdict that did not
+  pass, but the kept correction passes every check, so it has no text issues to
+  list either way.
+
+---
+
 ## Plan Notes
 
 ### Suspended Assignment 1
@@ -1736,6 +1815,15 @@ DEV-010, whose other outcomes still hold. DEV-011's code stands; its real runs
 repeat after DEV-017, on new output folders, since the prompt text changes
 without a new `PROMPT_VERSION`. The user approved the revised plan and DEV-017's
 files (2026-11-19).
+
+Reconciled on resuming (2026-11-20), after the user's rework that retired
+`AC-023` for `AC-062` and the design rerun that closed its frame: the text
+comparison and its retry message stand, so DEV-006, DEV-007 and DEV-017 now name
+`AC-062` instead of the retired `AC-023`. Listing text differences only when the
+verdict did not pass is new behavior in the page's review issues, which DEV-018
+covers rather than reopening DEV-009, whose other outcomes hold. DEV-018 runs
+before DEV-012, so the report is built on the new issue list. The user approved
+the revised plan and DEV-018's files (2026-11-20).
 
 - Order: the steps run in number order, one at a time (`STEPWISE`). DEV-013 and
   DEV-014 depend on nothing and can move earlier if the user wants. Before each
