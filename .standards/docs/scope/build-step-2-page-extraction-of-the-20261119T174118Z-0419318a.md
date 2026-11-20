@@ -48,7 +48,8 @@ profile before paying for page extraction, and it fixes the follow-ups that
   survey's profile and the instructions the user gives each step.
 - The model's reading of a page is trusted over measured facts such as the text
   layer. Code may send an answer back with the difference it found, but the
-  model's final answer is kept, and any difference left goes on the review list.
+  model's final answer is kept, and any difference left goes on the review list,
+  except text differences on a page the verifier passes.
 - Each check sits where it can be enforced. What a Pydantic model can check
   stays in the Pydantic classes. What code can check deterministically goes in
   step 2's `validators.py`. What is too complex to check in code is left to the
@@ -260,10 +261,12 @@ leave a person only what neither resolves.
   spaces between words, so that text dropped from the page or added to it is
   found. On test pages in Arabic, Chinese, Japanese and English, removing a line
   from a correct answer or adding one to it is caught.
-- `AC-023`: A text difference is sent back to the model within the check
+- `AC-062`: A text difference is sent back to the model within the check
   retries, telling it that it may keep its reading when the text is not visible
-  on the page or was read from an image. Differences left after the retries go
-  on the review list. Pages whose text layer is missing or garbled skip the
+  on the page or was read from an image. Unlike other checks still failing
+  (`AC-021`), differences left after the retries go on the review list only when
+  the verifier does not pass the page. On a page the verifier passes, they are
+  not listed for review. Pages whose text layer is missing or garbled skip the
   comparison, and their page file says so.
 - `AC-024`: After the code checks, a second vision-model pass reviews every
   extracted page against the page image for problems code cannot judge, such as
@@ -447,6 +450,11 @@ tests cannot show.
 - `AC-015`: Retired by user rework. Containers no longer say whether they are
   open at the top or the bottom of the page, because step 2 records no page
   continuity; replaced by `AC-056`.
+- `AC-023`: Retired by user rework. Text differences left after the check
+  retries no longer go on the review list when the verifier passes the page,
+  because a PDF's stored text can be wrong, as with broken Arabic letter forms
+  or ligatures, and listing those differences only adds review noise; replaced
+  by `AC-062`.
 
 ## Assumptions
 
