@@ -6,9 +6,8 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
 # Development Plan
 
 `Cycle`: `build-step-2-page-extraction-of-the-20261119T174118Z-0419318a` `Mode`:
-`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`COMPLETE` `Verification Cadence`: `AFTER_IMPLEMENTATION`
-`Current Increment`: `NONE`
+`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`: `COMPLETE`
+`Verification Cadence`: `AFTER_IMPLEMENTATION` `Current Increment`: `NONE`
 
 ## Implementation Contract
 
@@ -2205,22 +2204,21 @@ the uncommitted DEV-020 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
   - On pages with rotation attributes 90, 180, 270 and 0, the answer's items
     over the furniture made `artifact` items, with their text replaced by a
     reading that differs from the stored text: `check_artifacts` passes. With
-    those items moved to `[0, 0, 60, 30]`: one failure per furniture line,
-    such as "the repeated line R1, '2', is page furniture at
-    [69, 947, 77, 964] on the grid, but no item with role artifact covers it".
+    those items moved to `[0, 0, 60, 30]`: one failure per furniture line, such
+    as "the repeated line R1, '2', is page furniture at [69, 947, 77, 964] on
+    the grid, but no item with role artifact covers it".
   - The footer lands at the bottom of the upright grid on every page (top edge
     948), alternating left and right as the printed pages do.
   - Page index 0 holds no furniture line, and the check passes.
   - `pydelity.run(pages="2-5", pause=False)`: `artifacts` passes on pages index
     1 to 3 and fails on page index 4, whose artifact items were moved, with 2
     `artifacts` review issues.
-- The generator then Prettier, twice: byte-identical. `extraction-checks.md`
-  now describes the check by position.
+- The generator then Prettier, twice: byte-identical. `extraction-checks.md` now
+  describes the check by position.
 - `dev009_check.py` 48 of 48, `dev010_check.py` 32 of 32, `dev011_check.py` 16
   of 16, `dev012_check.py` 35 of 35, `dev013_check.py` 11 of 11 (the probe's
-  facts and text-layer lines on the 10 test PDFs unchanged),
-  `dev017_check.py` 11 of 11, `dev018_check.py` 7 of 7 and `dev019_check.py` 8
-  of 8 again.
+  facts and text-layer lines on the 10 test PDFs unchanged), `dev017_check.py`
+  11 of 11, `dev018_check.py` 7 of 7 and `dev019_check.py` 8 of 8 again.
 - Process wording grep of the added lines: no hits.
 
 **Implementation Notes**
@@ -2230,8 +2228,8 @@ the uncommitted DEV-020 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
   `normalize_line` of those lines, as the survey's repeated-line count does.
 - `PageText` holds `lines` (from `read_lines`, for the text comparison) and
   `furniture` (grid boxes by repeated line ID). Every check now takes it, so the
-  `Check` and `TextCheck` types are one; the eight checks that do not need it say
-  so in their docstrings. `comparison_status` still takes the lines.
+  `Check` and `TextCheck` types are one; the eight checks that do not need it
+  say so in their docstrings. `comparison_status` still takes the lines.
 - A furniture line passes only when every one of its boxes on the page is
   covered; a failure names the first uncovered box.
 
@@ -2294,6 +2292,57 @@ radio button now carries its group's value; checks compare only checked states);
 an interrupted overwrite can leave an old page file naming a new figure crop; a
 table header cell spanning into body rows shifts body cells in the report; the
 report header names no model for a step that failed.
+
+### Second review findings sent to the Architect
+
+After the design rerun, the user asked for a second review of this session's
+code (2026-11-20), keeping only major issues. One finding is a gap in decision
+22 and went to the Architect. Two are implementation defects of DEV-020, for
+Developer to fix in the rerun that follows. No code changed.
+
+1. **Which stored line is the furniture line** (design gap, decision 22).
+   `read_page_text` (`extracting/text_layer.py`, line 179) collects the box of
+   every line on the page whose `normalize_line` form equals a furniture line's,
+   and `check_artifacts` (`extracting/validators.py`, line 745) requires each of
+   those boxes to be covered by an `artifact` item. The survey counts a repeated
+   line once per page, the first line with that form in the probe's reading
+   order, and decision 22 speaks of "its box". So a body line that shares the
+   furniture's normalized form must also be an artifact. `normalize_line` turns
+   digit runs into `#`, so a page number (`#`) matches every digits-only line,
+   such as table cells and axis labels. Such a page fails `artifacts` on every
+   attempt, the retry message tells the model to mark data as page furniture,
+   the issue stays, and every verifier correction is rejected. On the test PDFs:
+   `caps_english_hl_pages_28_35.pdf` has "GRADE 1" (R3) three times per page,
+   `irs_form_1040_1950.pdf` has "$" (R1) 6 to 25 times per page,
+   `bls_navigating_slides.pdf` has its footer (R1) twice on four pages, and
+   `irs_w9_instructions.pdf` has "1." (R3) up to 9 times. Taking only the
+   occurrence the survey counted does not settle it: that first occurrence is
+   often not the header or footer ("GRADE 1" is first found mid-page, none of
+   its three in the top or bottom band; "$" is first found mid-page on page
+   index 0), and the line nearest a page edge is not reliably it either.
+   Confirmed by running: a page with a page number and a table of numbers, with
+   only the page number marked `artifact`, fails on the first table cell.
+   Developer's suggestion: a furniture line passes when at least one of its
+   occurrences on the page lies inside an `artifact` item, which needs no guess
+   about which occurrence is the furniture.
+2. **A malformed artifact box crashes the run** (implementation, DEV-020).
+   `check_artifacts` reads four values from each `artifact` item's box through
+   `_covers` (`extracting/validators.py`, line 307) without the `_box_problem`
+   guard the other checks use. Pydantic accepts a box such as `[485, 950]`, so
+   on a page with furniture the check raises `IndexError` inside the agent's
+   output validator. That ends the page task, cancels every other page and fails
+   the run, where the `boxes` check would only have reported it. Confirmed by
+   running.
+3. **Misplaced docstrings** (implementation, DEV-020). The edit that gave the
+   eight context-only checks their `page_text` parameter put its eight
+   descriptions into `unmatched_labels` (`extracting/validators.py`, line 1459),
+   which does not take it. The eight checks do not document it.
+
+Also checked and correct: corrections kept when they fail only the text checks,
+with their `checks`, `issues` and `correction_failures`; the furniture boxes'
+grid places on pages with `/Rotate` 0, 90, 180 and 270, every profile rotation
+and an offset crop box (32 cases); the report and reference pages; the probe and
+workflows.
 
 ### Handoff to Tester
 

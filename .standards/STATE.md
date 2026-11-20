@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -30,12 +30,19 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `RESUME` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
-`Rerun done: DEV-019 and DEV-020 apply AC-063, AC-064 and decision 22; frame closed, full verification resumes.`
+`Kind`: `FAILURE` `From`: `TESTING` `FailureType`: `ARCHITECTURE` `Reason`:
+`Decision 22 leaves open which stored line is a page's furniture line: every line with its normalized form must be an artifact, so body lines fail; see the plan's second review findings.`
 
 ## Recovery
 
-`Active`: `false`
+`Active`: `true`
+
+### Frame 1
+
+`From`: `TESTING` `Owner`: `ARCHITECTING` `FailureType`: `ARCHITECTURE`
+`Reason`:
+`Decision 22 leaves open which stored line is a page's furniture line: every line with its normalized form must be an artifact, so body lines fail; see the plan's second review findings.`
+`ResumeAt`: `TESTING` `RerunThrough`: `NONE`
 
 ## Outstanding Obligations
 
