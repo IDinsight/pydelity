@@ -289,15 +289,20 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
 22. **The `artifacts` check finds page furniture by position.** Stored text is
     used only to find where each furniture line sits on the page, never compared
     with the model's text. The page task reads the page's text-layer lines with
-    their boxes, finds each line the survey classified as `artifact` by its
-    normalized form (the survey's own line reading and normalization, so stored
-    text meets stored text), and maps its box to the upright image's grid with
-    the inverse of the box mapping. The check passes a line when the center of
-    its box lies inside the box of an item with role `artifact`, within 20 grid
-    units, the containers check's tolerance. A furniture line the page's text
-    layer does not hold is skipped. The check's name, its place in the order and
-    its retry rule stay as they are, and no fingerprint input changes, since the
-    PDF and the page are already in it.
+    their boxes, finds every occurrence of each line the survey classified as
+    `artifact` by its normalized form (the survey's own line reading and
+    normalization, so stored text meets stored text), and maps each occurrence's
+    box to the upright image's grid with the inverse of the box mapping. The
+    check passes a furniture line when the center of at least one of its
+    occurrences lies inside the box of an item with role `artifact`, within 20
+    grid units, the containers check's tolerance. One occurrence is enough
+    because the same normalized form often appears in the body too ("GRADE 1"
+    three times a page, "$" up to 25 times, a page number's `#` on every
+    digits-only table cell), and neither the survey's first occurrence nor the
+    one nearest a page edge reliably picks the furniture. A furniture line the
+    page's text layer does not hold is skipped. The check's name, its place in
+    the order and its retry rule stay as they are, and no fingerprint input
+    changes, since the PDF and the page are already in it.
 
 ### Defaults
 
@@ -723,9 +728,10 @@ returns failures with a message naming the item ref.
    by more than 150 against it (right for `right_to_left`, left for
    `left_to_right`) must move down by at least 200.
 8. `artifacts`: each repeated line the survey classified as `artifact` that the
-   page's text layer holds has its box's center inside the box of some item with
-   role `artifact`, within 20 units (decision 22). The message names the line
-   and where it is on the grid.
+   page's text layer holds has at least one occurrence whose box's center lies
+   inside the box of some item with role `artifact`, within 20 units (decision
+   22). Artifact items whose box is malformed are left out, as `boxes` reports
+   them. The message names the line and where its occurrences are on the grid.
 9. `form_fields`: each fillable form field on the page except push buttons is
    named by exactly one field item, whose `value` or `checked` matches the
    form's after whitespace is collapsed.
@@ -1010,9 +1016,12 @@ returns the selected pages' page files. `survey()` is unchanged.
   with `fillable_name: null`.
 - `AC-017`: a page answer of one full-page figure passes every check and is not
   a verifier problem by itself.
-- `AC-018`: repeated lines classified as artifacts sit inside `artifact` item
-  boxes, or the page has an `artifacts` issue; a furniture line whose stored
-  text differs from a correct reading passes when the boxes agree.
+- `AC-018`: each repeated line classified as an artifact has an occurrence
+  inside an `artifact` item box, or the page has an `artifacts` issue; a
+  furniture line whose stored text differs from a correct reading passes when
+  the boxes agree; body lines with the furniture's normalized form (a table of
+  numbers beside a page number) need not be artifacts; a malformed box is a
+  `boxes` failure, never an error.
 - `AC-019`: overlapping, gapped or out-of-PDF ranges and a missing, repeated or
   unknown artifact mapping resolve by the **Page context** rules without error.
 - `AC-020`: `extracting/` code, prompts, page file fields and defaults contain
@@ -1139,7 +1148,9 @@ code they cover.
   retries for a correction, before passing or correcting.
 - The `artifacts` check trusts the model's boxes: a furniture line inside a
   loose `artifact` box passes, and a tight but misplaced box fails and costs
-  retries. It no longer checks that the furniture's words were read.
+  retries. It no longer checks that the furniture's words were read. Since one
+  occurrence is enough, a page that marks a body occurrence as an artifact and
+  misses the real header or footer passes; the verifier is left to catch it.
 - Without text-layer hints, exact spelling on clean pages rests on the image at
   about 200 DPI; the comparison still catches dropped and added lines.
 - Prompted output has no grammar behind it, so an Anthropic answer that is not
@@ -1218,3 +1229,10 @@ code they cover.
   text never matches a correct reading of faulty stored text, and trigram shares
   fail on short lines (the Arabic heading kept 12%); position needs no text at
   all.
+- **Requiring every occurrence, or picking one, as the furniture line**:
+  rejected. Every occurrence makes body lines that share the furniture's
+  normalized form fail on every attempt, and the retry message would ask the
+  model to mark data as furniture. The survey's first occurrence and the one
+  nearest a page edge are often body lines on the test PDFs, and position is no
+  guide either: none of the three "GRADE 1" lines a page sits in the top or
+  bottom band.
