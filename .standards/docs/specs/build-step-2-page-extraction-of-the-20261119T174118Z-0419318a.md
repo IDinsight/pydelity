@@ -9,7 +9,8 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
 
 - Scope:
   `.standards/docs/scope/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
-  (`AC-001` to `AC-058`; `AC-015` is retired). Target maturity is Level 3.
+  (`AC-001` to `AC-062`; `AC-015` and `AC-023` are retired). Target maturity is
+  Level 3.
 - Baseline: pydelity 0.1.1, the survey only (`.standards/CONTEXT.md`). The
   survey's design
   (`git show 83743ef:.standards/docs/specs/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`,
@@ -126,7 +127,8 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
    meet them. The retry rule is the survey's (decision 5 of its design): while
    check retries remain, any failed check raises `ModelRetry` with every
    failure; the last allowed answer is kept and each check still failing becomes
-   a review issue.
+   a review issue, except text differences on a page the verifier passes
+   (decision 9).
 9. **Text is compared as character trigrams, never words.** On pages whose
    measured text quality is `good`, Python compares the items' text with the
    page's text layer after Unicode normalization, using character trigrams that
@@ -136,7 +138,12 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
    are checks and go back to the model within the check retries; the retry
    message says it may keep its reading when the text is not visible on the page
    or was read from an image, and that the PDF's stored text can be wrong, so
-   the page image decides (decision 21).
+   the page image decides (decision 21). Text differences left after the retries
+   become review issues only when the verifier does not pass the page
+   (`AC-062`). The verifier sees them beside the image, so its pass means the
+   reading is right and the stored text differs, as on PDFs with broken letter
+   forms or ligatures. The failures stay in the page file's check results either
+   way. No prompt, field or fingerprint input changes.
 10. **A verifier reviews every page and may replace it.** After the extractor's
     answer is accepted, a verifier request with the same image, the same page
     context, the answer and its remaining check failures returns a verdict:
@@ -326,8 +333,10 @@ uses the expected cost (decision 12).
 - `AC-020`: Neutrality rules under **Technical Acceptance Criteria**; nothing
   ported that names a document type, language or direction.
 - `AC-021`: Checks and the retry rule (decision 8); `check_retries`.
-- `AC-022`, `AC-023`: **Text comparison** (decision 9), on a reading the models
-  make from the image alone (decision 21); `text_comparison` in the page file.
+- `AC-022`, `AC-062`: **Text comparison** (decision 9), on a reading the models
+  make from the image alone (decision 21); `text_comparison` in the page file;
+  text issues only on pages the verifier does not pass (**Verifier
+  application**).
 - `AC-024`, `AC-025`: Verifier and its application (decision 10); `verification`
   in the page file.
 - `AC-026`: Shared `ReviewIssue` with `step`, `page_index`, `item_id`;
@@ -636,7 +645,8 @@ no correction; not passed means at least one problem.
   answer's trigrams occur in a text layer measured as `good`, so it cannot be
   relied on);
 - `checks: list[ExtractionCheckResult]` (name, passed, failures, attempts) for
-  the kept extraction; `issues: list[ReviewIssue]`;
+  the kept extraction, every failure included; `issues: list[ReviewIssue]`,
+  which leaves out `text_dropped` and `text_added` when the verdict passed;
 - `verification`: the verdict as given, `correction_applied: bool`, the checks
   the correction still failed when rejected, and the verifier's attempts.
 
@@ -736,7 +746,9 @@ Other review-issue names: `no_matching_label` (above) and `verifier` (decision
    check: keep the correction; the problems stay in the verdict only. Problems
    otherwise: keep the extraction; each problem becomes a `verifier` review
    issue naming its item when it has one.
-4. The kept answer's check results and issues go into the page file.
+4. The kept answer's check results and issues go into the page file. Each check
+   still failing is a review issue, except `text_dropped` and `text_added` when
+   the verdict passed (`AC-062`).
 
 ### Review issues
 
@@ -981,9 +993,11 @@ returns the selected pages' page files. `survey()` is unchanged.
   review issue.
 - `AC-022`: the comparison meets the guarantee under **Text comparison** on
   Arabic, Chinese, Japanese and English test pages.
-- `AC-023`: text failures retry with the message described; leftovers are review
-  issues; skipped pages record the reason in `text_comparison`. No extractor or
-  verifier request holds the page's text-layer lines.
+- `AC-062`: text failures retry with the message described; leftovers stay in
+  the page file's `checks`, and are review issues in the page file, `run.json`
+  and the report only when the verdict did not pass; skipped pages record the
+  reason in `text_comparison`. No extractor or verifier request holds the page's
+  text-layer lines.
 - `AC-024`: every extracted page has exactly one verifier verdict; the kept
   answer is the correction only when it passes every check; otherwise each
   verifier problem is a `verifier` issue.
@@ -1074,17 +1088,22 @@ code they cover.
 - Box accuracy rests on the model and the verifier. Snapping boxes to measured
   text is a possible later improvement, not in this cycle.
 - The text comparison can flag text read from raster images on pages with a good
-  text layer (slides with pictured text), costing retries and adding review
-  issues. Thresholds may need tuning on the user's real runs.
+  text layer (slides with pictured text), costing retries, and review issues
+  when the verifier does not pass the page. Thresholds may need tuning on the
+  user's real runs.
 - Text layers that store right-to-left text in visual order, vertical text with
   unusual line order, or legacy font encodings rated `good` can mislead the
   comparison; the reversed-line match and `text_layer_mismatch` reduce this.
   Stored text with broken ligatures still differs from a correct reading on
   short lines: on the Arabic test page, hand-corrected body lines keep 67–84% of
   their trigrams in the stored text and pass, while a short numbered heading
-  keeps 12% and fails. Such pages spend their check retries and list those lines
-  for review. Judging each page's stored text against the model's reading is a
-  possible later improvement.
+  keeps 12% and fails. Such pages spend their check retries, and list those
+  lines for review only when the verifier does not pass the page. Judging each
+  page's stored text against the model's reading is a possible later
+  improvement.
+- A verifier that wrongly passes a page also keeps a real dropped or added line
+  off the review list. The failure stays in the page file's `checks`, and the
+  verifier saw it beside the image before passing.
 - Without text-layer hints, exact spelling on clean pages rests on the image at
   about 200 DPI; the comparison still catches dropped and added lines.
 - Prompted output has no grammar behind it, so an Anthropic answer that is not
@@ -1152,3 +1171,6 @@ code they cover.
   sent them when the measured quality was `good`): rejected after the Arabic
   run. Any hint invites copying stored text the survey cannot judge, and makes
   the text checks compare the stored text with itself.
+- **Listing every text difference left after the retries** (`AC-023`): replaced
+  by the user's choice (`AC-062`). On PDFs whose stored text is wrong, those
+  differences only added review noise on pages the verifier had passed.
