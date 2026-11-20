@@ -175,6 +175,17 @@ class _Step:
         self.error = None if error is None else _describe_error(error)
         self.status = status
 
+    def record_transport(self, transport: PdfTransport) -> None:
+        """Record how the step's requests carry the PDF, as soon as it is attached.
+
+        Parameters
+        ----------
+        transport
+            ``upload`` or ``request``.
+        """
+
+        self.transport = transport
+
 
 @dataclass
 class _Run:
@@ -1185,7 +1196,7 @@ async def _survey(
                 config=config,
                 facts=run.facts,
                 model=model,
-                output_folder=config.output_folder,
+                on_attached=step.record_transport,
                 pdf=run.pdf,
             )
     step.outputs.append(SURVEY_FILE_NAME)

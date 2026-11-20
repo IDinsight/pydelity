@@ -1569,7 +1569,7 @@ uncommitted DEV-018 and DEV-012 changes (macOS arm64, Python 3.13.9).
 
 ### DEV-013 — Probe follow-ups
 
-`Status`: `PENDING` `Depends On`: `NONE` `Acceptance`:
+`Status`: `DONE` `Depends On`: `NONE` `Acceptance`:
 `AC-035, AC-036, AC-037, AC-038`
 
 **Goal**
@@ -1579,7 +1579,11 @@ reads.
 
 **Affected Area**
 
-`surveying/probe.py`.
+Approved by the user before the step (2026-11-20): `MODIFY`
+`surveying/probe.py`, `utils/pdf.py` (public `TEXT_FLAGS`, the one place both
+the probe and the text layer take their text extraction flags from, the user's
+choice over two copies or the probe's own constant) and
+`extracting/text_layer.py` (imports `TEXT_FLAGS` instead of its copy).
 
 **Expected Outcome**
 
@@ -1594,11 +1598,69 @@ set, letter-style page labels, indirect `/K` arrays, a capped walk, tagged pages
 without text, an outline cycle); the probe on every test PDF before and after,
 with only the expected differences.
 
+Evidence, 2026-11-20, repo root, on the user's DEV-012 commit (`abb4829`) plus
+the uncommitted DEV-013 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
+
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` on `scripts src`:
+  passed; `interrogate`: 100%. Doctests: 26 passed, 1 skipped (`_label_number`'s
+  example now gives each label's style).
+- `.venv/bin/python -m pytest -q --numprocesses auto`: 81 passed, 24 failed, the
+  same 24 as before; the probe's own tests pass.
+- Scratchpad `dev013/make_pdfs.py` writes the defect PDFs by setting their
+  objects directly, and `dev013/dev013_check.py` checks them: 11 of 11 passed.
+  The committed probe, run on the same PDFs, gets each case wrong: the form fact
+  unreadable (`TypeError` from `on_state()`), letter labels `C`, `D`, `c`, `d`
+  read as 100 and 500, an indirect `/K` tree rated `none`, the partly tagged PDF
+  rated `good`, the capped walk `partial`, and an outline cycle giving no
+  bookmarks.
+  - A checked checkbox with no appearance reads `checked` and `Yes`; a checkbox
+    with appearances reads `On` or `Off` as before; a radio group whose two
+    buttons are `/AS /Off` with `/V /B` reads value `B` on both, with the button
+    whose appearances name `B` checked; a text field reads `Ann`.
+  - With one field's read made to raise, the other 5 fields are kept and one
+    `form` error reads `Field subscribe: RuntimeError: cannot read this widget`.
+    PyMuPDF reads every malformed widget tried (`/Rect 5`, `/Opt 5`, a
+    dictionary `/V` or `/T`, an unknown `/FT`), so no real widget fails yet.
+  - Page labels: `A`-`D` (`/S /A`) and `c`, `d` (`/S /a`) give style `label` and
+    no value; `iv`, `v` (`/S /r`) give roman 4 and 5; `7` (`/S /D`) arabic 7;
+    `Back` (prefix only) a label.
+  - A 12-page tagged PDF whose root and element `/K` entries are indirect arrays
+    rates as its direct copy: `good`, 13 elements, 12 pages. With 9 of 12 pages
+    with text tagged plus 2 tagged pages without text: `partial` (11 tagged
+    pages counted before). The fully tagged PDF with the element cap set to 10:
+    truncated, 9 pages reached, `good`.
+  - An outline whose last entry links back to the first keeps all 4 bookmarks;
+    one whose nested `Two.a` links back to `One` keeps `One`, `Two`, `Two.a`. No
+    probe error, and the PDF file's SHA-256 is unchanged.
+  - The 10 test PDFs: `probe_pdf`'s facts and `read_lines`' text-layer lines
+    (5,420 lines) are the same as before the change.
+- `dev009_check.py` 48 of 48, `dev010_check.py` 32 of 32, `dev011_check.py` 16
+  of 16, `dev012_check.py` 35 of 35, `dev017_check.py` 11 of 11 and
+  `dev018_check.py` 7 of 7 again.
+- Process wording grep of the added lines: only "cycle" for a cycle in an
+  outline's links.
+
+**Implementation Notes**
+
+- `utils/pdf.py` holds `TEXT_FLAGS`, which the probe and `text_layer.py` import.
+- Fields are read by widget annotation (`Page.annot_xrefs`, then
+  `Page.load_widget`), each in its own `try`, so the order matches
+  `Page.widgets()` and a failure loses only that field. A failed field's error
+  names it from `/T` or its parent's `/T`, else its object number.
+- A checkbox is on when `/AS` (or, without one, `/V`) is not `Off`; its value is
+  `/V`, else `/AS`. A radio button is on when its `/AS` is not `Off`, or when
+  its group's `/V` names one of the on states in its `/AP` `/N` or `/D`.
+- The outline is walked by its `/First` and `/Next` links before `get_toc()`. At
+  the first link back to an entry already read, that link and every link not yet
+  followed are removed from the open document, which is never saved.
+- `pages_with_tagged_content` still counts every tagged page; only the rating
+  leaves out tagged pages without text.
+
 ---
 
 ### DEV-014 — Other follow-ups: transport, cache price, workflows, changelog
 
-`Status`: `PENDING` `Depends On`: `NONE` `Acceptance`:
+`Status`: `DONE` `Depends On`: `NONE` `Acceptance`:
 `AC-039, AC-041, AC-042, AC-043`
 
 **Goal**
@@ -1607,9 +1669,11 @@ Close the remaining 0.1.0 follow-ups that are code or configuration.
 
 **Affected Area**
 
-`surveying/survey.py` or `surveying/llm.py` (transport), `costs/pricing.py`,
-`.github/workflows/ci.yml`, `.github/workflows/docs.yml`, `CHANGELOG.md`,
-`pyproject.toml`.
+Approved by the user before the step (2026-11-20): `MODIFY` `surveying/llm.py`
+(reports the transport once the PDF is attached), `surveying/survey.py` (passes
+it through), `pipeline/runner.py` (records it on the step at once),
+`costs/pricing.py`, `.github/workflows/ci.yml`, `.github/workflows/docs.yml`,
+`CHANGELOG.md`, `pyproject.toml`.
 
 **Expected Outcome**
 
@@ -1624,6 +1688,56 @@ Lint, including zizmor; a stand-in survey run with a fault injected after the
 PDF is sent records its transport; a `0` cache price prices as zero; the
 stale-reference command run locally with an untracked generated page fails;
 `docs.yml`'s plan command run locally shows a `node` error.
+
+Evidence, 2026-11-20, repo root, on the user's DEV-012 commit (`abb4829`) plus
+DEV-013 (staged) and the uncommitted DEV-014 changes (macOS arm64, Python
+3.13.9, Node 23.10.0 as the runner's own Node).
+
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` on `scripts src`:
+  passed; `interrogate`: 100%. Doctests: 26 passed, 1 skipped.
+  `zizmor --persona=auditor --offline .`: no findings (the online audits need a
+  GitHub token this session lacks). The git hooks other than ty pass on every
+  changed file. `uv lock --check`: the lock still matches `pyproject.toml`.
+- `.venv/bin/python -m pytest -q --numprocesses auto`: 81 passed, 24 failed, the
+  same 24 as before.
+- Scratchpad `dev014_check.py`: 8 of 8 checks passed.
+  - A stand-in survey whose every answer is not JSON fails with `SurveyError`
+    after 3 requests; `run.json`'s survey step records `pdf_transport` `upload`,
+    on Anthropic and on OpenAI. The committed code, run the same way from a
+    clone, records `null`.
+  - `_config_price` for 1M input tokens with 0.5M read from and 0.25M written to
+    the cache at $4 input: $1 with cache prices of 0, $4 with them unset, $2.45
+    with $0.40 and $5.
+  - The CI step "Fail if the lint recipes changed or added any file", run with
+    bash in a fresh clone: exit 0 when clean, 1 with an untracked
+    `reference/page-json.md` (named in its message), 1 with a changed
+    `reference/cli.md`.
+  - The docs plan step, run with bash: `build:versions` on a push with the
+    release tags, `build` on a pull request, `build` with no tags and no error
+    output, and with a broken `versions.mjs` it fails with Node's error instead
+    of falling back to `build`.
+- `dev009_check.py` 48 of 48, `dev010_check.py` 32 of 32, `dev011_check.py` 16
+  of 16, `dev012_check.py` 35 of 35, `dev017_check.py` 11 of 11,
+  `dev018_check.py` 7 of 7 and `dev013_check.py` 11 of 11 again.
+- Process wording grep of the added lines: no hits.
+
+**Implementation Notes**
+
+- `ask_model` and `run_survey` take `on_attached`, called with the transport
+  each time the PDF is attached (again after a lost upload is replaced), before
+  any request. They no longer take `output_folder`, which was always
+  `config.output_folder`, so they stay within Ruff's argument limit. The runner
+  passes `_Step.record_transport`; `run_survey` still returns the transport.
+- The CI step keeps `git diff --exit-code` and adds
+  `git status --porcelain --untracked-files=all` on the reference folder,
+  failing with an `::error::` that lists the untracked pages.
+- The docs plan step prints how many documented releases there are. The one
+  error meaning "no release tag yet" prints 0; any other error fails the step.
+  Its comment now says it runs the runner's own Node and Python.
+- `docs.yml`'s cache comment: `cache: false` turns off only Astro's asset cache;
+  the action's `setup-node` still restores the pnpm store keyed on
+  `docs/pnpm-lock.yaml` (checked in the action's `action.yml` at the pinned
+  commit).
 
 ---
 

@@ -58,8 +58,8 @@ def _config_price(
     output_tokens
         Output tokens.
     prices
-        The model's prices per million tokens; unset cache prices are the input
-        price.
+        The model's prices per million tokens. An unset cache price is the input
+        price, and a cache price of 0 is free.
 
     Returns
     -------
@@ -68,8 +68,13 @@ def _config_price(
     """
 
     uncached = max(input_tokens - cache_read_tokens - cache_write_tokens, 0)
-    read_price = prices.cache_read_usd_per_mtok or prices.input_usd_per_mtok
-    write_price = prices.cache_write_usd_per_mtok or prices.input_usd_per_mtok
+    # Only an unset cache price falls back to the input price; a price of 0 is free.
+    read_price = prices.cache_read_usd_per_mtok
+    if read_price is None:
+        read_price = prices.input_usd_per_mtok
+    write_price = prices.cache_write_usd_per_mtok
+    if write_price is None:
+        write_price = prices.input_usd_per_mtok
     total = (
         uncached * prices.input_usd_per_mtok
         + cache_read_tokens * read_price

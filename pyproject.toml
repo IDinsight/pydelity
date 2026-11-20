@@ -70,13 +70,11 @@ Repository = "https://github.com/IDinsight/pydelity"
 # pytest coverage
 [tool.coverage.report]
 exclude_lines = [
-    "def cli",
     "if TYPE_CHECKING:",
     'if __name__ == "__main__"',
     "if __name__ == '__main__'",
     "pragma: no cover",
 ]
-omit = ["./src/pydelity/__init__.py"]
 
 [tool.coverage.run]
 branch = true

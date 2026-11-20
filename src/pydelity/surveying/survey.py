@@ -7,6 +7,7 @@ and converts region boxes to points.
 """
 
 # Standard Library
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 
@@ -278,7 +279,7 @@ async def run_survey(
     config: Config,
     facts: PdfFacts,
     model: LedgerModel,
-    output_folder: Path,
+    on_attached: Callable[[PdfTransport], None],
     pdf: PdfInfo,
 ) -> tuple[PdfSurvey, PdfTransport]:
     """Ask the model to survey the PDF and write ``pdf_survey.json`` atomically.
@@ -286,13 +287,14 @@ async def run_survey(
     Parameters
     ----------
     config
-        The run's settings.
+        The run's settings, whose output folder gets the survey.
     facts
         The measured facts.
     model
         The step's model.
-    output_folder
-        The output folder.
+    on_attached
+        Called with how requests will carry the PDF, each time the PDF is attached,
+        before any request is sent.
     pdf
         The PDF.
 
@@ -314,10 +316,10 @@ async def run_survey(
         matches the survey's answer format.
     """
 
-    ledger_path = output_folder / LEDGER_FILE_NAME
+    ledger_path = config.output_folder / LEDGER_FILE_NAME
     entries_before = len(read_ledger(ledger_path).entries)
     surveyed = await ask_model(
-        config=config, facts=facts, model=model, output_folder=output_folder, pdf=pdf
+        config=config, facts=facts, model=model, on_attached=on_attached, pdf=pdf
     )
     survey = build_survey(
         answer=surveyed.answer,
@@ -325,7 +327,7 @@ async def run_survey(
         config=config,
         facts=facts,
     )
-    path = output_folder / SURVEY_FILE_NAME
+    path = config.output_folder / SURVEY_FILE_NAME
     write_model_atomic(model=survey, path=path)
     logger.info(
         "Survey finished: {description}; cost {cost}. Saved to {path}",

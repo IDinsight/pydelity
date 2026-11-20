@@ -20,13 +20,8 @@ from typing import Any
 # Third Party Library
 import pymupdf
 
-# How text is read: ligatures and whitespace as stored, and only text inside the page's
-# media box, as the survey's probe reads it.
-_TEXT_FLAGS = (
-    pymupdf.TEXT_PRESERVE_LIGATURES
-    | pymupdf.TEXT_PRESERVE_WHITESPACE
-    | pymupdf.TEXT_MEDIABOX_CLIP
-)
+# Package Library
+from pydelity.utils.pdf import TEXT_FLAGS
 
 # The Unicode categories kept for comparison: letters, marks and numbers.
 _KEPT_CATEGORIES = ("L", "M", "N")
@@ -154,7 +149,7 @@ def read_lines(document: pymupdf.Document, *, page_index: int) -> list[str]:
 
     page = document[page_index]
     lines = []
-    for block in page.get_text("dict", flags=_TEXT_FLAGS)["blocks"]:
+    for block in page.get_text("dict", flags=TEXT_FLAGS)["blocks"]:
         lines += [
             text for text in _joined_lines(block.get("lines", [])) if text.strip()
         ]
