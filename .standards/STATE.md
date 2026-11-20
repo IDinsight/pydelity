@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
-`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `SCOPING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
+`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -30,8 +30,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FAILURE` `From`: `TESTING` `FailureType`: `ARCHITECTURE` `Reason`:
-`Text-layer checks conflict with decision 21: verifier corrections fail text checks and are rejected, and the artifacts check needs the stored text; see the plan's review findings.`
+`Kind`: `FAILURE` `From`: `ARCHITECTING` `FailureType`: `SCOPING` `Reason`:
+`AC-024 keeps a verifier correction only when it passes the code checks, text comparison included, so a correction that reads faulty stored text correctly is rejected; decide whether such a correction is kept and whether its text differences are listed.`
 
 ## Recovery
 
@@ -43,6 +43,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 `Reason`:
 `Text-layer checks conflict with decision 21: verifier corrections fail text checks and are rejected, and the artifacts check needs the stored text; see the plan's review findings.`
 `ResumeAt`: `TESTING` `RerunThrough`: `NONE`
+
+### Frame 2
+
+`From`: `ARCHITECTING` `Owner`: `SCOPING` `FailureType`: `SCOPING` `Reason`:
+`AC-024 keeps a verifier correction only when it passes the code checks, text comparison included, so a correction that reads faulty stored text correctly is rejected; decide whether such a correction is kept and whether its text differences are listed.`
+`ResumeAt`: `ARCHITECTING` `RerunThrough`: `NONE`
 
 ## Outstanding Obligations
 
