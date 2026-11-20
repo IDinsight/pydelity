@@ -18,8 +18,9 @@ raises it too, without asking.
 import asyncio
 import math
 
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
@@ -39,8 +40,21 @@ from pydelity.utils.coroutines import run_in_daemon_thread, warn
 # Characters of prompt text per input token, for the estimate.
 PROMPT_CHARS_PER_TOKEN = 4
 
+# Characters of a page's text layer per output token of its extraction, beyond
+# `TYPICAL_PAGE_OUTPUT_TOKENS`, for the estimate. The answer repeats the text with an
+# item's fields around it.
+TEXT_CHARS_PER_OUTPUT_TOKEN = 2
+
 # The output tokens of a typical survey answer, thinking included, for the estimate.
 TYPICAL_OUTPUT_TOKENS = 8_000
+
+# The output tokens of a typical page extraction, thinking included, before the
+# page's text is counted, for the estimate.
+TYPICAL_PAGE_OUTPUT_TOKENS = 4_000
+
+# The output tokens of a typical verdict on a page, thinking included, for the
+# estimate.
+TYPICAL_VERDICT_OUTPUT_TOKENS = 3_000
 
 # Returns whether a run may exceed max_cost, given the warning's details.
 type OverMaxCostDecision = Callable[[MaxCostWarning], bool]
@@ -78,6 +92,55 @@ def _over_message(
     )
 
 
+def _price(
+    *, config: Config, input_tokens: int, model: str, output_tokens: int
+) -> Decimal | None:
+    """Price one request's token counts.
+
+    Parameters
+    ----------
+    config
+        The run's settings, for any price overrides.
+    input_tokens
+        The request's input tokens.
+    model
+        The model, as ``<provider>:<model-id>``.
+    output_tokens
+        The answer's output tokens.
+
+    Returns
+    -------
+    Decimal | None
+        The cost in US dollars, or ``None`` when no price is known for the model.
+    """
+
+    return price_usage(
+        input_tokens=input_tokens,
+        model=model,
+        output_tokens=output_tokens,
+        overrides=config.advanced.models,
+    )
+
+
+def _sum_or_none(costs: Sequence[Decimal | None]) -> Decimal | None:
+    """Add costs, unless one is unknown.
+
+    Parameters
+    ----------
+    costs
+        The costs; ``None`` where no price is known.
+
+    Returns
+    -------
+    Decimal | None
+        Their sum, or ``None`` when any is ``None``.
+    """
+
+    if any(cost is None for cost in costs):
+        return None
+    return sum((cost for cost in costs if cost is not None), Decimal(0))
+
+
 def _stopped_error(max_cost: Decimal) -> BudgetExceededError:
     """Make the error that stops a run whose spend may not exceed ``max_cost``.
 
@@ -97,6 +160,47 @@ def _stopped_error(max_cost: Decimal) -> BudgetExceededError:
         f"({format_usd(max_cost)}). To continue, raise max_cost, pass --yes on the "
         "command line, or call with allow_over_max_cost=True."
     )
+
+
+def _unpriced_message(model: str) -> str:
+    """Write the warning for a model with no known price.
+
+    Parameters
+    ----------
+    model
+        The model, as ``<provider>:<model-id>``.
+
+    Returns
+    -------
+    str
+        The warning's text, saying how to set a price.
+    """
+
+    return (
+        f"No price is known for {model}, so its cost will not be recorded; set its "
+        f'prices under advanced.models."{model}" to track it'
+    )
+
+
+@dataclass(frozen=True)
+class PageRequestSize:
+    """How large one page's requests are, for the page extraction estimate.
+
+    Attributes
+    ----------
+    extractor_chars
+        The extraction model's instructions, the page's details, its text-layer hints
+        and the answer format, in characters, without the image.
+    text_chars
+        The page's measured text-layer characters, which an answer repeats.
+    verifier_chars
+        The verifier's instructions, the page's details, its text-layer hints and the
+        verdict format, in characters, without the image and the answer it reviews.
+    """
+
+    extractor_chars: int
+    text_chars: int
+    verifier_chars: int
 
 
 class SpendDeclinedError(PydelityError):
@@ -281,14 +385,150 @@ class SpendGuard:
             self._reserved -= held
 
 
-def estimate_survey(
-    *,
-    config: Config,
-    page_count: int,
-    prompt_chars: int,
-    reused: bool,
-    spent_usd: Decimal,
+def estimate_extraction(
+    *, config: Config, pages: Sequence[PageRequestSize]
+) -> StepEstimate:
+    """Estimate what page extraction will cost, before anything is spent.
+
+    Each page's input tokens are its request size divided by
+    `PROMPT_CHARS_PER_TOKEN`, plus the provider's tokens per image. The expected cost
+    is one extractor request, whose answer is `TYPICAL_PAGE_OUTPUT_TOKENS` plus the
+    page's text-layer characters divided by `TEXT_CHARS_PER_OUTPUT_TOKEN`, and one
+    verifier request, which reads that answer and gives
+    `TYPICAL_VERDICT_OUTPUT_TOKENS`. The maximum is the first request and every check
+    retry of each agent, each with ``max_output_tokens`` of output and the earlier
+    answers added to its input. Both ignore prompt caching, so they overestimate.
+
+    Parameters
+    ----------
+    config
+        The run's settings.
+    pages
+        The size of each page's requests, for the pages to extract.
+
+    Returns
+    -------
+    StepEstimate
+        The step's expected and maximum cost; reused when no page is to be
+        extracted.
+    """
+
+    model = config.extraction_model.setting
+    settings = config.advanced.extraction
+    longest = settings.max_output_tokens
+    attempts = settings.check_retries + 1
+    image_tokens = config.extraction_model.profile.image_tokens
+
+    expected: list[Decimal | None] = []
+    maximum: list[Decimal | None] = []
+    for page in pages:
+        extractor_input = (
+            math.ceil(page.extractor_chars / PROMPT_CHARS_PER_TOKEN) + image_tokens
+        )
+        verifier_input = (
+            math.ceil(page.verifier_chars / PROMPT_CHARS_PER_TOKEN) + image_tokens
+        )
+        answer = min(
+            longest,
+            TYPICAL_PAGE_OUTPUT_TOKENS
+            + math.ceil(page.text_chars / TEXT_CHARS_PER_OUTPUT_TOKEN),
+        )
+        verdict = min(longest, TYPICAL_VERDICT_OUTPUT_TOKENS)
+        expected += [
+            _price(
+                config=config,
+                input_tokens=extractor_input,
+                model=model,
+                output_tokens=answer,
+            ),
+            _price(
+                config=config,
+                input_tokens=verifier_input + answer,
+                model=model,
+                output_tokens=verdict,
+            ),
+        ]
+        for attempt in range(attempts):
+            # The verifier also reads the extraction, at most one longest answer.
+            maximum += [
+                _price(
+                    config=config,
+                    input_tokens=extractor_input + attempt * longest,
+                    model=model,
+                    output_tokens=longest,
+                ),
+                _price(
+                    config=config,
+                    input_tokens=verifier_input + (attempt + 1) * longest,
+                    model=model,
+                    output_tokens=longest,
+                ),
+            ]
+
+    expected_usd, max_usd = _sum_or_none(expected), _sum_or_none(maximum)
+    priced = expected_usd is not None and max_usd is not None
+    return StepEstimate(
+        expected_usd=expected_usd if priced else None,
+        max_usd=max_usd if priced else None,
+        model=model,
+        name="extraction",
+        pages=len(pages),
+        requests_max=2 * attempts * len(pages),
+        reused=not pages,
+    )
+
+
+def estimate_run(
+    *, config: Config, spent_usd: Decimal, steps: Sequence[StepEstimate]
 ) -> CostEstimate:
+    """Add up the estimates of the steps a run will perform.
+
+    The run is over ``max_cost`` when it is set and the folder's spend plus the
+    expected cost exceeds it, or a step that will send requests has no known price.
+
+    Parameters
+    ----------
+    config
+        The run's settings.
+    spent_usd
+        What the output folder has recorded so far.
+    steps
+        Each step's estimate, in the order the steps run.
+
+    Returns
+    -------
+    CostEstimate
+        The steps, their expected and maximum cost, the folder's spend, whether the
+        run would go over ``max_cost``, and one warning per model with no known
+        price, in step order.
+    """
+
+    sending = [step for step in steps if not step.reused]
+    unpriced = list(
+        dict.fromkeys(step.model for step in sending if step.expected_usd is None)
+    )
+    expected = _sum_or_none([step.expected_usd for step in sending])
+    maximum = _sum_or_none([step.max_usd for step in sending])
+    over = (
+        config.max_cost is not None
+        and bool(sending)
+        and (expected is None or spent_usd + expected > config.max_cost)
+    )
+    return CostEstimate(
+        expected_usd=expected,
+        max_cost=config.max_cost,
+        max_usd=maximum,
+        over_max_cost=over,
+        priced=not unpriced,
+        spent_usd=spent_usd,
+        steps=list(steps),
+        warnings=[_unpriced_message(model) for model in unpriced],
+    )
+
+
+def estimate_survey(
+    *, config: Config, page_count: int, prompt_chars: int, reused: bool
+) -> StepEstimate:
     """Estimate what the survey will cost, before anything is spent.
 
     Input tokens per request are the page count times the provider's tokens per PDF
@@ -296,8 +536,7 @@ def estimate_survey(
     expected cost is one request with `TYPICAL_OUTPUT_TOKENS` of output. The maximum
     is the first request and every check retry, each with ``max_output_tokens`` of
     output and the earlier answers added to its input. Both ignore prompt caching, so
-    they overestimate. The run is over ``max_cost`` when the folder's spend plus the
-    expected cost exceeds it.
+    they overestimate.
 
     Parameters
     ----------
@@ -309,75 +548,55 @@ def estimate_survey(
         The prompt's length in characters, without the PDF.
     reused
         Whether the saved survey will be reused, so nothing is sent.
-    spent_usd
-        What the output folder has recorded so far.
 
     Returns
     -------
-    CostEstimate
-        The expected and maximum cost, the folder's spend, and whether the run would
-        go over ``max_cost``.
+    StepEstimate
+        The step's expected and maximum cost.
     """
 
     model = config.survey_model.setting
     survey = config.advanced.survey
     requests_max = 0 if reused else survey.check_retries + 1
+    if reused:
+        return StepEstimate(
+            expected_usd=Decimal(0),
+            max_usd=Decimal(0),
+            model=model,
+            name="survey",
+            pages=None,
+            requests_max=0,
+            reused=True,
+        )
+
     input_tokens = page_count * config.survey_model.profile.pdf_tokens_per_page
     input_tokens += math.ceil(prompt_chars / PROMPT_CHARS_PER_TOKEN)
-
-    def price(*, input_count: int, output_count: int) -> Decimal | None:
-        """Price token counts for the survey's model."""
-
-        return price_usage(
-            input_tokens=input_count,
-            model=model,
-            output_tokens=output_count,
-            overrides=config.advanced.models,
-        )
-
-    expected = price(input_count=input_tokens, output_count=TYPICAL_OUTPUT_TOKENS)
-    attempts = [
-        price(
-            input_count=input_tokens + attempt * survey.max_output_tokens,
-            output_count=survey.max_output_tokens,
-        )
-        for attempt in range(requests_max)
-    ]
-    priced = expected is not None and all(cost is not None for cost in attempts)
-    if reused:
-        expected, maximum = Decimal(0), Decimal(0)
-    elif priced:
-        maximum = sum((cost for cost in attempts if cost is not None), Decimal(0))
-    else:
-        expected = maximum = None
-
-    step = StepEstimate(
-        expected_usd=expected,
-        max_usd=maximum,
+    expected = _price(
+        config=config,
+        input_tokens=input_tokens,
+        model=model,
+        output_tokens=TYPICAL_OUTPUT_TOKENS,
+    )
+    maximum = _sum_or_none(
+        [
+            _price(
+                config=config,
+                input_tokens=input_tokens + attempt * survey.max_output_tokens,
+                model=model,
+                output_tokens=survey.max_output_tokens,
+            )
+            for attempt in range(requests_max)
+        ]
+    )
+    priced = expected is not None and maximum is not None
+    return StepEstimate(
+        expected_usd=expected if priced else None,
+        max_usd=maximum if priced else None,
         model=model,
         name="survey",
         pages=None,
         requests_max=requests_max,
-        reused=reused,
-    )
-    warnings = []
-    if not priced and not reused:
-        warnings.append(
-            f"No price is known for {model}, so its cost will not be recorded; set its "
-            f'prices under advanced.models."{model}" to track it'
-        )
-    over = config.max_cost is not None and (
-        expected is None or spent_usd + expected > config.max_cost
-    )
-    return CostEstimate(
-        expected_usd=expected,
-        max_cost=config.max_cost,
-        max_usd=maximum,
-        over_max_cost=over and not reused,
-        priced=priced or reused,
-        spent_usd=spent_usd,
-        steps=[step],
-        warnings=warnings,
+        reused=False,
     )
 
 

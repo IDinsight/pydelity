@@ -15,8 +15,9 @@ written stay valid.
 
 # Standard Library
 import asyncio
+import json
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -28,7 +29,7 @@ from loguru import logger
 
 # Package Library
 from pydelity.config.schemas import Config, is_language_tag, standard_language_tag
-from pydelity.costs.budget import format_usd
+from pydelity.costs.budget import PageRequestSize, format_usd
 from pydelity.costs.ledger import LEDGER_FILE_NAME, read_ledger
 from pydelity.extracting.llm import (
     ModelPage,
@@ -38,7 +39,7 @@ from pydelity.extracting.llm import (
     ask_extractor,
     ask_verifier,
 )
-from pydelity.extracting.prompts import PROMPT_VERSION
+from pydelity.extracting.prompts import PROMPT_VERSION, extract_page, verify_page
 from pydelity.extracting.rendering import (
     RENDERING_SETTINGS,
     PdfWorker,
@@ -61,6 +62,7 @@ from pydelity.extracting.schemas import (
     PageVerification,
     RepeatedLineUse,
     VerifierProblem,
+    VerifierVerdict,
 )
 from pydelity.extracting.text_layer import read_lines
 from pydelity.extracting.validators import (
@@ -71,7 +73,7 @@ from pydelity.extracting.validators import (
 )
 from pydelity.review import CheckFailure, ExtractionCheckName, ReviewIssue
 from pydelity.schema_versions import PAGE_SCHEMA_VERSION
-from pydelity.surveying.schemas import PdfSurvey
+from pydelity.surveying.schemas import Facts, PageFacts, PdfSurvey
 from pydelity.surveying.validators import covering_range
 from pydelity.utils.coroutines import warn
 from pydelity.utils.files import (
@@ -81,6 +83,13 @@ from pydelity.utils.files import (
     write_model_atomic,
 )
 from pydelity.utils.fingerprints import fingerprint
+
+# The size of a page's extractor and verifier requests before the survey has made the
+# profile they are built from, in characters, without text-layer hints: the
+# instructions, the profile's labels, the page's details and the answer or verdict
+# format. Rounded up from the measured requests with a small profile.
+_EXTRACTOR_ALLOWANCE_CHARS = 20_000
+_VERIFIER_ALLOWANCE_CHARS = 24_000
 
 
 @dataclass(frozen=True)
@@ -305,6 +314,23 @@ async def _extract_page(page: "PlannedPage", *, run: _StepRun) -> PageFile:
         outcome=_verifier_outcome(page_file.verification),
     )
     return page_file
+
+
+def _hint_chars(page: PageFacts) -> int:
+    """Count the text-layer characters sent with a page's requests as hints.
+
+    Parameters
+    ----------
+    page
+        The page's measured facts.
+
+    Returns
+    -------
+    int
+        The page's text-layer characters when its text layer is readable, else 0.
+    """
+
+    return page.text.chars if page.text.quality == "good" else 0
 
 
 def _item(
@@ -590,7 +616,9 @@ def _points_box(box: Sequence[int], *, context: PageContext) -> list[float]:
     )
 
 
-def _saved_page(*, output_folder: Path, page_index: int) -> PageFile | None:
+def _saved_page(
+    *, output_folder: Path, page_index: int, quiet: bool
+) -> PageFile | None:
     """Load a page's page file, warning when it is damaged.
 
     Parameters
@@ -599,6 +627,8 @@ def _saved_page(*, output_folder: Path, page_index: int) -> PageFile | None:
         The output folder.
     page_index
         The page (0-based).
+    quiet
+        Whether to leave out the warning.
 
     Returns
     -------
@@ -611,14 +641,13 @@ def _saved_page(*, output_folder: Path, page_index: int) -> PageFile | None:
     damage = loaded.damage
     if loaded.model is not None:
         damage = _damage(loaded.model, output_folder=output_folder)
-    if damage is not None:
+    if damage is not None and not quiet:
         warn(
             f"{damage}; extracting page {page_index + 1} (index {page_index}) again",
             code="damaged_output",
             details={"file": name},
         )
-        return None
-    return loaded.model
+    return None if damage is not None else loaded.model
 
 
 def _verifier_issue(
@@ -753,6 +782,7 @@ class PlannedPage:
 async def extract_pages(
     *,
     model: StepModel,
+    on_written: Callable[[PageFile], None] | None = None,
     output_folder: Path,
     pages: Sequence[PlannedPage],
     pdf_path: Path,
@@ -770,6 +800,9 @@ async def extract_pages(
     model
         The step's model and settings, from
         `pydelity.providers.factory.build_model`.
+    on_written
+        Called with each new page file once it is written, so a caller can count
+        the pages done even when a later page fails.
     output_folder
         The output folder.
     pages
@@ -819,7 +852,10 @@ async def extract_pages(
                 """Extract a page once fewer than the limit are running."""
 
                 async with limit:
-                    extracted[page.page_index] = await _extract_page(page, run=run)
+                    page_file = await _extract_page(page, run=run)
+                extracted[page.page_index] = page_file
+                if on_written is not None:
+                    on_written(page_file)
 
             try:
                 async with asyncio.TaskGroup() as group:
@@ -990,12 +1026,14 @@ def plan_pages(
     config: Config,
     output_folder: Path,
     page_indexes: Sequence[int],
+    quiet: bool = False,
     survey: PdfSurvey,
 ) -> list[PlannedPage]:
     """Decide which selected pages to extract and which page files to reuse.
 
     A page file is reused when it is valid, its fingerprint matches the page's
-    inputs and ``overwrite`` is not set. A damaged page file gives a warning.
+    inputs and ``overwrite`` is not set. A damaged page file gives a warning, and
+    the plan is logged.
 
     Parameters
     ----------
@@ -1005,6 +1043,8 @@ def plan_pages(
         The output folder.
     page_indexes
         The selected pages (0-based), in page order.
+    quiet
+        Whether to plan without the warnings and the log line, as an estimate does.
     survey
         The survey.
 
@@ -1018,7 +1058,9 @@ def plan_pages(
     for page_index in page_indexes:
         inputs = page_inputs(config=config, page_index=page_index, survey=survey)
         expected = page_fingerprint(inputs)
-        saved = _saved_page(output_folder=output_folder, page_index=page_index)
+        saved = _saved_page(
+            output_folder=output_folder, page_index=page_index, quiet=quiet
+        )
         reusable = (
             saved
             if saved is not None
@@ -1029,6 +1071,8 @@ def plan_pages(
         planned.append(PlannedPage(fingerprint=expected, inputs=inputs, saved=reusable))
 
     reused = sum(page.saved is not None for page in planned)
+    if quiet:
+        return planned
     logger.info(
         "Page extraction: {selected} selected, {reused} reused, {extract} to extract",
         extract=len(planned) - reused,
@@ -1036,3 +1080,85 @@ def plan_pages(
         selected=f"{len(planned)} page" + ("" if len(planned) == 1 else "s"),
     )
     return planned
+
+
+def request_sizes(
+    pages: Sequence[PlannedPage], *, survey: PdfSurvey
+) -> list[PageRequestSize]:
+    """Measure the requests of the pages to extract, for the cost estimate.
+
+    Parameters
+    ----------
+    pages
+        The pages to extract, from `plan_pages`.
+    survey
+        The survey, for each page's measured text layer.
+
+    Returns
+    -------
+    list[PageRequestSize]
+        Each page's request sizes, in the order of ``pages``.
+    """
+
+    answer_format = len(json.dumps(PageAnswer.model_json_schema()))
+    verdict_format = len(json.dumps(VerifierVerdict.model_json_schema()))
+    # The verifier's own text, without the extraction it reviews, which the
+    # estimate counts as the extractor's answer.
+    empty = PageAnswer(column_order=None, containers=[], items=[])
+
+    sizes = []
+    for page in pages:
+        context = page.inputs.context
+        facts = survey.facts.pages[context.page_index]
+        hints = _hint_chars(facts)
+        extractor = extract_page(context, [])
+        verifier = verify_page(context, [], answer=empty, failures={})
+        sizes.append(
+            PageRequestSize(
+                extractor_chars=len(extractor.system_message)
+                + len(extractor.user_message)
+                + hints
+                + answer_format,
+                text_chars=facts.text.chars,
+                verifier_chars=len(verifier.system_message)
+                + len(verifier.user_message)
+                + hints
+                + verdict_format,
+            )
+        )
+    return sizes
+
+
+def request_sizes_before_survey(
+    *, facts: Facts, page_indexes: Sequence[int]
+) -> list[PageRequestSize]:
+    """Size the selected pages' requests before the survey has run.
+
+    The requests are built from the survey's profile, so their size is an
+    allowance; each page's text-layer hints are measured.
+
+    Parameters
+    ----------
+    facts
+        The measured facts.
+    page_indexes
+        The selected pages (0-based).
+
+    Returns
+    -------
+    list[PageRequestSize]
+        Each page's request sizes, in the order of ``page_indexes``.
+    """
+
+    sizes = []
+    for page_index in page_indexes:
+        page = facts.pages[page_index]
+        hints = _hint_chars(page)
+        sizes.append(
+            PageRequestSize(
+                extractor_chars=_EXTRACTOR_ALLOWANCE_CHARS + hints,
+                text_chars=page.text.chars,
+                verifier_chars=_VERIFIER_ALLOWANCE_CHARS + hints,
+            )
+        )
+    return sizes

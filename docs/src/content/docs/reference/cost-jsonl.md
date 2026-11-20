@@ -49,8 +49,16 @@ The figures the cost estimate and the `max_cost` checks use.
 
 - `PROMPT_CHARS_PER_TOKEN` = `4`: Characters of prompt text per input token, for
   the estimate.
+- `TEXT_CHARS_PER_OUTPUT_TOKEN` = `2`: Characters of a page's text layer per
+  output token of its extraction, beyond `TYPICAL_PAGE_OUTPUT_TOKENS`, for the
+  estimate. The answer repeats the text with an item's fields around it.
 - `TYPICAL_OUTPUT_TOKENS` = `8000`: The output tokens of a typical survey
   answer, thinking included, for the estimate.
+- `TYPICAL_PAGE_OUTPUT_TOKENS` = `4000`: The output tokens of a typical page
+  extraction, thinking included, before the page's text is counted, for the
+  estimate.
+- `TYPICAL_VERDICT_OUTPUT_TOKENS` = `3000`: The output tokens of a typical
+  verdict on a page, thinking included, for the estimate.
 
 - `anthropic`: 4,784 image and 3,000 text input tokens per PDF page; uploads
   kept 1 to 2,160 hours.

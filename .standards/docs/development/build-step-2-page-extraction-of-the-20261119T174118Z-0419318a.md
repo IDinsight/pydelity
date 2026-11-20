@@ -1146,7 +1146,7 @@ the uncommitted DEV-009 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
 
 ### DEV-010 — Page extraction in runs: pause, estimate and run record
 
-`Status`: `PENDING` `Depends On`: `DEV-002, DEV-003, DEV-009` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-002, DEV-003, DEV-009` `Acceptance`:
 `AC-003, AC-004, AC-026, AC-027, AC-028, AC-029, AC-030, AC-031, AC-033`
 
 **Goal**
@@ -1156,8 +1156,12 @@ estimate, guard and record both steps.
 
 **Affected Area**
 
-`pipeline/runner.py`, `pipeline/schemas.py`, `costs/budget.py`
-(`estimate_extraction`), `report/html.py` (the `paused` status only).
+Approved by the user before the step (2026-11-19): `MODIFY`
+`pipeline/runner.py`, `costs/budget.py` (`estimate_extraction`),
+`extracting/extraction.py` (request sizes for the estimate) and `report/html.py`
+(the `paused` status only, which needed no change: the report shows the status
+and the skipped step as they are). `pipeline/schemas.py` already had `paused`
+and `PageCounts`. Regenerated: `docs/src/content/docs/reference/cost-jsonl.md`.
 
 **Expected Outcome**
 
@@ -1183,6 +1187,121 @@ change does not rerun the survey; a tiny `max_cost` warns and a no stops the
 run; an injected page fault ends it `failed` with `run.json` written;
 `estimate()` before and after the survey.
 
+Evidence, 2026-11-19, repo root, on the user's DEV-009 commit (`436b67f`) plus
+the uncommitted DEV-010 changes (macOS arm64, Python 3.13.9).
+
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` on `scripts src`:
+  passed; `interrogate`: 100%. Doctests: 24 passed, 1 skipped. The git hooks
+  other than ty pass on the changed files.
+- `scripts/generate_reference_docs.py`, then Prettier through prek (outside the
+  sandbox): only `reference/cost-jsonl.md` changed, listing the three new
+  estimate figures.
+- `.venv/bin/python -m pytest -q --numprocesses auto`: 86 passed, 19 failed: the
+  7 from DEV-001 and DEV-003, and 12 that follow from this step's design rules,
+  for Tester to update:
+  - Ending `paused` after a new survey, where they expect `completed`
+    (`AC-003`):
+    `providers/test_ledger_model.py::test_fewer_temporary_failures_than_the_retries_still_complete`,
+    `test_api.py::test_async_run_gives_what_run_gives_with_the_same_warnings`,
+    `providers/test_uploads.py::test_a_file_the_provider_no_longer_has_is_uploaded_again_once`,
+    `providers/test_uploads.py::test_a_failed_upload_falls_back_to_sending_the_pdf_in_the_request`,
+    `pipeline/test_runner.py::test_a_failed_survey_saves_no_survey_and_its_spend_counts_next_time`,
+    `pipeline/test_runner.py::test_no_output_file_holds_the_api_key`,
+    `costs/test_budget.py::test_an_unpriced_model_without_max_cost_runs_and_records_no_price`
+    and
+    `test_cli.py::test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment`.
+  - A second run that reuses the survey now extracts the pages, and the stand-in
+    has no page answers for the scan, so the page request gets HTTP 400
+    (`AC-027`):
+    `pipeline/test_runner.py::test_a_rerun_with_unchanged_survey_inputs_reuses_everything`
+    and `report/test_html.py::test_page_images_are_rendered_only_when_missing`.
+  - The summary names pages from 1 (`AC-026`, the design's CLI summary format):
+    `surveying/test_survey.py::test_checks_still_failing_after_the_retries_are_listed_for_review`
+    expects `survey, page 2: labels: a region on page 2`; the line now reads
+    `survey, page 3: labels: a region on page 2` (see Implementation Notes).
+  - The estimate after a saved survey covers page extraction (`AC-029`):
+    `costs/test_budget.py::test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing`
+    expects 0.
+- Scratchpad `dev010_check.py` (the stand-in, the rotated PDF, canned survey and
+  page answers built as in `dev009_check.py`, page 2's verifier naming a
+  problem): 32 of 32 checks passed.
+  - Defaults: the first run ends `paused` with the survey `completed` and page
+    extraction `skipped` (no page counts, outputs or requests), sends only the
+    survey's request, estimates the survey only, writes `run.json` and the
+    report, and its summary says
+    `Paused after the new survey. Check pdf_survey.json and report.html, then run pydelity again to extract the pages, or pass --no-pause (pause=False in Python) to run every step at once.`
+    A leftover temporary file in `report/pages/` is gone after the run.
+  - The next run reuses the survey and extracts the 7 pages: the extraction
+    record has pages 7 selected, 7 extracted, 0 reused, 18 requests (pages 2 and
+    3 retry twice, as their canned answers fail `reading_order`), outputs
+    `pages/` and `figures/` and no transport; the estimate is made there
+    (`Extraction cost estimate: about $2.10, at most $36.66 (7 pages, up to 42 requests to anthropic:claude-opus-5-5)`);
+    `review` holds the survey's 6 issues, then the pages' 3 in page order; cost
+    by step is extraction $0.43; the summary reads
+    `Run completed: survey reused, extraction completed (7 pages selected: 7 extracted, 0 reused); cost $0.43 this run (extraction $0.43), ...`
+    and lists issues such as
+    `extraction, page 3, item p0002-001: verifier: The box is too wide.`
+  - A third run sends nothing, and page extraction is `reused` with the same
+    review list. New extraction instructions with `pages="2-3"` reuse the survey
+    and extract pages index 1 and 2 only.
+  - `pause=False` (through `run_pipeline` with a counting confirmation): survey
+    and extraction in one run, 19 requests, one question before the survey with
+    an estimate of both steps (extraction for 7 pages), logged once.
+  - A tiny `max_cost` after the paused survey: one `max_cost_exceeded` warning,
+    attributed to `extraction`; without permission the run and the step end
+    `stopped` before any page request; with `allow_over_max_cost=True` one
+    warning for the whole run and every page extracted.
+  - A page without a canned answer (`concurrent_pages` 2): the run ends `failed`
+    with `run.json` and the report written, the step `failed` with the page's
+    `ProviderError`, 4 pages counted as extracted, and the review holding the
+    issues of pages 0–3; the error reaches the caller.
+  - `estimate()`: before the survey, the survey only, or survey and extraction
+    for 7 pages with `pause=False`; after the survey, the survey reused and 7
+    pages ($2.10 expected, $36.66 at most); after the pages with one page file
+    damaged, 1 page and no warning. Per page, the measured estimate is $0.30 and
+    the allowance before the survey $0.31. `estimate()` writes and sends
+    nothing.
+  - With page extraction on OpenAI and no `OPENAI_API_KEY`, `pause=False` raises
+    `MissingApiKeyError` with nothing sent; with the pause, the survey runs.
+  - A damaged page file's `damaged_output` warning is attributed to `extraction`
+    in `run.json`.
+- `dev009_check.py` again: 48 of 48.
+- Process wording grep of the added lines: no hits.
+
+**Implementation Notes**
+
+- The run keeps one `SpendGuard` for all its steps (`_Run.guard`), so it asks
+  about `max_cost` at most once. Each step builds its model with `_step_model`,
+  which also logs it; page requests get no PDF in their ledger context, so their
+  bounds count no PDF pages.
+- `_steps` runs the survey, then pauses (extraction recorded `skipped`, run
+  `paused`) when the survey is new and `pause` is on, else runs page extraction.
+  A new survey makes the estimate, question, plan-time check and page
+  extraction's key check (`read_api_key`) for both steps when the run will not
+  pause; a reused survey leaves them to page extraction, which skips them, and
+  builds no model, when every page file is reused.
+- The estimate is split into `estimate_survey` and `estimate_extraction`, which
+  give one `StepEstimate` each, and `estimate_run`, which adds them up, decides
+  `over_max_cost` and lists one warning per unpriced model.
+  `estimate_extraction` uses each page's request sizes: measured from its
+  context and prompts when the survey exists (`request_sizes`), and before the
+  survey an allowance of 20,000 characters for the extractor and 24,000 for the
+  verifier (`request_sizes_before_survey`; the measured requests are about
+  15,000 and 19,000 with a small profile), plus the page's text-layer hints in
+  both cases. An answer is 4,000 output tokens plus the page's text characters
+  divided by 2, and a verdict 3,000.
+- `plan_pages(quiet=True)` plans without warnings or the log line, for
+  `estimate()`. `extract_pages(on_written=...)` reports each page file as it is
+  written, so `run.json`'s page counts and review list are right when a page
+  fails.
+- The summary names pages from 1, but the survey's check and comparison messages
+  from 0.1.x say "page 2" for page index 2, so a line can read
+  `survey, page 3: labels: a region on page 2`. Rewording those messages to
+  "page index 2" needs `surveying/validators.py`, which was not in this step's
+  files.
+- For DEV-012: the report's header shows `Model: None` when `model` is unset,
+  which it is by default since DEV-001; it should name each step's model.
+
 ---
 
 ### DEV-011 — Python API and CLI for page extraction
@@ -1198,7 +1317,7 @@ read page files back.
 **Affected Area**
 
 `api.py`, `__init__.py`, `cli.py`, `pipeline/runner.py` (`run_extraction_step`,
-`load_run`).
+`load_run`), `pipeline/schemas.py` (`RunResult.pages`).
 
 **Expected Outcome**
 

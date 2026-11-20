@@ -1,16 +1,21 @@
 """The run: open the PDF, prepare the output folder, run the steps, write ``run.json``.
 
-`run_pipeline` is the whole run. `run_measure`, `run_estimate` and
-`run_survey_step` do parts of it for the Python API's ``measure``, ``estimate`` and
-``survey``, which write no ``run.json`` and no report. `load_run` reads a folder
-back.
+`run_pipeline` is the whole run: the survey, then page extraction. With ``pause`` on,
+a run that made a new survey stops after it, so the survey can be checked before the
+pages are paid for. `run_measure`, `run_estimate` and `run_survey_step` do parts of it
+for the Python API's ``measure``, ``estimate`` and ``survey``, which write no
+``run.json`` and no report. `load_run` reads a folder back.
+
+The cost estimate, the question before spending, the ``max_cost`` check on it and the
+API-key checks cover every step the run will perform, once, before its first model
+request: in the survey step when the survey runs, otherwise in page extraction.
 
 ``run.json`` is written when the run starts, with status ``running``, and again when
-it ends: ``completed``, ``failed``, ``stopped`` (a ``max_cost`` no or a declined
-confirmation) or ``interrupted`` (Ctrl+C, or a cancelled ``arun``). The run writes it,
-and then ``report.html``, before the error goes on to the caller, so every file in the
-folder stays valid. The run then logs a summary of how it ended, what it cost and the
-review issues.
+it ends: ``completed``, ``paused`` (after a new survey), ``failed``, ``stopped`` (a
+``max_cost`` no or a declined confirmation) or ``interrupted`` (Ctrl+C, or a
+cancelled ``arun``). The run writes it, and then ``report.html``, before the error
+goes on to the caller, so every file in the folder stays valid. The run then logs a
+summary of how it ended, what it cost and the review issues.
 """
 
 # Standard Library
@@ -19,7 +24,8 @@ import json
 import secrets
 
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -31,17 +37,30 @@ from loguru import logger
 from pydantic import BaseModel
 
 # Package Library
-from pydelity.config.schemas import Config, parse_pages
+from pydelity.config.loading import read_api_key
+from pydelity.config.schemas import Config, ExtractionConfig, SurveyConfig, parse_pages
 from pydelity.costs.budget import (
     OverMaxCostDecision,
     SpendDeclinedError,
     SpendGuard,
+    estimate_extraction,
+    estimate_run,
     estimate_survey,
     format_usd,
 )
 from pydelity.costs.ledger import LEDGER_FILE_NAME, Ledger, read_ledger
-from pydelity.costs.schemas import CostEstimate
+from pydelity.costs.schemas import CostEstimate, StepEstimate
 from pydelity.errors import BudgetExceededError, ConfigError, OutputError
+from pydelity.extracting.extraction import (
+    FIGURES_FOLDER_NAME,
+    PAGES_FOLDER_NAME,
+    extract_pages,
+    plan_pages,
+    request_sizes,
+    request_sizes_before_survey,
+)
+from pydelity.extracting.llm import StepModel
+from pydelity.extracting.schemas import PageFile
 from pydelity.pipeline.schemas import (
     PageCounts,
     PdfRecord,
@@ -54,10 +73,11 @@ from pydelity.pipeline.schemas import (
     WarningItem,
 )
 from pydelity.providers.factory import build_model, output_mode
-from pydelity.providers.ledger_model import LedgerContext
-from pydelity.providers.profiles import PdfTransport
-from pydelity.report.html import write_report
-from pydelity.report.images import render_pages
+from pydelity.providers.ledger_model import LedgerContext, LedgerModel
+from pydelity.providers.profiles import ModelChoice, PdfTransport
+from pydelity.report.html import REPORT_FILE_NAME, write_report
+from pydelity.report.images import REPORT_FOLDER_NAME, render_pages
+from pydelity.review import ReviewIssue
 from pydelity.schema_versions import (
     FACTS_SCHEMA_VERSION,
     RUN_SCHEMA_VERSION,
@@ -82,6 +102,9 @@ from pydelity.utils.coroutines import (
 )
 from pydelity.utils.files import load_model, remove_stale_temp_files, write_model_atomic
 from pydelity.utils.pdf import PdfInfo, open_pdf
+
+# Page extraction's name in ``run.json``, ``cost.jsonl`` and the review list.
+_EXTRACTION_STEP = "extraction"
 
 # How many review issues the summary lists; ``run.json`` holds them all.
 _REVIEW_ISSUES_LISTED = 10
@@ -158,6 +181,9 @@ class _Run:
     ----------
     config
         The run's settings.
+    guard
+        The run's ``max_cost`` guard, which every step's requests share, so the run
+        asks for a decision at most once.
     pdf
         The PDF.
     run_id
@@ -168,6 +194,10 @@ class _Run:
         The warnings issued so far, in order, each with the step that issued it.
     facts
         The facts, once measured or reused.
+    pages
+        The selected pages' page files by page index, reused or written so far.
+    selected
+        The selected pages' indexes, in order.
     steps
         The steps that started, in the order they started.
     survey
@@ -175,11 +205,14 @@ class _Run:
     """
 
     config: Config
+    guard: SpendGuard
     pdf: PdfInfo
     run_id: str
     started_at: datetime
     warnings: list[IssuedWarning] = field(default_factory=list)
     facts: PdfFacts | None = None
+    pages: dict[int, PageFile] = field(default_factory=dict)
+    selected: list[int] = field(default_factory=list)
     steps: list[_Step] = field(default_factory=list)
     survey: PdfSurvey | None = None
 
@@ -276,21 +309,15 @@ def _describe_error(error: BaseException) -> str:
     return f"{type(error).__name__}: {text}" if text else type(error).__name__
 
 
-def _estimate_cost(
-    *, config: Config, page_count: int, prompt_chars: int, reused: bool
-) -> CostEstimate:
-    """Estimate the survey's cost, counting what the output folder has already spent.
+def _estimate_cost(*, config: Config, steps: list[StepEstimate]) -> CostEstimate:
+    """Add up the steps' estimates, counting what the output folder has already spent.
 
     Parameters
     ----------
     config
         The run's settings.
-    page_count
-        The PDF's page count.
-    prompt_chars
-        The survey prompt's length in characters, without the PDF.
-    reused
-        Whether the saved survey would be reused, so nothing is sent.
+    steps
+        The estimate of each step the run will perform, in order.
 
     Returns
     -------
@@ -302,21 +329,105 @@ def _estimate_cost(
     if ledger.damage is not None:
         warn(ledger.damage, code="damaged_output", details={"file": LEDGER_FILE_NAME})
 
-    estimate = estimate_survey(
-        config=config,
-        page_count=page_count,
-        prompt_chars=prompt_chars,
-        reused=reused,
-        spent_usd=ledger.spent_usd,
+    estimate = estimate_run(config=config, spent_usd=ledger.spent_usd, steps=steps)
+    # One warning per model with no known price, in step order.
+    unpriced = dict.fromkeys(
+        step.model for step in steps if not step.reused and step.expected_usd is None
     )
-    for message in estimate.warnings:
-        warn(
-            message,
-            code="unpriced_model",
-            details={"model": config.survey_model.setting},
-        )
+    for model, message in zip(unpriced, estimate.warnings, strict=True):
+        warn(message, code="unpriced_model", details={"model": model})
     _log_estimate(estimate)
     return estimate
+
+
+async def _extraction(
+    run: _Run, *, confirm: SpendConfirmation | None, estimate: bool
+) -> None:
+    """Run page extraction: reuse page files, or extract the selected pages.
+
+    The step is added to ``run.steps`` when it starts and ended when every page file
+    is reused or written; a step that raises is ended by the caller. Its page counts
+    and ``run.pages`` follow each page written, so they stay right when a page
+    fails.
+
+    Parameters
+    ----------
+    run
+        The run, which the step updates. Its survey is set.
+    confirm
+        Called with the cost estimate; returns whether to continue. ``None``
+        continues without asking.
+    estimate
+        Whether the cost estimate, the question and the ``max_cost`` check happen
+        here, because the survey was reused; otherwise the survey step made them.
+    """
+
+    config, survey = run.config, run.survey
+    if survey is None:
+        raise RuntimeError("page extraction needs the survey")
+    step = _Step(
+        name=_EXTRACTION_STEP,
+        outputs=[f"{PAGES_FOLDER_NAME}/", f"{FIGURES_FOLDER_NAME}/"],
+        started_at=datetime.now(UTC),
+    )
+    run.steps.append(step)
+    with running_step(_EXTRACTION_STEP):
+        plan = plan_pages(
+            config=config,
+            output_folder=config.output_folder,
+            page_indexes=run.selected,
+            survey=survey,
+        )
+        run.pages = {
+            page.page_index: page.saved for page in plan if page.saved is not None
+        }
+        to_extract = [page for page in plan if page.saved is None]
+        counts = PageCounts(
+            extracted=0, reused=len(plan) - len(to_extract), selected=len(plan)
+        )
+        step.pages = counts
+        if not to_extract:
+            step.end("reused")
+            return
+
+        def written(page_file: PageFile) -> None:
+            """Count a page file once it is written."""
+
+            run.pages[page_file.page_index] = page_file
+            counts.extracted += 1
+
+        settings = config.advanced.extraction
+        # Page requests carry an image of the page, never the PDF.
+        async with _step_model(
+            choice=config.extraction_model,
+            pdf=None,
+            run=run,
+            step=_EXTRACTION_STEP,
+            step_settings=settings,
+        ) as model:
+            if estimate:
+                cost = _estimate_cost(
+                    config=config,
+                    steps=[
+                        estimate_extraction(
+                            config=config,
+                            pages=request_sizes(to_extract, survey=survey),
+                        )
+                    ],
+                )
+                await _ask_before_spending(
+                    confirm=confirm, estimate=cost, guard=run.guard
+                )
+            await extract_pages(
+                model=StepModel(
+                    choice=config.extraction_model, model=model, settings=settings
+                ),
+                on_written=written,
+                output_folder=config.output_folder,
+                pages=plan,
+                pdf_path=run.pdf.path,
+            )
+    step.end("completed")
 
 
 async def _finish(
@@ -418,13 +529,15 @@ def _log_estimate(estimate: CostEstimate) -> None:
                 requests=step.requests_max,
             )
         else:
+            pages = "" if step.pages is None else f"{_pages_text(step.pages)}, "
             summary.info(
                 "{name} cost estimate: about {expected}, at most {maximum} "
-                "(up to {requests} requests to {model})",
+                "({pages}up to {requests} requests to {model})",
                 expected=format_usd(step.expected_usd),
                 maximum=format_usd(step.max_usd),
                 model=step.model,
                 name=step.name.capitalize(),
+                pages=pages,
                 requests=step.requests_max,
             )
     limit = "not set" if estimate.max_cost is None else format_usd(estimate.max_cost)
@@ -452,7 +565,7 @@ def _log_summary(record: RunRecord, *, report: Path | None, run: _Run) -> None:
 
     summary = logger.bind(**{SUMMARY_LOG_KEY: True})
     cost = record.cost
-    steps = ", ".join(f"{step.name} {step.status}" for step in record.steps)
+    steps = ", ".join(_step_summary(step) for step in record.steps)
     by_step = ", ".join(
         f"{name} {format_usd(usd)}" for name, usd in cost.by_step.items()
     )
@@ -482,12 +595,13 @@ def _log_summary(record: RunRecord, *, report: Path | None, run: _Run) -> None:
             counts=", ".join(f"{check} {count}" for check, count in counts.items()),
         )
         for issue in record.review[:_REVIEW_ISSUES_LISTED]:
-            page = "-" if issue.page_index is None else str(issue.page_index)
+            where = [issue.step]
+            if issue.page_index is not None:
+                where.append(f"page {issue.page_index + 1}")
+            if issue.item_id is not None:
+                where.append(f"item {issue.item_id}")
             summary.info(
-                "  {step}, page {page}: {message}",
-                message=issue.message,
-                page=page,
-                step=issue.step,
+                "  {where}: {message}", message=issue.message, where=", ".join(where)
             )
         if issues > _REVIEW_ISSUES_LISTED:
             summary.info(
@@ -498,6 +612,19 @@ def _log_summary(record: RunRecord, *, report: Path | None, run: _Run) -> None:
             "Run pydelity again to continue. The saved files are reused, and the "
             "spend so far still counts toward max_cost."
         )
+    if record.status == "paused":
+        summary.info(
+            "Paused after the new survey. Check {survey} and {report}, then run "
+            "pydelity again to extract the pages, or pass --no-pause (pause=False in "
+            "Python) to run every step at once.",
+            report=REPORT_FILE_NAME,
+            survey=SURVEY_FILE_NAME,
+        )
+        if run.config.overwrite:
+            summary.info(
+                "Leave --overwrite off next time, or the survey runs again; "
+                "--overwrite --no-pause redoes every step in one run."
+            )
     outputs = [name for step in record.steps for name in step.outputs]
     files = [RUN_FILE_NAME, *dict.fromkeys(outputs)]
     if report is not None:
@@ -509,16 +636,46 @@ def _log_summary(record: RunRecord, *, report: Path | None, run: _Run) -> None:
     )
 
 
-def _new_run_id() -> str:
-    """Return a new run ID: the UTC time and a random suffix.
+def _new_run(
+    *,
+    config: Config,
+    decide_over_max_cost: OverMaxCostDecision,
+    pdf: PdfInfo,
+    selected: list[int],
+) -> _Run:
+    """Start a run's record, with a new run ID and its ``max_cost`` guard.
+
+    Parameters
+    ----------
+    config
+        The run's settings.
+    decide_over_max_cost
+        Called with the warning's details when the run could exceed ``max_cost``;
+        returns whether to continue.
+    pdf
+        The opened PDF.
+    selected
+        The selected pages' indexes.
 
     Returns
     -------
-    str
-        Such as ``20261118T141500Z-9f86d081``.
+    _Run
+        The run, with nothing done yet. Its ID is the UTC time and a random suffix,
+        such as ``20261118T141500Z-9f86d081``.
     """
 
-    return f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{secrets.token_hex(4)}"
+    return _Run(
+        config=config,
+        guard=SpendGuard(
+            decide=decide_over_max_cost,
+            ledger_path=config.output_folder / LEDGER_FILE_NAME,
+            max_cost=config.max_cost,
+        ),
+        pdf=pdf,
+        run_id=f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{secrets.token_hex(4)}",
+        selected=selected,
+        started_at=datetime.now(UTC),
+    )
 
 
 async def _open(config: Config) -> PdfInfo:
@@ -551,8 +708,28 @@ async def _open(config: Config) -> PdfInfo:
     return pdf
 
 
+def _pages_text(count: int) -> str:
+    """Write a number of pages.
+
+    Parameters
+    ----------
+    count
+        How many pages.
+
+    Returns
+    -------
+    str
+        Such as ``1 page`` or ``8 pages``.
+    """
+
+    return f"{count} page{'' if count == 1 else 's'}"
+
+
 def _prepare_folder(folder: Path) -> None:
     """Create the output folder and remove files left by interrupted writes.
+
+    Temporary files are removed from the output folder and from the report's page
+    images; page extraction clears its own folders when it starts.
 
     Parameters
     ----------
@@ -561,8 +738,9 @@ def _prepare_folder(folder: Path) -> None:
     """
 
     folder.mkdir(exist_ok=True, parents=True)
-    for leftover in remove_stale_temp_files(folder):
-        logger.debug("Removed {path}, left by an interrupted write", path=leftover)
+    for place in (folder, folder / REPORT_FOLDER_NAME / "pages"):
+        for leftover in remove_stale_temp_files(place):
+            logger.debug("Removed {path}, left by an interrupted write", path=leftover)
 
 
 def _prompt_chars(*, config: Config, facts: PdfFacts) -> int:
@@ -656,7 +834,7 @@ def _record(run: _Run, *, error: BaseException | None, status: RunStatus) -> Run
             sha256=run.pdf.sha256,
         ),
         pydelity_version=version("pydelity"),
-        review=[] if run.survey is None else run.survey.issues,
+        review=_review(run),
         run_id=run.run_id,
         schema_version=RUN_SCHEMA_VERSION,
         settings=run.config.model_dump(mode="json"),
@@ -697,6 +875,52 @@ def _report_files(record: RunRecord, *, run: _Run) -> Path:
     )
 
 
+def _reusable_survey(*, config: Config, facts: PdfFacts) -> PdfSurvey | None:
+    """Return the saved survey if the run would reuse it, without logging it.
+
+    Parameters
+    ----------
+    config
+        The run's settings.
+    facts
+        The facts the survey would use.
+
+    Returns
+    -------
+    PdfSurvey | None
+        The saved survey when ``pdf_survey.json`` is valid, matches the inputs and
+        ``overwrite`` is not set; otherwise ``None``.
+    """
+
+    path = config.output_folder / SURVEY_FILE_NAME
+    saved = load_model(model_type=PdfSurvey, path=path).model
+    expected = survey_fingerprint(survey_inputs(config=config, facts=facts))
+    if saved is None or saved.fingerprint != expected or config.overwrite:
+        return None
+    return saved
+
+
+def _review(run: _Run) -> list[ReviewIssue]:
+    """List the run's review issues: the survey's, then each selected page's.
+
+    Parameters
+    ----------
+    run
+        What the run has done.
+
+    Returns
+    -------
+    list[ReviewIssue]
+        The survey's issues, then the issues of each selected page that has a page
+        file, in page order.
+    """
+
+    issues = [] if run.survey is None else list(run.survey.issues)
+    for page_index in sorted(run.pages):
+        issues += run.pages[page_index].issues
+    return issues
+
+
 def _selected_pages(*, config: Config, pdf: PdfInfo) -> list[int]:
     """Turn the ``pages`` setting into the indexes of the selected pages.
 
@@ -733,17 +957,123 @@ def _selected_pages(*, config: Config, pdf: PdfInfo) -> list[int]:
     return [index for first, last in ranges for index in range(first - 1, last)]
 
 
-async def _survey(
-    run: _Run,
+@asynccontextmanager
+async def _step_model(
     *,
-    confirm: SpendConfirmation | None,
-    decide_over_max_cost: OverMaxCostDecision,
+    choice: ModelChoice,
+    pdf: PdfInfo | None,
+    run: _Run,
+    step: str,
+    step_settings: ExtractionConfig | SurveyConfig,
+) -> AsyncGenerator[LedgerModel]:
+    """Build a step's model on the run's guard and ledger, and log it.
+
+    Parameters
+    ----------
+    choice
+        The step's model.
+    pdf
+        The PDF the step's requests carry, or ``None`` when they carry none.
+    run
+        The run.
+    step
+        The step's name.
+    step_settings
+        The step's settings.
+
+    Yields
+    ------
+    LedgerModel
+        The model, until the block ends.
+    """
+
+    context = LedgerContext(
+        agent=None,
+        guard=run.guard,
+        ledger_path=run.config.output_folder / LEDGER_FILE_NAME,
+        page_index=None,
+        pdf=pdf,
+        run_id=run.run_id,
+        step=step,
+    )
+    async with build_model(
+        choice=choice, config=run.config, context=context, step_settings=step_settings
+    ) as model:
+        logger.info(
+            "Model ready: {model_id} from {provider}, effort {effort}, {mode} "
+            "structured output",
+            effort=step_settings.effort,
+            mode=output_mode(model),
+            model_id=choice.model_id,
+            provider=choice.provider,
+        )
+        yield model
+
+
+def _step_summary(step: StepRecord) -> str:
+    """Describe how a step ended, for the summary.
+
+    Parameters
+    ----------
+    step
+        The step's record.
+
+    Returns
+    -------
+    str
+        Such as ``survey reused`` or ``extraction completed (8 pages selected: 6
+        extracted, 2 reused)``.
+    """
+
+    text = f"{step.name} {step.status}"
+    if step.pages is not None:
+        counts = step.pages
+        text += (
+            f" ({_pages_text(counts.selected)} selected: {counts.extracted} "
+            f"extracted, {counts.reused} reused)"
+        )
+    return text
+
+
+async def _steps(run: _Run, *, confirm: SpendConfirmation | None) -> RunStatus:
+    """Run the survey, then page extraction unless the run pauses.
+
+    Parameters
+    ----------
+    run
+        The run, which the steps update.
+    confirm
+        Called with the cost estimate; returns whether to continue. ``None``
+        continues without asking.
+
+    Returns
+    -------
+    RunStatus
+        ``paused`` when the survey is new and ``pause`` is on, otherwise
+        ``completed``.
+    """
+
+    pause = run.config.pause
+    await _survey(run, confirm=confirm, extraction_follows=not pause)
+    new_survey = run.steps[-1].status == "completed"
+    if new_survey and pause:
+        skipped = _Step(name=_EXTRACTION_STEP, started_at=datetime.now(UTC))
+        skipped.end("skipped")
+        run.steps.append(skipped)
+        return "paused"
+    await _extraction(run, confirm=confirm, estimate=not new_survey)
+    return "completed"
+
+
+async def _survey(
+    run: _Run, *, confirm: SpendConfirmation | None, extraction_follows: bool
 ) -> PdfSurvey:
     """Run the survey step: measure the PDF, then reuse or make the survey.
 
-    A new survey first checks the API key and the cost estimate, and asks before
-    spending. The step is added to ``run.steps`` when it starts and ended when it
-    reuses or makes the survey; a step that raises is ended by the caller.
+    A new survey first checks the API keys and the cost estimate of every step the
+    run will perform, and asks before spending. The step is added to ``run.steps``
+    when it starts and ended when it reuses or makes the survey; a step that raises
+    is ended by the caller.
 
     Parameters
     ----------
@@ -752,9 +1082,10 @@ async def _survey(
     confirm
         Called with the cost estimate; returns whether to continue. ``None``
         continues without asking.
-    decide_over_max_cost
-        Called with the warning's details when the run could exceed ``max_cost``;
-        returns whether to continue.
+    extraction_follows
+        Whether page extraction runs after a new survey in this run, so the
+        estimate covers every selected page and page extraction's API key is
+        checked before the survey spends anything.
 
     Returns
     -------
@@ -778,44 +1109,28 @@ async def _survey(
             step.end("reused")
             return run.survey
 
-        ledger_path = config.output_folder / LEDGER_FILE_NAME
-        guard = SpendGuard(
-            decide=decide_over_max_cost,
-            ledger_path=ledger_path,
-            max_cost=config.max_cost,
-        )
-        survey_settings = config.advanced.survey
-        context = LedgerContext(
-            agent=None,
-            guard=guard,
-            ledger_path=ledger_path,
-            page_index=None,
-            pdf=run.pdf,
-            run_id=run.run_id,
-            step=_SURVEY_STEP,
-        )
-        async with build_model(
+        async with _step_model(
             choice=config.survey_model,
-            config=config,
-            context=context,
-            step_settings=survey_settings,
+            pdf=run.pdf,
+            run=run,
+            step=_SURVEY_STEP,
+            step_settings=config.advanced.survey,
         ) as model:
-            logger.info(
-                "Model ready: {model_id} from {provider}, effort {effort}, {mode} "
-                "structured output",
-                effort=survey_settings.effort,
-                mode=output_mode(model),
-                model_id=config.survey_model.model_id,
-                provider=config.survey_model.provider,
+            steps = [_survey_estimate(config=config, facts=run.facts, reused=False)]
+            if extraction_follows:
+                read_api_key(config.extraction_model.provider)
+                steps.append(
+                    estimate_extraction(
+                        config=config,
+                        pages=request_sizes_before_survey(
+                            facts=run.facts.facts, page_indexes=run.selected
+                        ),
+                    )
+                )
+            estimate = _estimate_cost(config=config, steps=steps)
+            await _ask_before_spending(
+                confirm=confirm, estimate=estimate, guard=run.guard
             )
-
-            estimate = _estimate_cost(
-                config=config,
-                page_count=run.pdf.page_count,
-                prompt_chars=_prompt_chars(config=config, facts=run.facts),
-                reused=False,
-            )
-            await _ask_before_spending(confirm=confirm, estimate=estimate, guard=guard)
             run.survey, step.transport = await run_survey(
                 config=config,
                 facts=run.facts,
@@ -828,8 +1143,8 @@ async def _survey(
     return run.survey
 
 
-def _survey_is_saved(*, config: Config, facts: PdfFacts) -> bool:
-    """Tell whether the run would reuse the saved survey, without logging it.
+def _survey_estimate(*, config: Config, facts: PdfFacts, reused: bool) -> StepEstimate:
+    """Estimate the survey, measuring its prompt when it would run.
 
     Parameters
     ----------
@@ -837,18 +1152,21 @@ def _survey_is_saved(*, config: Config, facts: PdfFacts) -> bool:
         The run's settings.
     facts
         The facts the survey would use.
+    reused
+        Whether the saved survey would be reused, so nothing is sent.
 
     Returns
     -------
-    bool
-        Whether ``pdf_survey.json`` is valid, matches the inputs and ``overwrite``
-        is not set.
+    StepEstimate
+        The survey's estimate.
     """
 
-    path = config.output_folder / SURVEY_FILE_NAME
-    saved = load_model(model_type=PdfSurvey, path=path).model
-    expected = survey_fingerprint(survey_inputs(config=config, facts=facts))
-    return saved is not None and saved.fingerprint == expected and not config.overwrite
+    return estimate_survey(
+        config=config,
+        page_count=facts.pdf.page_count,
+        prompt_chars=0 if reused else _prompt_chars(config=config, facts=facts),
+        reused=reused,
+    )
 
 
 def _warn_other_pdf(*, folder: Path, sha256: str) -> None:
@@ -968,7 +1286,10 @@ async def run_estimate(*, config: Config) -> CostEstimate:
     """Estimate what a run would cost, writing nothing and calling no model.
 
     The saved facts are used when they match; otherwise the PDF is measured without
-    saving the facts. A survey that would be reused costs nothing.
+    saving the facts. A survey or page file that would be reused costs nothing. When
+    the survey would be reused, the estimate covers the selected pages that have no
+    page file to reuse. When it would run, it covers every selected page too, unless
+    the run would pause after it.
 
     Parameters
     ----------
@@ -989,19 +1310,39 @@ async def run_estimate(*, config: Config) -> CostEstimate:
     """
 
     pdf = await _open(config)
-    _selected_pages(config=config, pdf=pdf)
+    selected = _selected_pages(config=config, pdf=pdf)
     facts = await measure_facts(
         output_folder=config.output_folder,
         overwrite=config.overwrite,
         pdf=pdf,
         save=False,
     )
-    return _estimate_cost(
-        config=config,
-        page_count=pdf.page_count,
-        prompt_chars=_prompt_chars(config=config, facts=facts),
-        reused=_survey_is_saved(config=config, facts=facts),
-    )
+    survey = _reusable_survey(config=config, facts=facts)
+    steps = [_survey_estimate(config=config, facts=facts, reused=survey is not None)]
+    if survey is not None:
+        plan = plan_pages(
+            config=config,
+            output_folder=config.output_folder,
+            page_indexes=selected,
+            quiet=True,
+            survey=survey,
+        )
+        to_extract = [page for page in plan if page.saved is None]
+        steps.append(
+            estimate_extraction(
+                config=config, pages=request_sizes(to_extract, survey=survey)
+            )
+        )
+    elif not config.pause:
+        steps.append(
+            estimate_extraction(
+                config=config,
+                pages=request_sizes_before_survey(
+                    facts=facts.facts, page_indexes=selected
+                ),
+            )
+        )
+    return _estimate_cost(config=config, steps=steps)
 
 
 async def run_measure(*, config: Config) -> PdfFacts:
@@ -1043,7 +1384,9 @@ async def run_pipeline(
 
     The PDF is opened, and ``pages`` checked against it, before anything is written.
     Then the output folder is prepared: created, cleared of temporary files left by
-    interrupted writes, and checked for results of another PDF.
+    interrupted writes, and checked for results of another PDF. The survey runs, and
+    then page extraction, unless ``pause`` is on and the survey is new; the run then
+    ends ``paused``.
 
     Parameters
     ----------
@@ -1067,8 +1410,11 @@ async def run_pipeline(
         If the run could go over ``max_cost`` and the decision is no.
     ConfigError
         If ``pages`` names a page past the PDF's last page.
+    ExtractionError
+        If a model refuses, runs out of output tokens, or never gives a usable
+        answer for a page.
     MissingApiKeyError
-        If the selected provider's API key is not set.
+        If the API key of a step's provider is not set.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
     ProviderError
@@ -1082,12 +1428,15 @@ async def run_pipeline(
     """
 
     pdf = await _open(config)
-    _selected_pages(config=config, pdf=pdf)
+    selected = _selected_pages(config=config, pdf=pdf)
     folder = config.output_folder
     _prepare_folder(folder)
 
-    run = _Run(
-        config=config, pdf=pdf, run_id=_new_run_id(), started_at=datetime.now(UTC)
+    run = _new_run(
+        config=config,
+        decide_over_max_cost=decide_over_max_cost,
+        pdf=pdf,
+        selected=selected,
     )
     with collect_warnings() as collected:
         run.warnings = collected
@@ -1097,9 +1446,7 @@ async def run_pipeline(
             path=folder / RUN_FILE_NAME,
         )
         try:
-            await _survey(
-                run, confirm=confirm, decide_over_max_cost=decide_over_max_cost
-            )
+            status = await _steps(run, confirm=confirm)
         except (BudgetExceededError, SpendDeclinedError) as error:
             await _finish(run, error=error, status="stopped")
             raise
@@ -1109,7 +1456,7 @@ async def run_pipeline(
         except Exception as error:
             await _finish(run, error=error, status="failed")
             raise
-        record = await _finish(run, error=None, status="completed")
+        record = await _finish(run, error=None, status=status)
 
     return RunResult(
         facts=run.facts,
@@ -1160,7 +1507,7 @@ async def run_survey_step(
     pdf = await _open(config)
     _prepare_folder(config.output_folder)
     _warn_other_pdf(folder=config.output_folder, sha256=pdf.sha256)
-    run = _Run(
-        config=config, pdf=pdf, run_id=_new_run_id(), started_at=datetime.now(UTC)
+    run = _new_run(
+        config=config, decide_over_max_cost=decide_over_max_cost, pdf=pdf, selected=[]
     )
-    return await _survey(run, confirm=None, decide_over_max_cost=decide_over_max_cost)
+    return await _survey(run, confirm=None, extraction_follows=False)
