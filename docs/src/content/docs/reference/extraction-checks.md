@@ -58,7 +58,14 @@ or to a new band on a page written top to bottom.
 
 ### `artifacts`
 
-Keep the page furniture the survey found: each such line is in an artifact.
+Keep the page furniture the survey found inside items with role artifact.
+
+Each line the survey classed as page furniture is found on the page in the
+stored text, which gives its box. The line passes when the center of each of its
+boxes lies inside the box of an item with role `artifact`, within 20 grid units.
+Its text is never compared with the answer's, since the stored text can differ
+from what is printed. A furniture line the page's stored text does not hold is
+skipped.
 
 ### `form_fields`
 

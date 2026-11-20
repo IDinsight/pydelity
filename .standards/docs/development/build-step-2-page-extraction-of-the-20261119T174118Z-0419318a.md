@@ -7,7 +7,7 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
 
 `Cycle`: `build-step-2-page-extraction-of-the-20261119T174118Z-0419318a` `Mode`:
 `STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`IN_PROGRESS` `Verification Cadence`: `AFTER_IMPLEMENTATION`
+`COMPLETE` `Verification Cadence`: `AFTER_IMPLEMENTATION`
 `Current Increment`: `NONE`
 
 ## Implementation Contract
@@ -2061,8 +2061,7 @@ uncommitted DEV-018 changes (macOS arm64, Python 3.13.9, PydanticAI 2.69).
 
 ### DEV-019 — Keep verifier corrections that fail only the text comparison
 
-`Status`: `DONE` `Depends On`: `DEV-009, DEV-018` `Acceptance`:
-`AC-063, AC-064`
+`Status`: `DONE` `Depends On`: `DEV-009, DEV-018` `Acceptance`: `AC-063, AC-064`
 
 **Goal**
 
@@ -2122,8 +2121,8 @@ uncommitted DEV-019 changes (macOS arm64, Python 3.13.9, PydanticAI 2.69).
   - Page index 2, a passed verdict: the extraction is kept with its own
     `reading_order` failure listed, as before.
   - `run.json`'s `review` matches the page files (27 issues).
-- The same script on the committed code, from a clone: 6 of 8. The page index
-  0 correction is rejected and `run.json` lists 44 issues.
+- The same script on the committed code, from a clone: 6 of 8. The page index 0
+  correction is rejected and `run.json` lists 44 issues.
 - The generator then Prettier, twice: byte-identical. `extraction-checks.md`
   says when a correction replaces the extraction and that text differences are
   not listed on a page whose correction is kept; `page-json.md` carries the new
@@ -2148,7 +2147,7 @@ uncommitted DEV-019 changes (macOS arm64, Python 3.13.9, PydanticAI 2.69).
 
 ### DEV-020 — Check page furniture by position
 
-`Status`: `PENDING` `Depends On`: `DEV-019` `Acceptance`: `AC-018`
+`Status`: `DONE` `Depends On`: `DEV-019` `Acceptance`: `AC-018`
 
 **Goal**
 
@@ -2190,6 +2189,52 @@ stored text lacks the line is skipped; the furniture boxes are found on every
 page the facts list each furniture line on. The DEV-009 to DEV-019 self-checks
 again; the reference pages regenerated twice, byte-identical.
 
+Evidence, 2026-11-20, repo root, on the user's DEV-019 commit (`e4633ea`) plus
+the uncommitted DEV-020 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
+
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` on `scripts src`:
+  passed; `interrogate`: 100%. Doctests: 27 passed, 1 skipped (new example for
+  `_center`).
+- `.venv/bin/python -m pytest -q --numprocesses auto`: 81 passed, 24 failed, the
+  same 24 as before.
+- Scratchpad `dev020_check.py` (the rotated W9 instructions PDF, surveyed
+  through the stand-in with the footer `R2` and the page number `R1` classed as
+  page furniture and the list marker `R3` as content): 6 of 6 checks passed.
+  - `read_page_text` finds `R1` and `R2` on pages index 1 to 6, the pages the
+    facts list them on, and on no other page.
+  - On pages with rotation attributes 90, 180, 270 and 0, the answer's items
+    over the furniture made `artifact` items, with their text replaced by a
+    reading that differs from the stored text: `check_artifacts` passes. With
+    those items moved to `[0, 0, 60, 30]`: one failure per furniture line,
+    such as "the repeated line R1, '2', is page furniture at
+    [69, 947, 77, 964] on the grid, but no item with role artifact covers it".
+  - The footer lands at the bottom of the upright grid on every page (top edge
+    948), alternating left and right as the printed pages do.
+  - Page index 0 holds no furniture line, and the check passes.
+  - `pydelity.run(pages="2-5", pause=False)`: `artifacts` passes on pages index
+    1 to 3 and fails on page index 4, whose artifact items were moved, with 2
+    `artifacts` review issues.
+- The generator then Prettier, twice: byte-identical. `extraction-checks.md`
+  now describes the check by position.
+- `dev009_check.py` 48 of 48, `dev010_check.py` 32 of 32, `dev011_check.py` 16
+  of 16, `dev012_check.py` 35 of 35, `dev013_check.py` 11 of 11 (the probe's
+  facts and text-layer lines on the 10 test PDFs unchanged),
+  `dev017_check.py` 11 of 11, `dev018_check.py` 7 of 7 and `dev019_check.py` 8
+  of 8 again.
+- Process wording grep of the added lines: no hits.
+
+**Implementation Notes**
+
+- The probe's `_Line` keeps its box (`rect`), and the public `line_boxes(page)`
+  returns each line's text and box. `read_page_text` matches furniture lines on
+  `normalize_line` of those lines, as the survey's repeated-line count does.
+- `PageText` holds `lines` (from `read_lines`, for the text comparison) and
+  `furniture` (grid boxes by repeated line ID). Every check now takes it, so the
+  `Check` and `TextCheck` types are one; the eight checks that do not need it say
+  so in their docstrings. `comparison_status` still takes the lines.
+- A furniture line passes only when every one of its boxes on the page is
+  covered; a failure names the first uncovered box.
+
 ---
 
 ## Plan Notes
@@ -2206,7 +2251,7 @@ two behaviors DEV-019 and DEV-020 change: when a correction is kept, and how
 reopening them, so their recorded evidence still describes what they did. The
 plan returns to `PROPOSED` for the two new steps. After DEV-020, the frame
 closes and the workflow resumes at `TESTING`. The user approved the revised plan
-and DEV-019's files (2026-11-20).
+and DEV-019's files (2026-11-20), then DEV-020's files.
 
 ### Review findings sent to the Architect
 
@@ -2302,6 +2347,15 @@ Contract changes after DEV-011 that tests may touch:
 - `TEXT_FLAGS` moved to `utils/pdf.py` (DEV-013).
 - Text issues are left off the review list on pages the verifier passes
   (DEV-018).
+
+Changes after the code review, in the design rerun of recovery frame 1:
+
+- A verifier correction that fails only `text_dropped` and `text_added` is kept,
+  and a page that keeps it lists no text differences (`AC-063`, `AC-064`,
+  DEV-019).
+- `artifacts` checks page furniture by position (decision 22, DEV-020). Every
+  check, and `run_checks`, takes a `PageText` from `read_page_text` instead of
+  the text lines. The probe has a public `line_boxes`.
 
 Not yet run: CI on GitHub, including the wheel jobs on ubuntu, macOS and
 Windows, which run after the user pushes.

@@ -64,7 +64,7 @@ from pydelity.extracting.schemas import (
     VerifierProblem,
     VerifierVerdict,
 )
-from pydelity.extracting.text_layer import read_lines
+from pydelity.extracting.text_layer import read_page_text
 from pydelity.extracting.validators import (
     TEXT_CHECKS,
     check_results,
@@ -265,10 +265,10 @@ async def _extract_page(page: "PlannedPage", *, run: _StepRun) -> PageFile:
     image = await run.worker.page_image(
         page_index=page_index, rotation=context.rotation
     )
-    text_lines = await run.worker.call(
-        lambda document: read_lines(document, page_index=page_index)
+    page_text = await run.worker.call(
+        lambda document: read_page_text(document, context=context)
     )
-    page_input = PageInput(context=context, image=image, text_lines=text_lines)
+    page_input = PageInput(context=context, image=image, page_text=page_text)
 
     extracted = await ask_extractor(model=run.model, page=page_input)
     verified = await ask_verifier(
@@ -297,7 +297,7 @@ async def _extract_page(page: "PlannedPage", *, run: _StepRun) -> PageFile:
         pydelity_version=version("pydelity"),
         rotation=context.rotation,
         schema_version=PAGE_SCHEMA_VERSION,
-        text_comparison=comparison_status(kept.answer, context, text_lines),
+        text_comparison=comparison_status(kept.answer, context, page_text.lines),
         verification=kept.verification,
         width_pt=context.width_pt,
         writing_direction=context.writing_direction,

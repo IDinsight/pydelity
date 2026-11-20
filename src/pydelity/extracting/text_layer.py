@@ -2,7 +2,9 @@
 
 The text layer is the text a PDF stores for a page, which the models never see: they
 read the page image. Page extraction compares the text layer's lines with the items'
-text to find text the answer dropped or added.
+text to find text the answer dropped or added. It also finds where the page furniture
+the survey found sits on the page, from the stored text alone, so the furniture check
+compares boxes rather than text.
 
 Text is compared as overlapping runs of three characters, after Unicode NFKC
 normalization and case folding, keeping only letters, marks and digits. Spaces,
@@ -13,15 +15,20 @@ compare the same way as others, and no word list or tokenizer is needed.
 # Standard Library
 import unicodedata
 
-from collections import Counter
-from collections.abc import Sequence
+from collections import Counter, defaultdict
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 # Third Party Library
 import pymupdf
 
 # Package Library
+from pydelity.extracting.rendering import points_box_to_grid
+from pydelity.extracting.schemas import PageContext
+from pydelity.surveying.probe import line_boxes
 from pydelity.utils.pdf import TEXT_FLAGS
+from pydelity.utils.text import normalize_line
 
 # The Unicode categories kept for comparison: letters, marks and numbers.
 _KEPT_CATEGORIES = ("L", "M", "N")
@@ -99,6 +106,19 @@ def _joined_lines(lines: Sequence[dict[str, Any]]) -> list[str]:
     return texts
 
 
+@dataclass(frozen=True)
+class PageText:
+    """What a page's text layer gives the checks."""
+
+    furniture: Mapping[str, tuple[tuple[int, ...], ...]]
+    """Where the page furniture the survey found sits on the upright image's grid:
+    the box of each line that holds it, by repeated line ID. A furniture line the
+    page's stored text does not hold is absent."""
+
+    lines: tuple[str, ...]
+    """The page's text-layer lines, from `read_lines`."""
+
+
 def comparison_form(text: str) -> str:
     """Write text in the form it is compared in.
 
@@ -154,6 +174,50 @@ def read_lines(document: pymupdf.Document, *, page_index: int) -> list[str]:
             text for text in _joined_lines(block.get("lines", [])) if text.strip()
         ]
     return lines
+
+
+def read_page_text(document: pymupdf.Document, *, context: PageContext) -> PageText:
+    """Read a page's text-layer lines and find where its page furniture sits.
+
+    Each line the survey classed as page furniture is looked for among the page's
+    lines as the survey's probe reads them, by the same normalized form, so stored
+    text is only ever matched with stored text. Run it on the PyMuPDF worker
+    (`pydelity.extracting.rendering.PdfWorker.call`).
+
+    Parameters
+    ----------
+    document
+        The open PDF.
+    context
+        The page's context: its index, size, rotation and repeated lines.
+
+    Returns
+    -------
+    PageText
+        The page's lines and the grid boxes of its furniture lines.
+    """
+
+    wanted = {
+        line.normalized: line.id
+        for line in context.repeated_lines
+        if line.use == "artifact" and line.normalized
+    }
+    furniture: defaultdict[str, list[tuple[int, ...]]] = defaultdict(list)
+    if wanted:
+        for text, rect in line_boxes(document[context.page_index]):
+            line_id = wanted.get(normalize_line(text))
+            if line_id is not None:
+                box = points_box_to_grid(
+                    [rect.x0, rect.y0, rect.x1, rect.y1],
+                    height_pt=context.height_pt,
+                    rotation=context.rotation,
+                    width_pt=context.width_pt,
+                )
+                furniture[line_id].append(tuple(box))
+    return PageText(
+        furniture={line_id: tuple(boxes) for line_id, boxes in furniture.items()},
+        lines=tuple(read_lines(document, page_index=context.page_index)),
+    )
 
 
 def trigrams(form: str) -> Counter[str]:

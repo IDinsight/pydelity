@@ -7,7 +7,7 @@ same for every page of a run; OpenAI caches such prefixes itself.
 """
 
 # Standard Library
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 # Third Party Library
@@ -28,6 +28,7 @@ from pydelity.extracting.agents import create_extraction_agent, create_verifier_
 from pydelity.extracting.prompts import extract_page, verify_page
 from pydelity.extracting.rendering import UprightImage
 from pydelity.extracting.schemas import PageAnswer, PageContext, VerifierVerdict
+from pydelity.extracting.text_layer import PageText
 from pydelity.extracting.validators import run_checks
 from pydelity.providers.ledger_model import LedgerModel
 from pydelity.providers.profiles import ModelChoice
@@ -192,13 +193,13 @@ class PageInput:
         The page's context.
     image
         The upright page image.
-    text_lines
-        The page's text-layer lines.
+    page_text
+        The page's text layer.
     """
 
     context: PageContext
     image: UprightImage
-    text_lines: Sequence[str]
+    page_text: PageText
 
 
 @dataclass(frozen=True)
@@ -246,14 +247,14 @@ async def ask_extractor(*, model: StepModel, page: PageInput) -> ModelPage:
         If a request fails after the provider retries.
     """
 
-    context, text_lines = page.context, page.text_lines
+    context, page_text = page.context, page.page_text
     prompts = extract_page(context)
     agent = create_extraction_agent(
         check_retries=model.settings.check_retries,
         context=context,
         instructions=prompts.system_message,
         model=model.model.for_page(agent=EXTRACTOR, page_index=context.page_index),
-        text_lines=text_lines,
+        page_text=page_text,
     )
     result = await _run(
         agent,
@@ -265,7 +266,7 @@ async def ask_extractor(*, model: StepModel, page: PageInput) -> ModelPage:
     return ModelPage(
         answer=result.output,
         attempts=result.usage.requests,
-        failures=run_checks(result.output, context, text_lines),
+        failures=run_checks(result.output, context, page_text),
     )
 
 
@@ -304,14 +305,14 @@ async def ask_verifier(
         If a request fails after the provider retries.
     """
 
-    context, text_lines = page.context, page.text_lines
+    context, page_text = page.context, page.page_text
     prompts = verify_page(context, answer=answer, failures=failures)
     agent = create_verifier_agent(
         check_retries=model.settings.check_retries,
         context=context,
         instructions=prompts.system_message,
         model=model.model.for_page(agent=VERIFIER, page_index=context.page_index),
-        text_lines=text_lines,
+        page_text=page_text,
     )
     result = await _run(
         agent,
@@ -324,7 +325,7 @@ async def ask_verifier(
     correction_failures = (
         None
         if verdict.corrected is None
-        else run_checks(verdict.corrected, context, text_lines)
+        else run_checks(verdict.corrected, context, page_text)
     )
     return ModelVerdict(
         attempts=result.usage.requests,

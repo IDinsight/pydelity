@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -17,8 +17,7 @@
 `.standards/docs/specs/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
 `Development`:
 `.standards/docs/development/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-019 is done; approve the files and folders DEV-020 will change before it starts.`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
@@ -31,19 +30,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
-`Design corrected: verifier corrections need every check but the text comparison and get text retries (AC-063, AC-064), and the artifacts check works by position (decision 22); Developer reruns.`
+`Kind`: `RESUME` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
+`Rerun done: DEV-019 and DEV-020 apply AC-063, AC-064 and decision 22; frame closed, full verification resumes.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `TESTING` `Owner`: `ARCHITECTING` `FailureType`: `ARCHITECTURE`
-`Reason`:
-`Text-layer checks conflict with decision 21: verifier corrections fail text checks and are rejected, and the artifacts check needs the stored text; see the plan's review findings.`
-`ResumeAt`: `TESTING` `RerunThrough`: `DEVELOPING`
+`Active`: `false`
 
 ## Outstanding Obligations
 

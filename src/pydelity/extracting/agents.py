@@ -7,7 +7,6 @@ it is, and the caller records the checks it still fails.
 """
 
 # Standard Library
-from collections.abc import Sequence
 
 # Third Party Library
 from loguru import logger
@@ -15,6 +14,7 @@ from pydantic_ai import Agent, ModelRetry, RunContext
 
 # Package Library
 from pydelity.extracting.schemas import PageAnswer, PageContext, VerifierVerdict
+from pydelity.extracting.text_layer import PageText
 from pydelity.extracting.validators import retry_message, run_checks
 from pydelity.providers.factory import structured_output
 from pydelity.providers.ledger_model import LedgerModel
@@ -43,7 +43,7 @@ def create_extraction_agent(
     context: PageContext,
     instructions: str,
     model: LedgerModel,
-    text_lines: Sequence[str],
+    page_text: PageText,
 ) -> Agent[None, PageAnswer]:
     """Create the agent that extracts one page.
 
@@ -58,8 +58,8 @@ def create_extraction_agent(
         The extraction model's instructions.
     model
         The model, wrapped for this page and agent.
-    text_lines
-        The page's text-layer lines, for the text checks.
+    page_text
+        The page's text layer, for the text and furniture checks.
 
     Returns
     -------
@@ -96,7 +96,7 @@ def create_extraction_agent(
             If the answer fails a check and retries remain.
         """
 
-        failures = run_checks(answer, context, text_lines)
+        failures = run_checks(answer, context, page_text)
         count = sum(len(found) for found in failures.values())
         label = _page_label(context)
         number = run.retry + 1
@@ -136,7 +136,7 @@ def create_verifier_agent(
     context: PageContext,
     instructions: str,
     model: LedgerModel,
-    text_lines: Sequence[str],
+    page_text: PageText,
 ) -> Agent[None, VerifierVerdict]:
     """Create the agent that reviews one page's extraction.
 
@@ -155,8 +155,8 @@ def create_verifier_agent(
         The verifier's instructions.
     model
         The model, wrapped for this page and agent.
-    text_lines
-        The page's text-layer lines, for the text checks.
+    page_text
+        The page's text layer, for the text and furniture checks.
 
     Returns
     -------
@@ -207,7 +207,7 @@ def create_verifier_agent(
             )
             return verdict
 
-        failures = run_checks(verdict.corrected, context, text_lines)
+        failures = run_checks(verdict.corrected, context, page_text)
         count = sum(len(found) for found in failures.values())
         if not count or run.last_attempt:
             logger.info(

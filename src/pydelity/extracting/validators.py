@@ -1,12 +1,12 @@
 """Page extraction's checks on a model's answer for one page.
 
 Pydantic checks only the answer's shape. These checks test what code can decide from
-the answer and the page's context alone: labels fit the profile, each item holds the
-content its kind needs, boxes lie on the page, containers and captions point at real
-items, the reading order fits the page's writing direction, page furniture the survey
-found is kept, and fillable form fields carry their values. They use positions,
-names, Unicode forms and values only, never word lists, and assume no writing
-direction other than the page's own.
+the answer, the page's context and its text layer: labels fit the profile, each item
+holds the content its kind needs, boxes lie on the page, containers and captions point
+at real items, the reading order fits the page's writing direction, page furniture
+the survey found lies inside artifact items, and fillable form fields carry their
+values. They use positions, names, Unicode forms and values only, never word lists,
+and assume no writing direction other than the page's own.
 
 On a page with a readable text layer, two more checks compare the items' text with
 it, as runs of three characters, to find text the answer dropped or added in any
@@ -36,10 +36,9 @@ from pydelity.extracting.schemas import (
     Table,
     TextComparison,
 )
-from pydelity.extracting.text_layer import comparison_form, trigrams
+from pydelity.extracting.text_layer import PageText, comparison_form, trigrams
 from pydelity.review import CheckFailure, ExtractionCheckName, ReviewIssue
 from pydelity.surveying.schemas import Direction, FormField, ItemKind, ItemRole, Label
-from pydelity.utils.text import normalize_line
 
 # How far outside the 0-1000 grid a box may reach, in grid units, before it counts as
 # off the page.
@@ -49,7 +48,8 @@ _BOX_TOLERANCE = 5
 # bottom) for a jump back against the reading flow to count as a new column or band.
 _COLUMN_MOVE = 200
 
-# How far, in grid units, an item or container may reach outside its container's box.
+# How far, in grid units, an item or container may reach outside its container's box,
+# and a page furniture line's center outside the artifact item that covers it.
 _CONTAINER_TOLERANCE = 20
 
 # The content fields an item may fill; its kind decides which (see `_KIND_FIELDS`).
@@ -99,11 +99,9 @@ _TEXT_NOTE = (
     "image, or the image shows it differently, keep what the image shows."
 )
 
-# Checks an answer against the page's context and returns every failure found.
-type Check = Callable[[PageAnswer, PageContext], list[CheckFailure]]
-
-# Checks an answer against the page's context and its text-layer lines.
-type TextCheck = Callable[[PageAnswer, PageContext, Sequence[str]], list[CheckFailure]]
+# Checks an answer against the page's context and its text layer, and returns every
+# failure found.
+type Check = Callable[[PageAnswer, PageContext, PageText], list[CheckFailure]]
 
 
 def _answer_lines(answer: PageAnswer) -> list[tuple[str, str]]:
@@ -240,6 +238,28 @@ def _box_problem(box: Sequence[int]) -> str | None:
     return None
 
 
+def _center(box: Sequence[int]) -> tuple[float, float]:
+    """Find the middle of a box.
+
+    Parameters
+    ----------
+    box
+        The box, as ``[x0, y0, x1, y1]``.
+
+    Returns
+    -------
+    tuple[float, float]
+        Its center.
+
+    Examples
+    --------
+    >>> _center([100, 40, 300, 60])
+    (200.0, 50.0)
+    """
+
+    return ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+
+
 def _collapse(text: str | None) -> str:
     """Collapse whitespace, so values that differ only in spacing compare equal.
 
@@ -282,6 +302,30 @@ def _container_cycles(containers: Sequence[AnswerContainer]) -> list[str]:
         if parent == container.ref:
             looped.append(container.ref)
     return looped
+
+
+def _covers(box: Sequence[int], point: tuple[float, float]) -> bool:
+    """Tell whether a point lies inside a box, or past its edges by the tolerance.
+
+    Parameters
+    ----------
+    box
+        The box, as ``[x0, y0, x1, y1]`` on the grid.
+    point
+        The point on the grid.
+
+    Returns
+    -------
+    bool
+        Whether the point is inside the box widened by `_CONTAINER_TOLERANCE` on
+        every side.
+    """
+
+    reach = _CONTAINER_TOLERANCE
+    return (
+        box[0] - reach <= point[0] <= box[2] + reach
+        and box[1] - reach <= point[1] <= box[3] + reach
+    )
 
 
 def _failure(
@@ -698,44 +742,58 @@ def _unmatched(lines: Sequence[Counter[str]], available: Counter[str]) -> list[i
     return sorted(flagged)
 
 
-def check_artifacts(answer: PageAnswer, context: PageContext) -> list[CheckFailure]:
-    """Keep the page furniture the survey found: each such line is in an artifact.
+def check_artifacts(
+    answer: PageAnswer, context: PageContext, page_text: PageText
+) -> list[CheckFailure]:
+    """Keep the page furniture the survey found inside items with role artifact.
+
+    Each line the survey classed as page furniture is found on the page in the
+    stored text, which gives its box. The line passes when the center of each of
+    its boxes lies inside the box of an item with role ``artifact``, within 20 grid
+    units. Its text is never compared with the answer's, since the stored text can
+    differ from what is printed. A furniture line the page's stored text does not
+    hold is skipped.
 
     Parameters
     ----------
     answer
         The model's answer.
     context
-        The page's context, for its repeated lines and what the survey decided they
-        are.
+        The page's context, for its repeated lines.
+    page_text
+        The page's text layer, for where each furniture line sits on the grid.
 
     Returns
     -------
     list[CheckFailure]
-        One failure per repeated line the survey classified as page furniture whose
-        compared form is in no item with role ``artifact``.
+        One failure per furniture line with a box that no item with role
+        ``artifact`` covers, naming the line and where it is on the grid.
     """
 
-    held = [
-        normalize_line(_item_text(item))
-        for item in answer.items
-        if item.role == ItemRole.ARTIFACT
-    ]
-    return [
-        _failure(
-            "artifacts",
-            f"the repeated line {line.id}, {line.text!r}, is page furniture on this "
-            "page, but no item with role artifact holds it",
-            context=context,
-        )
-        for line in context.repeated_lines
-        if line.use == "artifact"
-        and line.normalized
-        and not any(line.normalized in text for text in held)
-    ]
+    boxes = [item.box for item in answer.items if item.role == ItemRole.ARTIFACT]
+    failures = []
+    for line in context.repeated_lines:
+        uncovered = [
+            found
+            for found in page_text.furniture.get(line.id, ())
+            if not any(_covers(box, _center(found)) for box in boxes)
+        ]
+        if uncovered:
+            failures.append(
+                _failure(
+                    "artifacts",
+                    f"the repeated line {line.id}, {line.text!r}, is page furniture at "
+                    f"{list(uncovered[0])} on the grid, but no item with role artifact "
+                    "covers it",
+                    context=context,
+                )
+            )
+    return failures
 
 
-def check_boxes(answer: PageAnswer, context: PageContext) -> list[CheckFailure]:
+def check_boxes(
+    answer: PageAnswer, context: PageContext, page_text: PageText
+) -> list[CheckFailure]:
     """Check that every box is well formed and on the page, and no two items share one.
 
     Parameters
@@ -787,7 +845,9 @@ def check_boxes(answer: PageAnswer, context: PageContext) -> list[CheckFailure]:
     return failures
 
 
-def check_captions(answer: PageAnswer, context: PageContext) -> list[CheckFailure]:
+def check_captions(
+    answer: PageAnswer, context: PageContext, page_text: PageText
+) -> list[CheckFailure]:
     """Check that each caption names the item it captions, and only captions do.
 
     Parameters
@@ -837,7 +897,9 @@ def check_captions(answer: PageAnswer, context: PageContext) -> list[CheckFailur
     return failures
 
 
-def check_containers(answer: PageAnswer, context: PageContext) -> list[CheckFailure]:
+def check_containers(
+    answer: PageAnswer, context: PageContext, page_text: PageText
+) -> list[CheckFailure]:
     """Check that containers exist, do not nest in a loop, and hold what names them.
 
     Parameters
@@ -891,7 +953,9 @@ def check_containers(answer: PageAnswer, context: PageContext) -> list[CheckFail
     return failures
 
 
-def check_content(answer: PageAnswer, context: PageContext) -> list[CheckFailure]:
+def check_content(
+    answer: PageAnswer, context: PageContext, page_text: PageText
+) -> list[CheckFailure]:
     """Check that refs are unique and each item holds the content its kind needs.
 
     Parameters
@@ -936,7 +1000,9 @@ def check_content(answer: PageAnswer, context: PageContext) -> list[CheckFailure
     return failures
 
 
-def check_form_fields(answer: PageAnswer, context: PageContext) -> list[CheckFailure]:
+def check_form_fields(
+    answer: PageAnswer, context: PageContext, page_text: PageText
+) -> list[CheckFailure]:
     """Check that the page's fillable fields are field items with the same values.
 
     A field the PDF has more than once on the page, such as a group of radio
@@ -994,7 +1060,9 @@ def check_form_fields(answer: PageAnswer, context: PageContext) -> list[CheckFai
     return failures
 
 
-def check_labels(answer: PageAnswer, context: PageContext) -> list[CheckFailure]:
+def check_labels(
+    answer: PageAnswer, context: PageContext, page_text: PageText
+) -> list[CheckFailure]:
     """Check that each label is in the profile and fits its item's role and kind.
 
     The label ``other`` fits any item that no other label in the profile fits;
@@ -1047,7 +1115,9 @@ def check_labels(answer: PageAnswer, context: PageContext) -> list[CheckFailure]
     return failures
 
 
-def check_languages(answer: PageAnswer, context: PageContext) -> list[CheckFailure]:
+def check_languages(
+    answer: PageAnswer, context: PageContext, page_text: PageText
+) -> list[CheckFailure]:
     """Check that each language tag is valid and every item with text has one.
 
     Parameters
@@ -1080,7 +1150,9 @@ def check_languages(answer: PageAnswer, context: PageContext) -> list[CheckFailu
     return failures
 
 
-def check_reading_order(answer: PageAnswer, context: PageContext) -> list[CheckFailure]:
+def check_reading_order(
+    answer: PageAnswer, context: PageContext, page_text: PageText
+) -> list[CheckFailure]:
     """Check that the reading order follows the page's writing direction.
 
     Over consecutive items of the page's flow (headings, body text and navigation),
@@ -1172,7 +1244,7 @@ def check_results(
 
 
 def check_text_added(
-    answer: PageAnswer, context: PageContext, text_lines: Sequence[str]
+    answer: PageAnswer, context: PageContext, page_text: PageText
 ) -> list[CheckFailure]:
     """Find lines the answer has that the page's text layer does not.
 
@@ -1184,8 +1256,8 @@ def check_text_added(
         The model's answer.
     context
         The page's context, for its text quality.
-    text_lines
-        The page's text-layer lines.
+    page_text
+        The page's text layer.
 
     Returns
     -------
@@ -1194,6 +1266,7 @@ def check_text_added(
         them in the text layer, naming the line's item.
     """
 
+    text_lines = page_text.lines
     if comparison_status(answer, context, text_lines) != "compared":
         return []
     answer_lines = _answer_lines(answer)
@@ -1215,7 +1288,7 @@ def check_text_added(
 
 
 def check_text_dropped(
-    answer: PageAnswer, context: PageContext, text_lines: Sequence[str]
+    answer: PageAnswer, context: PageContext, page_text: PageText
 ) -> list[CheckFailure]:
     """Find lines the page's text layer has that the answer does not.
 
@@ -1228,8 +1301,8 @@ def check_text_dropped(
         The model's answer.
     context
         The page's context, for its text quality.
-    text_lines
-        The page's text-layer lines.
+    page_text
+        The page's text layer.
 
     Returns
     -------
@@ -1238,6 +1311,7 @@ def check_text_dropped(
         of them in the answer.
     """
 
+    text_lines = page_text.lines
     if comparison_status(answer, context, text_lines) != "compared":
         return []
     answer_trigrams = _answer_trigrams(answer)
@@ -1355,7 +1429,7 @@ def review_issues(
 
 
 def run_checks(
-    answer: PageAnswer, context: PageContext, text_lines: Sequence[str]
+    answer: PageAnswer, context: PageContext, page_text: PageText
 ) -> dict[ExtractionCheckName, list[CheckFailure]]:
     """Run every check on an answer, in order, the text checks last.
 
@@ -1365,9 +1439,9 @@ def run_checks(
         The model's answer.
     context
         The page's context.
-    text_lines
-        The page's text-layer lines, from
-        `pydelity.extracting.text_layer.read_lines`.
+    page_text
+        The page's text layer, from
+        `pydelity.extracting.text_layer.read_page_text`.
 
     Returns
     -------
@@ -1376,10 +1450,10 @@ def run_checks(
         passed or, for a text check, did not run.
     """
 
-    failures = {name: check(answer, context) for name, check in CHECKS.items()}
-    for name, text_check in TEXT_CHECKS.items():
-        failures[name] = text_check(answer, context, text_lines)
-    return failures
+    return {
+        name: check(answer, context, page_text)
+        for name, check in (CHECKS | TEXT_CHECKS).items()
+    }
 
 
 def unmatched_labels(answer: PageAnswer, context: PageContext) -> list[ReviewIssue]:
@@ -1395,6 +1469,22 @@ def unmatched_labels(answer: PageAnswer, context: PageContext) -> list[ReviewIss
         The kept answer.
     context
         The page's context, for the profile's labels.
+    page_text
+        The page's text layer, which this check does not use.
+    page_text
+        The page's text layer, which this check does not use.
+    page_text
+        The page's text layer, which this check does not use.
+    page_text
+        The page's text layer, which this check does not use.
+    page_text
+        The page's text layer, which this check does not use.
+    page_text
+        The page's text layer, which this check does not use.
+    page_text
+        The page's text layer, which this check does not use.
+    page_text
+        The page's text layer, which this check does not use.
 
     Returns
     -------
@@ -1439,7 +1529,7 @@ CHECKS: dict[ExtractionCheckName, Check] = {
 
 # The checks that compare the answer's text with the page's text layer, in the order
 # they run, after `CHECKS`.
-TEXT_CHECKS: dict[ExtractionCheckName, TextCheck] = {
+TEXT_CHECKS: dict[ExtractionCheckName, Check] = {
     "text_dropped": check_text_dropped,
     "text_added": check_text_added,
 }

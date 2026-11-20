@@ -162,6 +162,8 @@ class _Line:
         Characters other than whitespace.
     edge_distance
         Distance in points from the line to the nearer of the page's top and bottom.
+    rect
+        The line's box on the displayed page, in points.
     text
         The line's text, stripped.
     """
@@ -170,6 +172,7 @@ class _Line:
     band: Band
     chars: int
     edge_distance: float
+    rect: pymupdf.Rect
     text: str
 
 
@@ -768,6 +771,7 @@ def _lines(page: pymupdf.Page) -> list[_Line]:
                     band=_band(page_height=height, rect=rect),
                     chars=sum(1 for char in text if not char.isspace()),
                     edge_distance=min(rect.y0, height - rect.y1),
+                    rect=rect,
                     text=text,
                 )
             )
@@ -1542,6 +1546,27 @@ def _walk_structure(*, document: pymupdf.Document, root: int) -> _StructureWalk:
         role_map=_role_map(document=document, root=root), types=walk.types
     )
     return walk
+
+
+def line_boxes(page: pymupdf.Page) -> list[tuple[str, pymupdf.Rect]]:
+    """Read a page's text lines as the probe reads them, each with its box.
+
+    Page extraction finds the page furniture the survey found this way, so each
+    line is read and joined exactly as when the survey counted it.
+
+    Parameters
+    ----------
+    page
+        The page.
+
+    Returns
+    -------
+    list[tuple[str, pymupdf.Rect]]
+        Each line that holds text, stripped, with its box in points on the displayed
+        page, in PyMuPDF's reading order.
+    """
+
+    return [(line.text, line.rect) for line in _lines(page)]
 
 
 def probe_pdf(path: Path) -> Facts:
