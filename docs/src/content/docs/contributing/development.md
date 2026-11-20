@@ -52,7 +52,7 @@ just test
 | `just clean`          | Remove `.venv`, caches and build output (run `just install` afterwards)                                        |
 | `just docs`           | Serve the docs site with live reload                                                                           |
 | `just docs-build`     | Build the docs site, then check its internal links                                                             |
-| `just docs-reference` | Regenerate the docs site's reference pages from the code                                                       |
+| `just docs-reference` | Regenerate the docs site's reference pages from the code, unformatted until `just lint-markdown` runs          |
 | `just install`        | Create `.venv` from `uv.lock` (fails if the lock is out of date) and install the prek git hook                 |
 | `just lint`           | Regenerate the reference pages, then run every lint recipe below                                               |
 | `just lint-markdown`  | Format every Markdown file with Prettier, then lint it with markdownlint                                       |
@@ -67,8 +67,10 @@ just test
   everything and collect every failure instead, use `KEEP_GOING=1 just test`.
   The failures and errors are also written to `.cache/test-errors`.
 - Tests run in a random order. pytest prints the seed at the top
-  (`Using --randomly-seed=...`), and `uv run pytest --randomly-seed=<seed>`
-  repeats that order.
+  (`Using --randomly-seed=...`). `uv run pytest --randomly-seed=<seed>` runs the
+  tests again in that shuffled order, in one process. It doesn't repeat which
+  test each parallel worker ran when, and it leaves out the docstring examples,
+  which `just test` runs in a second session with its own seed.
 - No test calls a real model provider or spends money. Every test runs with
   dummy API keys and with the providers' addresses pointed at a closed local
   port. Tests that need a provider use the stand-in server in
@@ -77,8 +79,9 @@ just test
   get.
 
 CI runs the tests on Python 3.13 and 3.14. It also builds the wheel and, on
-Linux, macOS and Windows, installs it in a fresh environment and runs a survey
-against the stand-in server (`scripts/smoke_installed_wheel.py`).
+Linux, macOS and Windows, installs it in a fresh environment and runs the survey
+and page extraction against the stand-in server
+(`scripts/smoke_installed_wheel.py`).
 
 ## Dependencies
 
@@ -101,12 +104,20 @@ in one step, and keep the lists in alphabetical order.
 - Afterwards, run `just lint` and `just test`, and commit `pyproject.toml` and
   `uv.lock` together. CI fails if the lock does not match `pyproject.toml`.
 - After pulling someone else's dependency change, run `just install`.
-- Dependabot opens a monthly pull request that moves the pins to newer releases.
+- Each month, Dependabot opens up to four pull requests that move the pins to
+  newer releases, one for each kind of pin: the GitHub Actions in the workflows,
+  the docs site's npm packages, the git hooks' versions and the Python packages
+  in `uv.lock`.
 
 ## Git hooks
 
-With the git hook installed, prek runs the checks on the files in each commit.
-To run every hook on every file, use `uv run prek run --all-files`.
+With the git hook installed, prek runs the checks when you commit. Most hooks
+check only the files in the commit. A few check the whole tree whenever the
+commit touches a file they cover: Prettier and markdownlint check every Markdown
+file, ty and interrogate check all of `scripts/`, `src/` and `tests/`, and
+zizmor checks the workflows and the hook and Dependabot configs. The check that
+`.template.env` and `.env` match runs on every commit. To run every hook on
+every file, use `uv run prek run --all-files`.
 
 ## Commit messages
 

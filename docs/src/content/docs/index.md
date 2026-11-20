@@ -1,17 +1,22 @@
 ---
 title: pydelity
 description:
-  Survey any PDF with Anthropic or OpenAI models, the first step from a PDF to
-  faithful, structured JSON.
+  Survey any PDF and extract each page's content with Anthropic or OpenAI
+  models, on the way from a PDF to faithful, structured JSON.
 ---
 
-pydelity turns PDFs into structured JSON. Its first step, the survey, reads a
-PDF with an Anthropic or OpenAI model and records how its pages are laid out:
-page numbers, rotation, writing direction and repeated lines, with a list of
-things for a person to review.
+pydelity turns PDFs into structured JSON with Anthropic or OpenAI models. It
+works in steps:
 
-This release does the survey only. Later releases add the steps that extract
-each page's content and assemble it into one document.
+- **The survey** reads the whole PDF and records how its pages are laid out:
+  page numbers, rotation, writing direction, languages and the lines that repeat
+  on many pages, such as headers and footers.
+- **Page extraction** reads each page you select and lists everything on it in
+  reading order: headings, paragraphs, lists, tables, figures, form fields and
+  more, each with its position on the page. A second model reviews every page.
+
+Both steps keep a list of things for a person to review. Later releases add the
+steps that join the pages into one document.
 
 ## Quickstart
 
@@ -30,36 +35,43 @@ each page's content and assemble it into one document.
 
    In Windows PowerShell, run `$env:ANTHROPIC_API_KEY = "[API_KEY]"` instead.
 
-3. In the folder that holds your PDF, run a survey:
+3. In the folder that holds your PDF, run the survey:
 
    ```sh
    pydelity document.pdf
    ```
 
    pydelity measures the PDF, shows what the survey will likely cost and asks
-   before sending anything. Type `y` and press Enter to go ahead.
+   before sending anything. Type `y` and press Enter to go ahead. When the
+   survey is done, the run stops so you can check it.
 
-4. Open `pydelity-output/document/report.html` in a browser to see the results
-   and the issues to review.
+4. Open `pydelity-output/document/report.html` in a browser to check the
+   survey's results and the issues to review.
+
+5. Run the same command again to extract the pages. pydelity reuses the survey,
+   shows what page extraction will likely cost and asks again.
+
+6. Reload `report.html` to see each page with its items drawn on it.
 
 See [Install pydelity](start/install/) for other ways to install and the
-platforms PyMuPDF doesn't support, and [Your first survey](start/first-survey/)
-for a walkthrough.
+platforms PyMuPDF doesn't support, and [Your first run](start/first-survey/) for
+a walkthrough.
 
 ## Find your next step
 
 - [Install pydelity](start/install/): install it on Windows, macOS or Linux and
   set an API key.
-- [Your first survey](start/first-survey/): follow one survey from the command
-  line to the report.
+- [Your first run](start/first-survey/): follow a PDF from the command line
+  through the survey and page extraction to the report.
 - Guides: keep [settings](guides/configuration/) in a file, use the
-  [command line](guides/command-line/) or [Python](guides/python/), choose
+  [command line](guides/command-line/) or [Python](guides/python/),
+  [extract pages](guides/page-extraction/), choose
   [models](guides/models-and-providers/), control [costs](guides/costs/), rerun
   and resume [runs](guides/reruns/), and read the
   [output files](guides/outputs/).
 - [Reference](reference/configuration/): look up exact setting names, files and
   fields.
-- [FAQ](faq/): get short answers to common questions, including what a survey
+- [FAQ](faq/): get short answers to common questions, including what each step
   gives you.
 - [Need Help?](need-help/): ask a question, report a bug or suggest an
   improvement.

@@ -5,56 +5,124 @@ description:
   and handle its errors, warnings and logs.
 ---
 
-`import pydelity` gives you the same survey as the command, without the
-questions. Every function takes the PDF, an optional `config` and settings as
-keyword arguments. The [Python API reference](../../reference/python-api/) lists
-every argument, result and error.
+`import pydelity` gives you the same steps as the command, without the
+questions. Its functions are async, so you `await` them. Every function takes
+the PDF, an optional `config` and settings as keyword arguments. The
+[Python API reference](../../reference/python-api/) lists every argument, result
+and error.
 
 ## The functions
 
-| Function   | What it does                                                                   | Needs an API key | Calls a model |
-| ---------- | ------------------------------------------------------------------------------ | ---------------- | ------------- |
-| `measure`  | Measures the PDF and saves `pdf_facts.json`                                    | No               | No            |
-| `estimate` | Estimates what a run would cost, and writes nothing                            | No               | No            |
-| `survey`   | Runs the survey step and saves `pdf_survey.json`, with no `run.json` or report | Yes              | Yes           |
-| `run`      | Runs everything the command does and returns all of it                         | Yes              | Yes           |
-| `load`     | Reads an existing output folder back as Python objects                         | No               | No            |
+| Function    | What it does                                                                              | Needs an API key | Calls a model |
+| ----------- | ----------------------------------------------------------------------------------------- | ---------------- | ------------- |
+| `ameasure`  | Measures the PDF and saves `pdf_facts.json`                                               | No               | No            |
+| `aestimate` | Estimates what a run would cost, and writes nothing                                       | No               | No            |
+| `asurvey`   | Runs the survey and saves `pdf_survey.json`, with no `run.json` or report                 | Yes              | Yes           |
+| `aextract`  | Runs the survey if needed, then extracts the selected pages, with no `run.json` or report | Yes              | Yes           |
+| `arun`      | Runs everything the command does and returns all of it                                    | Yes              | Yes           |
+| `load`      | Reads an existing output folder back as Python objects                                    | No               | No            |
 
-`measure`, `estimate`, `survey` and `run` reuse saved results the same way the
-command does. See [Rerun and resume](../reruns/).
+`ameasure`, `aestimate`, `asurvey`, `aextract` and `arun` reuse saved results
+the same way the command does. See [Rerun and resume](../reruns/).
 
-## Run a survey
+## Async and sync
+
+In Jupyter, `await` works at the top level of a cell, so the examples on this
+page run there as they are. In a script, put the calls in an `async def`
+function and start it with `asyncio.run`:
+
+```python
+import asyncio
+
+import pydelity
+
+
+async def main() -> None:
+    result = await pydelity.arun("document.pdf")
+    print(result.record.status)
+
+
+asyncio.run(main())
+```
+
+Each async function also has a sync version, named without the `a`: `measure`,
+`estimate`, `survey`, `extract` and `run`. They take the same arguments and
+return the same results, for code that doesn't use `async`. They start their own
+event loop, so they raise `RuntimeError` where one is already running, as in
+Jupyter or inside an `async def` function. `load` has only a sync version,
+because it reads files only.
+
+## Run pydelity
 
 ```python
 import pydelity
 
-result = pydelity.run("document.pdf", languages=["en"])
+result = await pydelity.arun("document.pdf", languages=["en"])
 
 # run.json: how the run went
-print(result.record.status)  # "completed"
+print(result.record.status)  # "paused" after a new survey, else "completed"
 print(result.record.cost.run_usd)
 
-# pdf_survey.json: the model's checked answer
+# pdf_survey.json: the survey's checked answer
 for numbering in result.survey.profile.page_numbering:
     print(numbering.first_page_index, numbering.last_page_index, numbering.style)
 
 # The review list: things a person should check
 for issue in result.record.review:
-    print(issue.check, issue.page_index, issue.message)
+    print(issue.step, issue.check, issue.page_index, issue.item_id, issue.message)
 ```
 
-`run` returns a `RunResult` with five parts:
+`arun` behaves like the command: a run that makes a new survey stops before page
+extraction, with status `paused`, so you can check the survey first. It returns
+normally; nothing is raised. Call `arun` again to extract the pages, or pass
+`pause=False` to run every step in one call:
+
+```python
+import pydelity
+
+result = await pydelity.arun("document.pdf", pause=False, pages="1-5,8")
+```
+
+`arun` returns a `RunResult` with six parts:
 
 - `record`: the contents of `run.json`
 - `facts`: the contents of `pdf_facts.json`
 - `survey`: the contents of `pdf_survey.json`
+- `pages`: the page files in `pages/`, in page order
 - `ledger`: the lines of `cost.jsonl`, one per model request
 - `output_dir`: the output folder
 
 The Python functions never ask questions. They go ahead with the model requests
 unless the run could go over `max_cost`. In that case they raise
-`BudgetExceededError` before spending anything, unless you pass
+`BudgetExceededError` before spending more, unless you pass
 `allow_over_max_cost=True`. [Control costs](../costs/) explains both.
+
+## Extract pages
+
+`aextract` runs page extraction on its own. It reuses a saved survey that still
+fits, or runs the survey first, and never pauses. It returns the selected pages'
+page files:
+
+```python
+import pydelity
+
+pages = await pydelity.aextract("document.pdf", pages="3-4")
+for page in pages:
+    print(f"Page {page.page_number}: {len(page.items)} items")
+    for item in page.items:
+        # Each item: its ID, what it is and where it is, in points on the page.
+        print(item.id, item.kind, item.role, item.label, item.bbox)
+        if item.text is not None:
+            print("  ", item.text)
+        if item.figure is not None:
+            print("   figure image:", item.figure.crop)
+```
+
+Like `asurvey`, `aextract` writes no `run.json` and no report. The page files
+and figure images go to the output folder as usual. A list item's entries are in
+`item.entries`, a table's rows in `item.table.rows`, and a form field's value in
+`item.field`. The [page file reference](../../reference/page-json/) lists every
+field.
 
 ## Pass settings
 
@@ -65,31 +133,41 @@ arguments win, as described in [Settings and config files](../configuration/).
 import pydelity
 
 # From a file, with one setting changed.
-result = pydelity.run(config="survey.yaml", output_dir="results/run-2")
+result = await pydelity.arun(config="report.yaml", output_dir="results/run-2")
 
 # From a dictionary, which is handy when the settings come from your own code.
 settings = {"pdf": "document.pdf", "model": "openai:gpt-6.2-astra"}
-result = pydelity.run(config=settings)
+result = await pydelity.arun(config=settings)
+
+# Settings under `advanced` go in a nested mapping.
+result = await pydelity.arun(
+    "document.pdf",
+    advanced={"extraction": {"instructions": "Each page is a slide with notes."}},
+)
 ```
 
 ## Check a PDF before you spend
 
-`measure` and `estimate` need no API key and call no model:
+`ameasure` and `aestimate` need no API key and call no model:
 
 ```python
 import pydelity
 
 # Measure the PDF and save pdf_facts.json in its output folder.
-facts = pydelity.measure("document.pdf")
+facts = await pydelity.ameasure("document.pdf")
 print("\n".join(facts.summary))
 
 # Estimate a run with the default model. Nothing is written.
-estimate = pydelity.estimate("document.pdf")
+estimate = await pydelity.aestimate("document.pdf", pause=False)
 print(estimate.expected_usd, estimate.max_usd)  # likely and largest cost, in USD
+for step in estimate.steps:
+    print(step.name, step.pages, step.expected_usd, step.max_usd)
 ```
 
-`expected_usd` and `max_usd` are `None` when pydelity has no price for the
-model.
+The estimate covers the steps the run would do. Before a survey exists, a run
+with the pause on would stop after the survey, so its estimate covers only the
+survey. Pass `pause=False`, as above, to include page extraction. `expected_usd`
+and `max_usd` are `None` when pydelity has no price for the model.
 
 ## Read an earlier run
 
@@ -101,30 +179,39 @@ import pydelity
 result = pydelity.load("pydelity-output/document")
 if result.record is not None:
     print(result.record.status, len(result.record.review))
+for page in result.pages:
+    print(page.page_index, len(page.items), page.verification.verdict.passed)
 ```
 
-A part is `None` when its file is missing, so a folder that only `measure` wrote
-still loads.
+A part is `None`, or an empty list for `pages`, when its files are missing, so a
+folder that only `ameasure` wrote still loads. `pages` holds every page file in
+the folder, including pages left from an earlier, wider `pages` selection.
 
-## Jupyter and async code
-
-The functions above use their own event loop. Where one is already running, as
-in a Jupyter notebook or an `async` function, they raise `RuntimeError`. Use the
-async versions there. They take the same arguments and are named with an `a` in
-front: `ameasure`, `aestimate`, `asurvey` and `arun`.
-
-```python
-import pydelity
-
-# In a Jupyter cell, await works at the top level.
-result = await pydelity.arun("document.pdf")
-```
-
-`load` works anywhere, because it reads files only.
+## Run several PDFs at once
 
 Runs on different output folders can go at the same time, for example with
-`asyncio.gather`. Don't start two runs on the same output folder at once.
-pydelity does not detect it, and the two runs can overwrite each other's files.
+`asyncio.gather`. Each PDF gets its own output folder by default, named after
+the PDF:
+
+```python
+import asyncio
+
+import pydelity
+
+results = await asyncio.gather(
+    pydelity.arun("form-a.pdf", pause=False),
+    pydelity.arun("form-b.pdf", pause=False),
+)
+for result in results:
+    print(result.output_dir, result.record.status)
+```
+
+Each run extracts up to `advanced.extraction.concurrent_pages` pages at once, so
+two runs together send up to twice as many requests. Lower `concurrent_pages` if
+your provider account has low rate limits.
+
+Don't start two runs on the same output folder at once. pydelity does not detect
+it, and the two runs can overwrite each other's files.
 
 ## Errors
 
@@ -135,17 +222,18 @@ Every error pydelity raises on purpose is a `pydelity.PydelityError`, so one
 | --------------------- | --------------------------------------------------------------------------------------------- |
 | `ConfigError`         | A setting is invalid, such as a PDF path that doesn't exist, or the config file can't be read |
 | `PdfError`            | The PDF is empty, password-protected or can't be opened                                       |
-| `MissingApiKeyError`  | The API key for the model's provider is not set                                               |
+| `MissingApiKeyError`  | The API key for a step's model provider is not set                                            |
 | `BudgetExceededError` | The run could go over `max_cost` and `allow_over_max_cost` is not set                         |
-| `ProviderError`       | The provider rejected the request or kept failing after its retries                           |
-| `SurveyError`         | The model refused, ran out of output tokens or never gave a usable answer                     |
+| `ProviderError`       | The provider rejected a request or kept failing after its retries                             |
+| `SurveyError`         | The survey's model refused, ran out of output tokens or never gave a usable answer            |
+| `ExtractionError`     | A page's model refused, ran out of output tokens or never gave a usable answer                |
 | `OutputError`         | `load` can't read the output folder                                                           |
 
 ```python
 import pydelity
 
 try:
-    result = pydelity.run("document.pdf", max_cost=1)
+    result = await pydelity.arun("document.pdf", max_cost=1, pause=False)
 except pydelity.BudgetExceededError as error:
     print("Too expensive:", error)
 except pydelity.PydelityError as error:
@@ -153,7 +241,9 @@ except pydelity.PydelityError as error:
 ```
 
 `ProviderError` keeps the provider's own message in `provider_message`, and the
-HTTP status in `status_code`.
+HTTP status in `status_code`. An error from page extraction names the page. Page
+files written before the error stay saved, and the next run extracts only the
+pages still missing.
 
 ## Warnings
 
@@ -188,15 +278,4 @@ logger.enable("pydelity")
 # loguru prints everything to standard error by default. To see less:
 logger.remove()
 logger.add(sys.stderr, level="INFO")
-```
-
-On some Python installs, the first model request in a process prints a short
-banner from PydanticAI, the library pydelity uses to talk to models. To hide it,
-set the environment variable `PYDANTIC_AI_NO_BANNER=1`, or run this before
-calling pydelity:
-
-```python
-import pydantic_ai
-
-pydantic_ai.BANNER_ENABLED = False
 ```

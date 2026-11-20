@@ -1,40 +1,60 @@
 ---
 title: Control costs
 description:
-  See what a survey will cost before it runs, set a spending limit and find what
+  See what a run will cost before it starts, set a spending limit and find what
   each run spent.
 ---
 
-Each survey sends the whole PDF to a paid model. pydelity shows what it expects
-to spend before it starts, lets you set a limit and records what every request
-cost.
+Each step sends your PDF or its pages to a paid model. pydelity shows what it
+expects to spend before it starts, lets you set a limit and records what every
+request cost.
 
 ## The estimate
 
-Before any model request, pydelity estimates the survey's cost:
+Before any model request, pydelity estimates each step the run will do. For a
+2-page scanned form, the survey's estimate looked like this:
 
 ```text
-Survey cost estimate: about $0.36, at most $2.90 (up to 3 requests to anthropic:claude-opus-5-5)
+Survey cost estimate: about $0.24, at most $2.53 (up to 3 requests to anthropic:claude-opus-5-5)
 Spent so far in this output folder: $0.00; max_cost: not set
 ```
 
-- **About** is the likely cost: one request with an answer of typical length.
-- **At most** is the worst case: the first request plus every check retry, each
-  with the longest answer allowed. Most runs cost far less.
+and, on the next run, page extraction's:
 
-The estimate counts the PDF's pages and the text sent with it. It is a rough
-guide, and real costs can differ.
+```text
+Extraction cost estimate: about $0.45, at most $10.41 (2 pages, up to 12 requests to anthropic:claude-opus-5-5)
+```
+
+- **About** is the likely cost. For the survey, that is one request with an
+  answer of typical length. For page extraction, it is one request to read each
+  page and one to review it, with answers that grow with how much text the page
+  holds.
+- **At most** is the worst case: every check retry used, each answer as long as
+  allowed. Most runs cost far less.
+
+The survey's estimate counts the PDF's pages and the text sent with it. Page
+extraction's counts the page images and the text sent with each page, for the
+pages that will be extracted: the selected pages without a saved page file that
+still fits, or every selected page with `overwrite`. Both are rough guides, and
+real costs can differ.
+
+A run that pauses after the survey shows only the survey's estimate. With
+`--no-pause`, the first run shows both.
 
 To see the estimate without running anything, use Python. No API key is needed:
 
 ```python
 import pydelity
 
-estimate = pydelity.estimate("document.pdf")
+# pause=False includes page extraction, even before a survey exists.
+estimate = await pydelity.aestimate("document.pdf", pause=False, pages="1-10")
 print(estimate.expected_usd, estimate.max_usd)
+for step in estimate.steps:
+    print(step.name, step.expected_usd, step.max_usd)
 ```
 
-A survey that would be reused costs nothing, and the estimate says so.
+A step whose saved output would be reused costs nothing, and the estimate says
+so.
 
 ## The question
 
@@ -44,9 +64,9 @@ On the command line, pydelity asks before it spends anything:
 Go ahead with the model requests? [y/N]:
 ```
 
-Answering no, or just pressing Enter, stops the run with exit code 3. Nothing is
-sent, and the measured facts are kept for next time. `--yes` answers yes for
-you.
+It asks once per run, for every step the run will do. Answering no, or just
+pressing Enter, stops the run with exit code 3. Nothing is sent, and the
+measured facts are kept for next time. `--yes` answers yes for you.
 
 Python functions never ask. They go ahead unless `max_cost` would stop them.
 
@@ -65,53 +85,65 @@ pydelity document.pdf --max-cost 5
 max_cost: 5
 ```
 
-pydelity checks the limit twice: before the run spends anything, using the
-estimate's maximum, and again before each model request. When the run could go
-over the limit, pydelity warns you and then:
+pydelity checks the limit before the run spends anything, and again before each
+model request:
+
+- **Before the run**, it adds the estimate's likely cost to what the folder has
+  spent so far.
+- **Before each request**, it adds the most that request could cost to what has
+  been spent and to the most that the requests still in progress could cost.
+  This holds when several pages are extracted at the same time.
+
+When the run could go over the limit, pydelity warns you and then:
 
 | Where                              | What happens                                                  |
 | ---------------------------------- | ------------------------------------------------------------- |
 | Command line                       | Asks `Go ahead, even though this run could go over max_cost?` |
 | Command line with `--yes`          | Goes ahead after the warning                                  |
-| Python                             | Raises `BudgetExceededError` before sending anything          |
+| Python                             | Raises `BudgetExceededError` before sending the request       |
 | Python, `allow_over_max_cost=True` | Goes ahead after the warning                                  |
 
-Once you allow it, the rest of the run goes ahead without asking again. If you
-say no, the run stops with nothing more spent. Run it again to continue: the
-saved files are reused, and the spend so far still counts toward `max_cost`.
+Because the first check uses the likely cost, a run can pass it and still reach
+the question partway through, before the request that could go over. Once you
+allow it, the rest of the run goes ahead without asking again. If you say no,
+the run stops with nothing more spent. Pages already extracted stay saved. Run
+it again to continue: the saved files are reused, and the spend so far still
+counts toward `max_cost`.
 
 ```python
 import pydelity
 
 try:
-    result = pydelity.run("document.pdf", max_cost=2)
+    result = await pydelity.arun("document.pdf", max_cost=2, pause=False)
 except pydelity.BudgetExceededError:
     # Decided to spend more after all: go ahead past max_cost, with a warning.
-    result = pydelity.run("document.pdf", max_cost=2, allow_over_max_cost=True)
+    result = await pydelity.arun(
+        "document.pdf", max_cost=2, pause=False, allow_over_max_cost=True
+    )
 ```
-
-Because the check uses the worst case, pydelity can ask about a run that would
-have fitted. Raise `max_cost`, or allow the run, if the likely cost is
-acceptable.
 
 ## What a run spent
 
 pydelity writes one line to `cost.jsonl` in the output folder for each model
-response, with its tokens and cost. Lines from every run in the folder stay in
-the file, so it is the folder's full spending record.
+response, with its tokens and cost. Page extraction's lines also name the page
+and whether the request read the page (`extractor`) or reviewed it (`verifier`).
+Lines from every run in the folder stay in the file, so it is the folder's full
+spending record.
 
 `run.json` sums it up under `cost`:
 
 - `run_usd`: what this run spent
-- `by_step`: this run's spend by step
+- `by_step`: this run's spend by step, `survey` and `extraction`
 - `output_folder_usd`: what every run in the folder has spent
 - `unpriced_requests`: this run's requests with no known price
 
-The command's closing summary and `report.html` show the same figures. The
+The command's closing summary and `report.html` show the same figures. With
+`--verbose`, the command also prints what each page cost as it finishes. The
 [cost.jsonl reference](../../reference/cost-jsonl/) lists every field.
 
 The ledger only knows what the provider reported. A request that timed out on
-pydelity's side may still have been billed, with no line in `cost.jsonl`. See
+pydelity's side, or that was still in progress when the run stopped, may still
+have been billed, with no line in `cost.jsonl`. See
 [Failed requests and retries](../models-and-providers/#failed-requests-and-retries).
 
 ## Prices
@@ -141,14 +173,22 @@ advanced:
 ```
 
 These numbers are only an example. Use your provider's current prices. A price
-set here replaces the one pydelity would look up for that model.
+set here replaces the one pydelity would look up for that model, whichever step
+uses it. A cache price of `0` counts as free.
 
 ## Spend less
 
-- Reuse what you have. Running the same survey again costs nothing. See
-  [Rerun and resume](../reruns/).
-- Lower `advanced.survey.effort` to `medium` or `low`. The model thinks less,
-  which costs less and can make the answer less reliable.
-- Lower `advanced.survey.check_retries` to send fewer answers back to the model.
-  Problems left in the last answer go on the review list instead.
-- Try a cheaper model. Compare the estimates first with `pydelity.estimate`.
+- Reuse what you have. Running the same command again costs nothing, and a
+  stopped run picks up where it left off. See [Rerun and resume](../reruns/).
+- Keep the pause on and check the survey before paying for page extraction. A
+  wrong survey makes every page that depends on it wrong.
+- Extract only the pages you need with `pages`, or try a few pages first, such
+  as `--pages 1-3`, before the rest.
+- Lower `effort` under `advanced.survey` or `advanced.extraction` to `medium` or
+  `low`. The model thinks less, which costs less and can make the answer less
+  reliable.
+- Lower `check_retries` to send fewer answers back to the model. Problems left
+  in the last answer go on the review list instead.
+- Try a cheaper model, for page extraction only if you like, with
+  `advanced.extraction.model`. Compare the estimates first with
+  `pydelity.aestimate`.
