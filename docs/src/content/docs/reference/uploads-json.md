@@ -2,7 +2,7 @@
 title: uploads.json
 description: Every field of uploads.json.
 sidebar:
-  order: 8
+  order: 9
 ---
 
 <!-- Generated from pydelity's code by scripts/generate_reference_docs.py. Run `just docs-reference` instead of editing this file. -->

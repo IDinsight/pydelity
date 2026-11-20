@@ -7,7 +7,7 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
 
 `Cycle`: `build-step-2-page-extraction-of-the-20261119T174118Z-0419318a` `Mode`:
 `STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`IN_PROGRESS` `Verification Cadence`: `AFTER_IMPLEMENTATION`
+`COMPLETE` `Verification Cadence`: `AFTER_IMPLEMENTATION`
 `Current Increment`: `NONE`
 
 ## Implementation Contract
@@ -1797,9 +1797,10 @@ DEV-014) plus the uncommitted DEV-015 changes (macOS arm64, Python 3.13.9).
 
 **Implementation Notes**
 
-- The stand-in serves `tests/fixtures/extraction_answers/irs_form_1040a_1965_scan.json`
-  for the pages. Its answers pass every check on the scan, so the request count
-  is fixed at `EXPECTED_REQUESTS`.
+- The stand-in serves
+  `tests/fixtures/extraction_answers/irs_form_1040a_1965_scan.json` for the
+  pages. Its answers pass every check on the scan, so the request count is fixed
+  at `EXPECTED_REQUESTS`.
 - `pyproject.toml`'s description now reads "Survey any PDF and extract its pages
   with Anthropic or OpenAI models: a profile of the PDF, then each page's items
   in reading order with their boxes and figure crops, as JSON with a list of
@@ -1809,7 +1810,7 @@ DEV-014) plus the uncommitted DEV-015 changes (macOS arm64, Python 3.13.9).
 
 ### DEV-016 — Reference pages for page extraction
 
-`Status`: `PENDING` `Depends On`: `DEV-011` `Acceptance`: `AC-052`
+`Status`: `DONE` `Depends On`: `DEV-011` `Acceptance`: `AC-052`
 
 **Goal**
 
@@ -1818,9 +1819,11 @@ them.
 
 **Affected Area**
 
+Approved by the user before the step (2026-11-20): `MODIFY`
 `scripts/generate_reference_docs.py`; the generated pages under
 `docs/src/content/docs/reference/`, with two new ones, `page-json.md` for
-`pages/<NNNN>.json` and `extraction-checks.md` (names to approve).
+`pages/<NNNN>.json` and `extraction-checks.md`. A docstring under `src/` that
+reads badly on a generated page is changed only with the user's approval.
 
 **Expected Outcome**
 
@@ -1832,6 +1835,44 @@ page file, the extraction checks and review-issue names, and the changed
 
 `just docs-reference` twice with byte-identical output; `just lint`;
 `just docs-build`.
+
+Evidence, 2026-11-20, repo root, on the user's commit `52929aa` plus the
+uncommitted DEV-016 changes (macOS arm64, Python 3.13.9, Node 23.10.0, pnpm).
+
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` and `interrogate` on
+  `scripts`: passed (100%).
+- The generator then Prettier (`prek exec prettier-markdown -- node
+  scripts/format_markdown.mjs`), run twice: the 11 reference pages are
+  byte-identical (SHA-1 of each). New: `page-json.md` (`pages/<NNNN>.json`,
+  every field of `PageFile` and each model inside it) and
+  `extraction-checks.md` (the 11 checks in the order they run, how text is
+  compared, and the `no_matching_label` and `verifier` issues). Changed: the
+  side-panel order of `run-json.md`, `cost-jsonl.md`, `uploads-json.md` and
+  `survey-checks.md`, and `python-api.md` now links `PageFile` to its page. The
+  settings, CLI, Python API, `run.json` and `cost.jsonl` pages already came from
+  the code and needed no other change.
+- `just lint`: `docs-reference` and `lint-markdown` pass; `lint-python` stops at
+  the 2 known ty errors in `tests/` (`Config.instructions`,
+  `Profile.user_instructions`), which are Tester's. `ruff check scripts src
+  tests` passes, and `zizmor --persona=auditor --offline .` reports nothing.
+- `just docs-build` (`pnpm install --frozen-lockfile`, `pnpm run build`, `pnpm
+  run check-links`): 27 pages built, every local link and fragment resolves. The
+  built `page-json` page's heading reads `pages/<NNNN>.json`, and both new pages
+  are in the Reference side panel.
+- `.venv/bin/python -m pytest -q --numprocesses auto`: 81 passed, 24 failed, the
+  same 24 as before.
+- Process wording grep of the added script lines and both new pages: no hits.
+
+**Implementation Notes**
+
+- Three check docstrings name internal functions (`comparison_status`,
+  `unmatched_labels`, `check_labels`). `_CHECK_REFERENCES` swaps those phrases
+  for what a reader sees (the page file's `text_comparison`, the
+  `no_matching_label` issue, the `labels` check), so no source docstring
+  changed.
+- "How text is compared" is the third paragraph of `text_layer`'s module
+  docstring. The `verifier` issue's text is written in the generator, as the
+  survey checks page's introduction is.
 
 ---
 
@@ -2018,6 +2059,57 @@ uncommitted DEV-018 changes (macOS arm64, Python 3.13.9, PydanticAI 2.69).
 ---
 
 ## Plan Notes
+
+### Handoff to Tester
+
+Every step, DEV-001 to DEV-018, is `DONE` (2026-11-20). Each step's evidence
+above lists its commands and results. The scratchpad scripts it names
+(`dev009_check.py` to `dev018_check.py`) were Developer's self-checks and are
+not in the repository. The real model runs of DEV-011 (Anthropic and OpenAI,
+$3.38 in all) are recorded under DEV-011.
+
+The test suite gives 81 passed and 24 failed. All 24 are existing tests that
+assert the contract this cycle replaced, listed with their reasons under
+DEV-001, DEV-010 and DEV-011. `ty check tests` reports 2 errors, for the same
+reason. They are:
+
+- `config/test_loading.py::test_config_file_paths_resolve_against_its_folder_and_keywords_win`
+- `costs/test_budget.py`: `test_an_unpriced_model_without_max_cost_runs_and_records_no_price`,
+  `test_earlier_spend_counts_and_a_disallowed_run_stops_resumably`,
+  `test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing`
+- `pipeline/test_runner.py`: `test_a_failed_survey_saves_no_survey_and_its_spend_counts_next_time`,
+  `test_a_rerun_with_unchanged_survey_inputs_reuses_everything`,
+  `test_changing_a_survey_input_or_overwrite_reruns_the_survey[instructions]`,
+  `test_no_output_file_holds_the_api_key`
+- `providers/test_ledger_model.py::test_fewer_temporary_failures_than_the_retries_still_complete`
+- `providers/test_uploads.py`: `test_a_failed_upload_falls_back_to_sending_the_pdf_in_the_request`,
+  `test_a_file_the_provider_no_longer_has_is_uploaded_again_once`
+- `report/test_html.py`: `test_page_images_are_rendered_only_when_missing`,
+  `test_report_escapes_text_from_the_pdf_the_user_and_the_model`
+- `surveying/test_survey.py`: `test_answers_that_differ_from_the_facts_are_kept_and_listed_by_page`,
+  `test_checks_still_failing_after_the_retries_are_listed_for_review`,
+  `test_request_sends_the_facts_as_hints_with_every_repeated_line`,
+  `test_user_languages_lead_and_rejected_model_tags_become_review_issues`
+- `surveying/test_validators.py`: `test_labels_check_finds_empty_repeated_kindless_and_unknown_labels`,
+  `test_page_numbering_check_finds_ranges_outside_the_pdf_and_overlaps`,
+  `test_rotation_check_finds_ranges_outside_the_pdf_and_overlaps`,
+  `test_writing_direction_check_finds_ranges_outside_the_pdf_and_overlaps`
+- `test_api.py::test_async_run_gives_what_run_gives_with_the_same_warnings`
+- `test_cli.py`: `test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment`,
+  `test_over_max_cost_warns_then_a_yes_completes_with_one_question`
+
+Contract changes after DEV-011 that tests may touch:
+
+- `ask_model` and `run_survey` take `on_attached` instead of `output_folder`
+  (DEV-014).
+- `write_report` takes one `ReportInputs` (DEV-012).
+- `TEXT_FLAGS` moved to `utils/pdf.py` (DEV-013).
+- Text issues are left off the review list on pages the verifier passes
+  (DEV-018).
+
+Not yet run: CI on GitHub, including the wheel jobs on ubuntu, macOS and
+Windows, which run after the user pushes.
+
 
 ### Suspended Assignment 1
 

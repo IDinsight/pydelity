@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -17,8 +17,7 @@
 `.standards/docs/specs/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
 `Development`:
 `.standards/docs/development/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-015 is done; approve the files and folders DEV-016 will change before it starts.`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
@@ -31,8 +30,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
-`Design rerun for AC-062: text_dropped and text_added become review issues only when the verdict did not pass, and stay in the page file's checks; frame closed.`
+`Kind`: `FORWARD` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
+`Development plan complete: DEV-001 to DEV-018 done; full verification next.`
 
 ## Recovery
 
