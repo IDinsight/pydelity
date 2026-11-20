@@ -137,7 +137,7 @@ def test_report_escapes_text_from_the_pdf_the_user_and_the_model(
 
     pydelity.run(
         pdf_path("irs_form_1040a_1965_scan.pdf"),
-        instructions="<script>alert(1)</script>",
+        advanced={"survey": {"instructions": "<script>alert(1)</script>"}},
         output_dir="out",
     )
 
@@ -152,13 +152,16 @@ def test_report_escapes_text_from_the_pdf_the_user_and_the_model(
 
 
 def test_page_images_are_rendered_only_when_missing(
+    canned_answers: Callable[[str], dict[str, object]],
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
 ) -> None:
-    """A rerun keeps the page images it has and renders only a missing one."""
+    """A rerun keeps the page images it has and renders only a missing one.
 
-    mock_providers(answers=[survey_answer()])
+    The rerun reuses the survey and goes on to extract the pages.
+    """
+
+    mock_providers(**canned_answers("irs_form_1040a_1965_scan.pdf"))
     pydelity.run(pdf_path("irs_form_1040a_1965_scan.pdf"), output_dir="out")
     first, second = Path("out/report/pages/0000.jpg"), Path("out/report/pages/0001.jpg")
     os.utime(first, (1_000_000_000, 1_000_000_000))
@@ -170,3 +173,98 @@ def test_page_images_are_rendered_only_when_missing(
     assert first.stat().st_mtime == 1_000_000_000
     assert second.is_file()
     assert second.stat().st_mtime > 1_000_000_000
+
+
+def test_report_draws_extracted_items_numbered_with_links_from_their_issues(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """An extracted page shows its items' numbered boxes, containers and item list.
+
+    Each box links to the item's entry, which shows its content and, for a figure,
+    the crop. A review issue about an item marks its box and links to it.
+    """
+
+    def item(**fields: object) -> dict[str, object]:
+        """Write one answer item: body text unless the fields say otherwise."""
+
+        empty = dict.fromkeys(
+            ["caption_of", "container", "entries", "field", "figure", "latex", "table"]
+        )
+        return (
+            empty
+            | {
+                "kind": "text",
+                "label": "Body",
+                "language": "en",
+                "role": "body",
+                "text": None,
+            }
+            | fields
+        )
+
+    labels = [
+        {"description": "Text.", "kinds": ["text"], "name": "Body", "role": "body"},
+        {"description": "Art.", "kinds": ["figure"], "name": "Figure", "role": "body"},
+        {"description": "Other.", "kinds": ["text"], "name": "other", "role": "body"},
+    ]
+    answer = {
+        "column_order": None,
+        "containers": [
+            {
+                "box": [50, 150, 950, 700],
+                "container": None,
+                "label": "Body",
+                "ref": "c1",
+            }
+        ],
+        "items": [
+            item(box=[100, 50, 900, 100], ref="t1", text="<i>Income</i> & tax"),
+            item(
+                box=[100, 200, 900, 650],
+                container="c1",
+                figure={"description": "A seal.", "text": None},
+                kind="figure",
+                label="Figure",
+                language=None,
+                ref="pic",
+            ),
+        ],
+    }
+    verdict = {
+        "corrected": None,
+        "passed": False,
+        "problems": [
+            {"category": "box", "description": "The seal is larger.", "item_ref": "pic"}
+        ],
+    }
+    mock_providers(
+        answers=[survey_answer(labels=labels)],
+        page_answers={0: {"extractor": answer, "verifier": verdict}},
+    )
+
+    pydelity.run(
+        pdf_path("irs_form_1040a_1965_scan.pdf"),
+        output_dir="out",
+        pages="1",
+        pause=False,
+    )
+
+    report = Path("out/report.html")
+    html = report.read_text(encoding="utf-8")
+    parsed = _parse(report)
+    assert 'class="box item" id="box-p0000-001" href="#item-p0000-001"' in html
+    assert '<span class="box-label">1</span>' in html
+    assert 'class="box item flagged" id="box-p0000-002" href="#item-p0000-002"' in html
+    assert '<span class="box-label">2 !</span>' in html
+    assert 'class="box container" id="box-p0000-c01"' in html
+    assert '<li class="item" id="item-p0000-002">' in html
+    assert "in container" in html
+    assert "figures/p0000-002.png" in parsed.images
+    assert Path("out/figures/p0000-002.png").is_file()
+    assert "&lt;i&gt;Income&lt;/i&gt; &amp; tax" in html
+    assert "verifier: The seal is larger." in html
+    assert "#box-p0000-002" in parsed.links
+    assert "found 1 problem, listed for review" in html
+    assert "box-p0001-001" not in html

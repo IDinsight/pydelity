@@ -166,7 +166,7 @@ def test_a_file_the_provider_no_longer_has_is_uploaded_again_once(
     assert new.file_id != old.file_id
     assert mock.requests[-1].file_ids == [new.file_id]
     assert result.record is not None
-    assert result.record.status == "completed"
+    assert result.record.status == "paused"
 
 
 def test_a_failed_upload_falls_back_to_sending_the_pdf_in_the_request(
@@ -194,7 +194,7 @@ def test_a_failed_upload_falls_back_to_sending_the_pdf_in_the_request(
     assert '"media_type": "application/pdf"' in request
     assert '"type": "base64"' in request
     assert result.record is not None
-    assert result.record.status == "completed"
+    assert result.record.status == "paused"
     assert result.record.steps[0].pdf_transport == "request"
     (warning,) = result.record.warnings
     assert warning.code == "upload_fallback"

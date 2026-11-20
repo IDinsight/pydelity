@@ -36,8 +36,8 @@ from tests.fixtures.mock_providers import MockProviders
 # The 8-page test PDF whose text runs sideways and whose page labels are 23 to 30.
 _CAPS = "caps_english_hl_pages_28_35.pdf"
 
-# Words that name a document type or a domain. AC-006 keeps them out of prompts,
-# schema field names and the item vocabulary.
+# Words that name a document type or a domain, which prompts, schema field names
+# and the item vocabulary must not use.
 _DOMAIN_WORDS = (
     "article",
     "assessment",
@@ -236,14 +236,16 @@ def test_user_languages_lead_and_rejected_model_tags_become_review_issues(
 
     survey = pydelity.survey(
         pdf_path(_SCAN),
-        advanced={"survey": {"check_retries": 0}},
-        instructions="Treat stamps as content.",
+        advanced={
+            "survey": {"check_retries": 0, "instructions": "Treat stamps as content."}
+        },
         languages=["EN_us"],
         output_dir="out",
     )
 
     assert survey.profile.languages == ["en-US", "en", "ar"]
-    assert survey.profile.user_instructions == "Treat stamps as content."
+    assert survey.inputs.instructions == "Treat stamps as content."
+    assert "Treat stamps as content." not in survey.profile.model_dump_json()
     assert [(issue.check, issue.details) for issue in survey.issues] == [
         ("languages", {"proposed": "zz"})
     ]
@@ -295,7 +297,7 @@ def test_checks_still_failing_after_the_retries_are_listed_for_review(  # noqa: 
     """After the last allowed answer, each failure is a review issue in both files.
 
     The command summary counts the issues by check and lists each with its step and
-    page.
+    its page numbered from 1, as a PDF viewer shows it.
     """
 
     facts = facts_of(_CAPS)
@@ -332,8 +334,8 @@ def test_checks_still_failing_after_the_retries_are_listed_for_review(  # noqa: 
     ]
     assert record.review == survey.issues
     assert "Review issues by check: labels 1, artifacts 1" in result.stderr
-    assert "survey, page 2: labels: a region on page 2" in result.stderr
-    assert "survey, page -: artifacts: repeated line R8" in result.stderr
+    assert "survey, page 3: labels: a region on page index 2" in result.stderr
+    assert "survey: artifacts: repeated line R8" in result.stderr
 
 
 def test_answers_that_differ_from_the_facts_are_kept_and_listed_by_page(
@@ -387,7 +389,7 @@ def test_answers_that_differ_from_the_facts_are_kept_and_listed_by_page(
         (page, {"measured": page + 23, "profile": None, "source": "page_label"})
         for page in range(4, 8)
     ]
-    assert "page 4" in rotation[0].message
+    assert "page index 4" in rotation[0].message
     assert "27" in numbers[0].message
 
 
@@ -400,7 +402,8 @@ def test_request_sends_the_facts_as_hints_with_every_repeated_line(
     """The request holds the facts summary, each repeated line and the user's text.
 
     Its instructions tell the model to treat the facts as hints and to answer with
-    its own reading where they differ.
+    its own reading where they differ, and end with the survey's instructions from
+    the user.
     """
 
     facts = facts_of(_CAPS)
@@ -409,7 +412,7 @@ def test_request_sends_the_facts_as_hints_with_every_repeated_line(
     saved = pydelity.measure(pdf_path(_CAPS), output_dir="out")
     pydelity.survey(
         pdf_path(_CAPS),
-        instructions="Margin notes are content.",
+        advanced={"survey": {"instructions": "Margin notes are content."}},
         languages=["en"],
         output_dir="out",
     )
@@ -423,8 +426,12 @@ def test_request_sends_the_facts_as_hints_with_every_repeated_line(
     for line in facts.repeated_lines:
         assert line.id in sent
         assert json.dumps(line.text, ensure_ascii=False)[1:-1] in sent
-    assert "Margin notes are content." in sent
+    assert "Margin notes are content." not in sent
     assert "Treat them as hints" in system
+    assert system.index("The user's instructions for this PDF follow.") > (
+        system.index("Treat them as hints")
+    )
+    assert "Margin notes are content." in system
     assert "answer with what you read" in system
 
 
@@ -468,7 +475,8 @@ def test_an_answer_that_never_parses_fails_the_survey(
 ) -> None:
     """An answer that is not the answer format raises `SurveyError` after the retries.
 
-    The run is recorded as failed, no survey is saved, and the report is written.
+    The run is recorded as failed, with the way the PDF reached the model, no
+    survey is saved, and the report is written.
     """
 
     mock = mock_providers(answers=["I cannot answer in that format."])
@@ -482,6 +490,7 @@ def test_an_answer_that_never_parses_fails_the_survey(
     record = pydelity.load("out").record
     assert record is not None
     assert (record.status, record.steps[0].status) == ("failed", "failed")
+    assert record.steps[0].pdf_transport == "upload"
     assert record.error is not None
     assert record.error.startswith("SurveyError: ")
     assert not Path("out/pdf_survey.json").exists()

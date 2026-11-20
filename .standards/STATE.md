@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
-`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
+`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -17,7 +17,8 @@
 `.standards/docs/specs/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
 `Development`:
 `.standards/docs/development/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
+`Tester needs a CI run for AC-046 and AC-047 (Python 3.14 and the Windows wheel job): the test changes committed and pushed, and a draft pull request to main opened. Who does it, the user or Tester?`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

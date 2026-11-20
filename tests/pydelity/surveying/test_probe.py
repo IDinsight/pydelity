@@ -1,7 +1,8 @@
 """Tests for the survey's probe: the facts measured from a PDF without a model.
 
-Each test measures one committed public-domain PDF (or a copy made from one), chosen
-for the kind of document it stands for, and checks the facts the survey relies on.
+Most tests measure one committed public-domain PDF (or a copy made from one), chosen
+for the kind of document it stands for, and check the facts the survey relies on.
+The others build a small PDF with only the feature they check.
 """
 
 # Standard Library
@@ -14,7 +15,85 @@ import pytest
 
 # Package Library
 from pydelity.surveying.probe import probe_pdf
-from pydelity.surveying.schemas import Facts
+from pydelity.surveying.schemas import Bookmark, Facts, PrintedNumber, StructureFacts
+
+
+def _new_object(*, document: pymupdf.Document, source: str) -> int:
+    """Add an object to a PDF.
+
+    Parameters
+    ----------
+    document
+        The open PDF.
+    source
+        The object's source, such as ``<</Type/StructElem>>`` or ``[3 0 R]``.
+
+    Returns
+    -------
+    int
+        The new object's number.
+    """
+
+    xref = document.get_new_xref()
+    document.update_object(xref, source)
+    return xref
+
+
+def _save_tagged_pdf(
+    *,
+    indirect_kids: bool = False,
+    paragraphs: list[int],
+    path: Path,
+    text_pages: set[int],
+) -> None:
+    """Save a tagged PDF whose structure tree is one Document element of paragraphs.
+
+    Parameters
+    ----------
+    indirect_kids
+        Whether the Document element's ``K`` entry refers to a separate array object
+        that lists its kids, instead of listing them itself.
+    paragraphs
+        How many paragraph (``P``) elements each page has, in page order. Each one
+        names its page and holds one marked-content ID.
+    path
+        Where to save the PDF.
+    text_pages
+        The indexes of the pages that get a line of text.
+    """
+
+    document = pymupdf.open()
+    page_xrefs = []
+    for index in range(len(paragraphs)):
+        page = document.new_page()
+        if index in text_pages:
+            page.insert_text((72, 100), "A line of body text.", fontname="helv")
+        page_xrefs.append(page.xref)
+
+    root = _new_object(document=document, source="<<>>")
+    top = _new_object(document=document, source="<<>>")
+    references = []
+    for page_xref, count in zip(page_xrefs, paragraphs, strict=True):
+        for number in range(count):
+            paragraph = _new_object(
+                document=document,
+                source=(
+                    f"<</Type/StructElem/S/P/P {top} 0 R"
+                    f"/Pg {page_xref} 0 R/K {number}>>"
+                ),
+            )
+            references.append(f"{paragraph} 0 R")
+    kids = f"[{' '.join(references)}]"
+    if indirect_kids:
+        kids = f"{_new_object(document=document, source=kids)} 0 R"
+
+    document.update_object(
+        top, f"<</Type/StructElem/S/Document/P {root} 0 R/K {kids}>>"
+    )
+    document.update_object(root, f"<</Type/StructTreeRoot/K {top} 0 R>>")
+    document.xref_set_key(document.pdf_catalog(), "StructTreeRoot", f"{root} 0 R")
+    document.save(path)
+    document.close()
 
 
 def test_arabic_two_column_pages_read_right_to_left(
@@ -251,3 +330,237 @@ def test_a_damaged_page_label_tree_counts_as_no_labels(tmp_path: Path) -> None:
         for block in facts.page_numbering
     ] == [(0, 2, 12)]
     assert facts.probe_errors == []
+
+
+def test_checked_checkbox_without_appearances_is_read_as_checked(
+    tmp_path: Path,
+) -> None:
+    """A checkbox with no appearances is checked when its entries say it is on.
+
+    The widget's shown state (``AS``) and its field's value (``V``) are both
+    ``Yes``, and the widget has no appearance streams that name an on state.
+    """
+
+    document = pymupdf.open()
+    page = document.new_page()
+    checkbox = pymupdf.Widget()
+    checkbox.field_name = "agree"
+    checkbox.field_type = pymupdf.PDF_WIDGET_TYPE_CHECKBOX
+    checkbox.field_value = True
+    checkbox.rect = pymupdf.Rect(72, 72, 90, 90)
+    page.add_widget(checkbox)
+    document.xref_set_key(checkbox.xref, "AP", "null")
+    path = tmp_path / "checkbox_without_appearances.pdf"
+    document.save(path)
+    document.close()
+
+    facts = probe_pdf(path)
+
+    assert facts.form_fields is not None
+    assert [
+        (field.name, field.type, field.checked, field.value)
+        for field in facts.form_fields
+    ] == [("agree", "checkbox", True, "Yes")]
+    assert facts.probe_errors == []
+
+
+def test_form_field_that_cannot_be_read_is_left_out_with_a_probe_error(
+    tmp_path: Path,
+) -> None:
+    """An unreadable form field is named in a probe error, and the others are kept.
+
+    The second field's default appearance gives a font size that is not a number,
+    which makes PyMuPDF raise while it reads that field.
+    """
+
+    document = pymupdf.open()
+    page = document.new_page()
+    widgets = []
+    for top, name, value in ((72, "first_name", "Ada"), (112, "last_name", "Lee")):
+        widget = pymupdf.Widget()
+        widget.field_name = name
+        widget.field_type = pymupdf.PDF_WIDGET_TYPE_TEXT
+        widget.field_value = value
+        widget.rect = pymupdf.Rect(72, top, 272, top + 20)
+        page.add_widget(widget)
+        widgets.append(widget)
+    document.xref_set_key(widgets[1].xref, "DA", "(/Helv twelve Tf 0 g)")
+    path = tmp_path / "unreadable_field.pdf"
+    document.save(path)
+    document.close()
+
+    facts = probe_pdf(path)
+
+    assert facts.form is not None
+    assert facts.form_fields is not None
+    assert [(field.name, field.value) for field in facts.form_fields] == [
+        ("first_name", "Ada")
+    ]
+    assert len(facts.probe_errors) == 1
+    assert facts.probe_errors[0].fact == "form"
+    assert facts.probe_errors[0].message.startswith("Field last_name: ")
+
+
+def test_letter_page_labels_give_no_page_number(tmp_path: Path) -> None:
+    """Page labels numbered with letters are not read as roman numerals.
+
+    The first page's label is ``C`` (upper-case letters starting at 3) and the
+    second page's is ``i`` (lower-case letters starting at 9).
+    """
+
+    document = pymupdf.open()
+    for _ in range(2):
+        document.new_page()
+    document.xref_set_key(
+        document.pdf_catalog(),
+        "PageLabels",
+        "<</Nums [0 <</S/A/St 3>> 1 <</S/a/St 9>>]>>",
+    )
+    path = tmp_path / "letter_labels.pdf"
+    document.save(path)
+    document.close()
+
+    facts = probe_pdf(path)
+
+    assert [page.printed_number for page in facts.pages] == [
+        PrintedNumber(source="page_label", style="label", text="C", value=None),
+        PrintedNumber(source="page_label", style="label", text="i", value=None),
+    ]
+
+
+def test_outline_with_a_cycle_keeps_the_bookmarks_before_it(tmp_path: Path) -> None:
+    """An outline whose last entry links back to its first keeps the entries read."""
+
+    document = pymupdf.open()
+    for _ in range(3):
+        document.new_page()
+    document.set_toc([[1, "Intro", 1], [1, "Methods", 2], [1, "Results", 3]])
+    catalog = document.pdf_catalog()
+    first = document.xref_get_key(catalog, "Outlines/First")[1]
+    last = int(document.xref_get_key(catalog, "Outlines/Last")[1].split()[0])
+    document.xref_set_key(last, "Next", first)
+    path = tmp_path / "outline_cycle.pdf"
+    document.save(path)
+    document.close()
+
+    facts = probe_pdf(path)
+
+    assert facts.bookmarks == [
+        Bookmark(level=1, page_index=0, title="Intro"),
+        Bookmark(level=1, page_index=1, title="Methods"),
+        Bookmark(level=1, page_index=2, title="Results"),
+    ]
+    assert facts.probe_errors == []
+
+
+def test_radio_group_value_turns_on_its_button_when_all_show_off(
+    tmp_path: Path,
+) -> None:
+    """A radio group saved with every button off still turns on the button it names.
+
+    Both buttons show their off state, and the group's value is the second button's
+    on state. That button is on, and both buttons report the group's value.
+    """
+
+    document = pymupdf.open()
+    page = document.new_page()
+    appearance = _new_object(document=document, source="<<>>")
+    document.update_stream(appearance, b"")
+    group = _new_object(document=document, source="<<>>")
+    buttons = [
+        _new_object(
+            document=document,
+            source=(
+                f"<</Type/Annot/Subtype/Widget/Parent {group} 0 R/P {page.xref} 0 R"
+                f"/Rect [72 {top} 90 {top + 18}]/F 4/AS/Off"
+                f"/AP <</N <</{state} {appearance} 0 R/Off {appearance} 0 R>>>>>>"
+            ),
+        )
+        for state, top in (("A", 72), ("B", 112))
+    ]
+    kids = " ".join(f"{button} 0 R" for button in buttons)
+    # Field flags 49152 make the group a set of radio buttons, one of which is on.
+    document.update_object(group, f"<</FT/Btn/Ff 49152/T(choice)/V/B/Kids [{kids}]>>")
+    document.xref_set_key(page.xref, "Annots", f"[{kids}]")
+    document.xref_set_key(
+        document.pdf_catalog(), "AcroForm", f"<</Fields [{group} 0 R]>>"
+    )
+    path = tmp_path / "radio_group_all_off.pdf"
+    document.save(path)
+    document.close()
+
+    facts = probe_pdf(path)
+
+    assert facts.form_fields is not None
+    assert [
+        (field.name, field.type, field.checked, field.value)
+        for field in facts.form_fields
+    ] == [("choice", "radio", False, "B"), ("choice", "radio", True, "B")]
+    assert facts.probe_errors == []
+
+
+def test_structure_kids_stored_in_a_separate_array_are_counted(
+    tmp_path: Path,
+) -> None:
+    """An element whose kids sit in a separate array object has those kids counted."""
+
+    path = tmp_path / "separate_kids_array.pdf"
+    _save_tagged_pdf(indirect_kids=True, paragraphs=[3], path=path, text_pages={0})
+
+    structure = probe_pdf(path).structure
+
+    assert structure is not None
+    assert (
+        structure.element_count,
+        structure.pages_with_tagged_content,
+        structure.type_counts,
+    ) == (4, 1, {"Document": 1, "P": 3})
+
+
+def test_structure_walk_cut_short_is_rated_on_the_pages_it_reached(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A walk stopped at the element cap does not count unreached pages as untagged.
+
+    With a cap of 11 elements, the walk counts the Document element and the five
+    paragraphs on each of the first two pages, then stops before the third page.
+    Both pages it reached have tagged content, so the tags are good.
+    """
+
+    monkeypatch.setattr("pydelity.surveying.probe.STRUCTURE_ELEMENT_CAP", 11)
+    path = tmp_path / "capped_structure.pdf"
+    _save_tagged_pdf(paragraphs=[5, 5, 5], path=path, text_pages={0, 1, 2})
+
+    structure = probe_pdf(path).structure
+
+    assert structure == StructureFacts(
+        element_count=11,
+        marked=False,
+        pages_with_tagged_content=2,
+        quality="good",
+        tagged=True,
+        truncated=True,
+        type_counts={"Document": 1, "P": 10},
+    )
+
+
+def test_tagged_pages_without_text_do_not_count_toward_coverage(
+    tmp_path: Path,
+) -> None:
+    """Tags on a page without text do not cover a page with text.
+
+    The first page has text and no tags. The second has ten tagged paragraphs and
+    no text. The only page with text is not covered, so the tags are partial.
+    """
+
+    path = tmp_path / "tags_on_a_blank_page.pdf"
+    _save_tagged_pdf(paragraphs=[0, 10], path=path, text_pages={0})
+
+    facts = probe_pdf(path)
+
+    assert [page.text.quality for page in facts.pages] == ["good", "none"]
+    assert facts.structure is not None
+    assert (
+        facts.structure.pages_with_tagged_content,
+        facts.structure.quality,
+    ) == (1, "partial")

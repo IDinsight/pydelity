@@ -79,6 +79,7 @@ def test_fewer_temporary_failures_than_the_retries_still_complete(
     """Two temporary failures with the default two retries end in a survey.
 
     Failed attempts return no usage, so only the answered request is a ledger line.
+    The run then pauses after the new survey, as every run does by default.
     """
 
     mock = mock_providers(answers=[survey_answer()])
@@ -88,7 +89,7 @@ def test_fewer_temporary_failures_than_the_retries_still_complete(
 
     assert _model_statuses(mock) == [429, 429, 200]
     assert result.record is not None
-    assert result.record.status == "completed"
+    assert result.record.status == "paused"
     assert len(result.ledger) == 1
     assert result.record.steps[0].requests == 1
 

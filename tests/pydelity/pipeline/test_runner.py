@@ -38,43 +38,62 @@ def _model_requests(mock: MockProviders) -> int:
     return sum(1 for request in mock.requests if request.route == "model")
 
 
-def test_a_rerun_with_unchanged_survey_inputs_reuses_everything(
+def test_a_rerun_with_unchanged_inputs_reuses_everything(
+    canned_answers: Callable[[str], dict[str, object]],
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
 ) -> None:
-    """A rerun whose survey inputs match measures nothing and sends nothing.
+    """A rerun whose inputs match measures nothing and sends nothing.
 
-    Settings outside the survey's inputs, such as ``max_cost``, the provider
-    retries and the request timeout, may change without a rerun.
+    The survey and every page file are reused. Settings outside their inputs, such
+    as ``max_cost``, the provider retries, the request timeouts and how many pages
+    run at once, may change without a rerun.
     """
 
-    mock = mock_providers(answers=[survey_answer()])
-    first = pydelity.run(pdf_path(_SCAN), output_dir="out")
+    mock = mock_providers(**canned_answers(_SCAN))
+    first = pydelity.run(pdf_path(_SCAN), output_dir="out", pause=False)
+    requests_after_first = _model_requests(mock)
 
     second = pydelity.run(
         pdf_path(_SCAN),
-        advanced={"provider_retries": 5, "survey": {"request_timeout_seconds": 60}},
+        advanced={
+            "extraction": {"concurrent_pages": 1, "request_timeout_seconds": 60},
+            "provider_retries": 5,
+            "survey": {"request_timeout_seconds": 60},
+        },
         max_cost="50",
         output_dir="out",
     )
 
-    assert _model_requests(mock) == 1
+    assert requests_after_first == 5
+    assert _model_requests(mock) == requests_after_first
     assert first.facts is not None
     assert second.facts is not None
     assert second.facts.measured_at == first.facts.measured_at
     assert second.survey == first.survey
+    assert second.pages == first.pages
     assert second.record is not None
-    step = second.record.steps[0]
-    assert (step.status, step.requests, step.pdf_transport) == ("reused", 0, None)
-    assert step.outputs == ["pdf_facts.json", "pdf_survey.json"]
+    survey_step, extraction_step = second.record.steps
+    assert (
+        survey_step.status,
+        survey_step.requests,
+        survey_step.pdf_transport,
+    ) == ("reused", 0, None)
+    assert survey_step.outputs == ["pdf_facts.json", "pdf_survey.json"]
+    assert (extraction_step.status, extraction_step.requests) == ("reused", 0)
+    assert extraction_step.pages is not None
+    assert extraction_step.pages.model_dump() == {
+        "extracted": 0,
+        "reused": 2,
+        "selected": 2,
+    }
     assert second.record.cost.run_usd == 0
 
 
 @pytest.mark.parametrize(
     "change",
     [
-        {"instructions": "Stamps are content."},
+        {"advanced": {"survey": {"instructions": "Stamps are content."}}},
         {"languages": ["en"]},
         {"model": "openai:gpt-6.2-astra"},
         {"advanced": {"survey": {"effort": "low"}}},
@@ -181,7 +200,7 @@ def test_a_failed_survey_saves_no_survey_and_its_spend_counts_next_time(
     retried = pydelity.run(pdf_path(_SCAN), advanced=advanced, output_dir="out")
 
     assert retried.record is not None
-    assert retried.record.status == "completed"
+    assert retried.record.status == "paused"
     assert len(retried.ledger) == 3
     cost = retried.record.cost
     assert cost.output_folder_usd == sum(
@@ -213,21 +232,103 @@ def test_a_folder_holding_another_pdfs_results_gives_a_warning(
 
 
 def test_no_output_file_holds_the_api_key(
+    canned_answers: Callable[[str], dict[str, object]],
     mock_providers: Callable[..., MockProviders],
     monkeypatch: pytest.MonkeyPatch,
     pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
 ) -> None:
-    """The provider's API key appears in no file of the output folder."""
+    """The provider's API key appears in no file of the output folder.
 
-    mock_providers(answers=[survey_answer()])
+    The run goes through the survey and page extraction, so the page files and the
+    report's extracted pages are checked too.
+    """
+
+    mock_providers(**canned_answers(_SCAN))
     secret = "sk-test-not-a-real-key"  # noqa: S105  # pragma: allowlist secret
     monkeypatch.setenv("ANTHROPIC_API_KEY", secret)
 
-    result = pydelity.run(pdf_path(_SCAN), output_dir="out")
+    result = pydelity.run(pdf_path(_SCAN), output_dir="out", pause=False)
 
     assert result.record is not None
     assert result.record.status == "completed"
+    assert sorted(path.name for path in Path("out/pages").iterdir()) == [
+        "0000.json",
+        "0001.json",
+    ]
     for path in Path("out").rglob("*"):
         if path.is_file():
             assert secret.encode() not in path.read_bytes(), path
+
+
+def test_run_json_records_each_step_its_pages_cost_and_review_issues(
+    canned_answers: Callable[[str], dict[str, object]],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+) -> None:
+    """``run.json`` holds a record per step, its pages, its cost and its issues.
+
+    A verifier problem about an item is a review issue naming the step, the page
+    and the item's ID. Each page request is a ledger line with its page and agent,
+    and a warning issued during page extraction names that step.
+    """
+
+    answers = canned_answers(_SCAN)
+    page_answers = answers["page_answers"]
+    assert isinstance(page_answers, dict)
+    problem = {
+        "category": "field",
+        "description": "The first box is ticked on the page.",
+        "item_ref": "f1",
+    }
+    page_answers[1] = page_answers[1] | {
+        "verifier": {"corrected": None, "passed": False, "problems": [problem]}
+    }
+    mock_providers(answers=answers["answers"], page_answers=page_answers)
+
+    first = pydelity.run(pdf_path(_SCAN), output_dir="out", pause=False)
+
+    assert first.record is not None
+    (issue,) = first.record.review
+    assert (issue.step, issue.check, issue.page_index, issue.item_id) == (
+        "extraction",
+        "verifier",
+        1,
+        "p0001-001",
+    )
+    assert issue.message == "verifier: The first box is ticked on the page."
+    # Pages run at the same time, so their ledger lines can come in any order.
+    assert sorted(
+        (entry.step, entry.page_index, entry.agent) for entry in first.ledger[1:]
+    ) == [
+        ("extraction", 0, "extractor"),
+        ("extraction", 0, "verifier"),
+        ("extraction", 1, "extractor"),
+        ("extraction", 1, "verifier"),
+    ]
+    cost = first.record.cost
+    assert set(cost.by_step) == {"survey", "extraction"}
+    assert cost.by_step["survey"] + cost.by_step["extraction"] == cost.run_usd
+    assert [step.cost_usd for step in first.record.steps] == [
+        cost.by_step["survey"],
+        cost.by_step["extraction"],
+    ]
+    extraction = first.record.steps[1]
+    assert extraction.outputs == ["pages/", "figures/"]
+    assert extraction.pdf_transport is None
+    Path("out/pages/0000.json").write_text("{", encoding="utf-8")
+
+    with pytest.warns(PydelityWarning, match="extracting page 1"):
+        second = pydelity.run(pdf_path(_SCAN), output_dir="out")
+
+    assert second.record is not None
+    (warning,) = second.record.warnings
+    assert (warning.code, warning.step) == ("damaged_output", "extraction")
+    survey_step, extraction_step = second.record.steps
+    assert survey_step.status == "reused"
+    assert extraction_step.pages is not None
+    assert extraction_step.pages.model_dump() == {
+        "extracted": 1,
+        "reused": 1,
+        "selected": 2,
+    }
+    assert second.record.review == first.record.review

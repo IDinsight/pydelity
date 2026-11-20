@@ -15,6 +15,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 # Third Party Library
+import pydantic_ai
 import pytest
 
 # Package Library
@@ -32,6 +33,7 @@ _SCAN = "irs_form_1040a_1965_scan.pdf"
 # Each sync API function that runs an event loop, with its async version's name.
 _SYNC_FUNCTIONS = (
     (pydelity.estimate, "aestimate"),
+    (pydelity.extract, "aextract"),
     (pydelity.measure, "ameasure"),
     (pydelity.run, "arun"),
     (pydelity.survey, "asurvey"),
@@ -247,16 +249,24 @@ def test_async_survey_gives_what_survey_gives(
 
 
 def test_async_run_gives_what_run_gives_with_the_same_warnings(
+    canned_answers: Callable[[str], dict[str, object]],
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
 ) -> None:
-    """`arun` ends like `run` and issues the same `PydelityWarning`."""
+    """`arun` ends like `run` and issues the same `PydelityWarning`.
 
-    mock_providers(answers=[survey_answer()])
+    Both run the survey and page extraction without a pause and give the same
+    pages.
+    """
+
+    mock_providers(**canned_answers(_SCAN))
     with pytest.warns(PydelityWarning) as sync_warnings:
         synced = pydelity.run(
-            pdf_path(_SCAN), allow_over_max_cost=True, max_cost="0.0001", output_dir="s"
+            pdf_path(_SCAN),
+            allow_over_max_cost=True,
+            max_cost="0.0001",
+            output_dir="s",
+            pause=False,
         )
 
     with pytest.warns(PydelityWarning) as async_warnings:
@@ -266,6 +276,7 @@ def test_async_run_gives_what_run_gives_with_the_same_warnings(
                 allow_over_max_cost=True,
                 max_cost="0.0001",
                 output_dir="a",
+                pause=False,
             )
         )
 
@@ -273,6 +284,9 @@ def test_async_run_gives_what_run_gives_with_the_same_warnings(
     assert synced.record is not None
     assert awaited.record.status == synced.record.status == "completed"
     assert awaited.survey == synced.survey
+    assert [page.items for page in awaited.pages] == [
+        page.items for page in synced.pages
+    ]
     assert [w.code for w in awaited.record.warnings] == ["max_cost_exceeded"]
     assert [w.code for w in synced.record.warnings] == ["max_cost_exceeded"]
     assert [str(w.message) for w in async_warnings] == [
@@ -401,3 +415,99 @@ def test_cancelling_arun_records_an_interrupted_run_with_valid_files(
     assert loaded.survey is None
     assert loaded.ledger == []
     assert not list(Path("out").glob("*.tmp-*"))
+
+
+def test_aextract_runs_the_survey_first_and_load_reads_the_page_files(
+    canned_answers: Callable[[str], dict[str, object]],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+) -> None:
+    """`aextract` surveys a new PDF, never pauses, and returns its page files.
+
+    It writes no run record or report, like `survey`. `extract` then reuses the
+    survey and the page files, and `load` reads the page files back in page order.
+    """
+
+    mock = mock_providers(**canned_answers(_SCAN))
+
+    awaited = asyncio.run(pydelity.aextract(pdf_path(_SCAN), output_dir="out"))
+
+    names = sorted(path.name for path in Path("out").iterdir())
+    assert names == [
+        "cost.jsonl",
+        "figures",
+        "pages",
+        "pdf_facts.json",
+        "pdf_survey.json",
+        "uploads.json",
+    ]
+    assert [page.page_index for page in awaited] == [0, 1]
+    requests = len(mock.requests)
+
+    synced = pydelity.extract(pdf_path(_SCAN), output_dir="out")
+
+    assert len(mock.requests) == requests
+    assert synced == awaited
+    loaded = pydelity.load("out")
+    assert loaded.pages == awaited
+    assert loaded.record is None
+    assert isinstance(loaded.pages[0], pydelity.PageFile)
+
+
+def test_load_of_a_damaged_page_file_raises_naming_it(
+    canned_answers: Callable[[str], dict[str, object]],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+) -> None:
+    """`load` raises `OutputError` naming a page file that does not validate."""
+
+    mock_providers(**canned_answers(_SCAN))
+    pydelity.extract(pdf_path(_SCAN), output_dir="out")
+    Path("out/pages/0001.json").write_text('{"page_index": 1}', "utf-8")
+
+    with pytest.raises(OutputError, match=r"0001\.json"):
+        pydelity.load("out")
+
+
+def test_pages_past_the_pdf_stop_every_function_before_any_request(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """A page number past the PDF's last page raises `ConfigError` naming ``pages``.
+
+    `run`, `extract` and `estimate` all stop before writing anything or sending any
+    request.
+    """
+
+    mock = mock_providers(answers=[survey_answer()])
+
+    for function in (pydelity.run, pydelity.extract, pydelity.estimate):
+        with pytest.raises(ConfigError) as raised:
+            function(pdf_path(_SCAN), output_dir="out", pages="1,3-4")
+        message = str(raised.value)
+        assert "pages" in message
+        assert "2 pages" in message
+
+    assert mock.requests == []
+    assert not Path("out").exists()
+
+
+def test_the_python_api_turns_off_pydantic_ai_s_first_run_banner(
+    canned_answers: Callable[[str], dict[str, object]],
+    mock_providers: Callable[..., MockProviders],
+    monkeypatch: pytest.MonkeyPatch,
+    pdf_path: Callable[[str], Path],
+) -> None:
+    """A run from Python turns PydanticAI's first-run banner off, as the CLI does.
+
+    PydanticAI never shows the banner under pytest, so the test checks the flag
+    that turns it off rather than the printed output.
+    """
+
+    monkeypatch.setattr(pydantic_ai, "BANNER_ENABLED", True)
+    mock_providers(**canned_answers(_SCAN))
+
+    pydelity.extract(pdf_path(_SCAN), output_dir="out")
+
+    assert pydantic_ai.BANNER_ENABLED is False

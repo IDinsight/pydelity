@@ -6,9 +6,8 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
 # Development Plan
 
 `Cycle`: `build-step-2-page-extraction-of-the-20261119T174118Z-0419318a` `Mode`:
-`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`COMPLETE` `Verification Cadence`: `AFTER_IMPLEMENTATION`
-`Current Increment`: `NONE`
+`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`: `COMPLETE`
+`Verification Cadence`: `AFTER_IMPLEMENTATION` `Current Increment`: `NONE`
 
 ## Implementation Contract
 
@@ -2290,9 +2289,9 @@ uncommitted DEV-021 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
     index 1 seven stored lines share its form. With only the page number marked
     `artifact`, `check_artifacts` passes; with nothing marked, it gives one
     failure naming three places "and 4 more on the grid".
-  - `caps_english_hl_pages_28_35.pdf` with "GRADE 1" classed as furniture:
-    three places on each of its pages; marking one passes and marking none
-    fails, on every page.
+  - `caps_english_hl_pages_28_35.pdf` with "GRADE 1" classed as furniture: three
+    places on each of its pages; marking one passes and marking none fails, on
+    every page.
   - The rotated W9 PDF, page 5, with an `artifact` item whose box is
     `[485, 950]`: `pydelity.run` completes, and the page lists a `boxes` issue
     ("has 2 values instead of 4") and `artifacts` issues, with no error.

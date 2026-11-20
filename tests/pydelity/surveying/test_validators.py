@@ -158,7 +158,7 @@ def test_labels_check_finds_empty_repeated_kindless_and_unknown_labels(
             (None, "labels: the name 'body' is used by 2 lab"),
             (None, "labels: 1 label(s) have an empty name"),
             (None, "labels: label 'Table' has no kinds; give"),
-            (1, "labels: a region on page 1 uses label 'Mi"),
+            (1, "labels: a region on page index 1 uses label"),
         ],
     ), found
 
@@ -206,8 +206,8 @@ def test_rotation_check_finds_ranges_outside_the_pdf_and_overlaps(
         [
             (None, "rotation: range 6-9 is not inside the PD"),
             (None, "rotation: range 5-4 is not inside the PD"),
-            (2, "rotation: page 2 is in 2 ranges; ranges"),
-            (3, "rotation: page 3 is in 2 ranges; ranges"),
+            (2, "rotation: page index 2 is in 2 ranges"),
+            (3, "rotation: page index 3 is in 2 ranges"),
         ],
     ), found
 
@@ -232,7 +232,7 @@ def test_page_numbering_check_finds_ranges_outside_the_pdf_and_overlaps(
         found,
         [
             (None, "page_numbering: range -1-2 is not inside"),
-            (7, "page_numbering: page 7 is in 2 ranges"),
+            (7, "page_numbering: page index 7 is in 2 ranges"),
         ],
     ), found
 
@@ -296,7 +296,7 @@ def test_writing_direction_check_finds_ranges_outside_the_pdf_and_overlaps(
         found,
         [
             (None, "writing_direction: range 8-8 is not insi"),
-            (1, "writing_direction: page 1 is in 2 ranges"),
+            (1, "writing_direction: page index 1 is in 2 ranges"),
         ],
     ), found
 
