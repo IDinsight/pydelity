@@ -1306,7 +1306,7 @@ the uncommitted DEV-010 changes (macOS arm64, Python 3.13.9).
 
 ### DEV-011 — Python API and CLI for page extraction
 
-`Status`: `PENDING` `Depends On`: `DEV-010` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-010` `Acceptance`:
 `AC-001, AC-002, AC-004, AC-027, AC-029, AC-033, AC-040`
 
 **Goal**
@@ -1316,8 +1316,12 @@ read page files back.
 
 **Affected Area**
 
-`api.py`, `__init__.py`, `cli.py`, `pipeline/runner.py` (`run_extraction_step`,
-`load_run`), `pipeline/schemas.py` (`RunResult.pages`).
+Approved by the user before the step (2026-11-19): `MODIFY` `api.py`,
+`__init__.py`, `cli.py`, `pipeline/runner.py` (`run_extraction_step`,
+`load_run`), `pipeline/schemas.py` (`RunResult.pages`) and
+`surveying/validators.py` (the survey's messages name page indexes, so the
+summary's 1-based page numbers no longer contradict them). Regenerated:
+`docs/src/content/docs/reference/python-api.md`.
 
 **Expected Outcome**
 
@@ -1342,6 +1346,123 @@ a fresh environment. Then, with the user's go-ahead at that point, a small real
 run with the user's keys (a few pages on Anthropic and on OpenAI) to confirm the
 image detail, instruction caching, both answer schemas and the ledger, with the
 spend recorded.
+
+Evidence so far, 2026-11-19, repo root, on the user's DEV-010 commit (`ce66a4f`)
+plus the uncommitted DEV-011 changes (macOS arm64, Python 3.13.9).
+
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` on `scripts src`:
+  passed; `interrogate`: 100%. Doctests: 24 passed, 1 skipped. The git hooks
+  other than ty pass on the changed files.
+- Reference pages regenerated and formatted: only `reference/python-api.md`
+  changed, adding `extract` and `aextract` and the changed docstrings.
+- `.venv/bin/python -m pytest -q --numprocesses auto`: 81 passed, 24 failed: the
+  19 listed under DEV-010, and 5 that expect the survey's old wording "page N"
+  where its messages now say "page index N" (the user's approval, 2026-11-19),
+  for Tester to update:
+  `surveying/test_validators.py::test_labels_check_finds_empty_repeated_kindless_and_unknown_labels`,
+  `test_rotation_check_finds_ranges_outside_the_pdf_and_overlaps`,
+  `test_writing_direction_check_finds_ranges_outside_the_pdf_and_overlaps`,
+  `test_page_numbering_check_finds_ranges_outside_the_pdf_and_overlaps` and
+  `surveying/test_survey.py::test_answers_that_differ_from_the_facts_are_kept_and_listed_by_page`.
+  `ty check tests`: the same 2 errors.
+- Scratchpad `dev011_check.py` (the stand-in and the canned answers of
+  `dev010_check.py`): 16 of 16 checks passed.
+  - `extract()` on a new folder runs the survey and the 7 pages (19 requests)
+    with the default pause on, returns 7 `PageFile`s in page order, and writes
+    `pdf_survey.json` and `pages/` but no `run.json` or report. Called again,
+    and as `await aextract(pages="2-3")`, it sends nothing and returns the saved
+    page files (indexes 1 and 2 for the second). `pages="99"` raises
+    `ConfigError` naming `pages` before the folder is created.
+  - `load()` returns the 7 page files in page order; an invalid page file raises
+    `OutputError` (`0004.json is not valid: ...`), and so does a missing crop
+    (`pages/0005.json names the figure image figures/p0005-033.png, which is missing; ...`).
+  - `run()`: a paused run's `pages` is empty; `run(pages="1-3")` returns those 3
+    page files, and `load()` gives the same.
+  - CLI `pydelity <pdf> -p 2-3 -np --yes`: exit 0, both steps, page counts 2
+    selected and 2 extracted, both estimates and the summary shown. A page
+    answer that is not JSON: exit 1, `run.json` `failed` with
+    `ExtractionError: Page 1 (index 0), extractor: the model gave no usable answer ...`.
+  - Banner, in fresh Python processes without `CI`, `PYTEST_VERSION` or
+    `PYDANTIC_AI_NO_BANNER`: a plain PydanticAI agent prints the banner (its
+    `PYDANTIC_AI_NO_BANNER=1` line); importing pydelity leaves
+    `pydantic_ai.BANNER_ENABLED` true; `pydelity.extract(...)` prints no banner
+    and leaves the flag false.
+- `dev009_check.py` 48 of 48 and `dev010_check.py` 32 of 32 again.
+- Process wording grep of the added lines: no hits.
+- Real run, by the user in their own terminal with their keys (no keys are set
+  in this session's shell). Offline estimates first (`pydelity.estimate`,
+  nothing sent): `irs_w9_instructions_rotated.pdf` pages 1-3 on the defaults,
+  about $1.34 and at most $18.81; `irs_pub1_arabic.pdf` page 1 on
+  `openai:gpt-6.2-astra`, about $1.11 and at most $15.83.
+  - Anthropic
+    (`pydelity tests/fixtures/pdfs/irs_w9_instructions_rotated.pdf -p 1-3 -np -mc 20 -v`,
+    output in the session scratchpad's `real-anthropic/`): the survey completed
+    (1 request, 31,896 input and 2,431 output tokens, $0.21); page 1's first
+    extractor request was refused with HTTP 400:
+    `anthropic:claude-opus-5-5: The compiled grammar is too large, which would cause performance issues. Simplify your tool schemas or reduce the number of strict tools. The request was for extraction, page 1 (index 0), extractor.`
+    The run ended `failed`, with `run.json` (survey `completed`, extraction
+    `failed`, 0 page requests recorded), the report and the error message
+    written as designed. Spend: $0.21.
+  - Cause: page extraction asks for `NativeOutput(PageAnswer)` and
+    `NativeOutput(VerifierVerdict)`, which Anthropic enforces with a compiled
+    grammar. Their JSON schemas hold 18 and 20 nullable fields (`anyOf` with
+    null) against the survey answer's 1. Anthropic's structured outputs page
+    (`https://platform.claude.com/docs/en/build-with-claude/structured-outputs`,
+    read 2026-11-19 by a web-fetch subagent, partly from a model summary of the
+    page) caps fields with union types, nullable ones included, at 16 per
+    request across strict schemas, and optional fields at 24, beyond further
+    internal grammar-size limits. The design's flat answer, with per-kind fields
+    null when unused (decision 7), is over that cap; OpenAI was not run.
+  - Routed to Architect as an `ARCHITECTURE` failure (see Suspended Assignment 1
+    in Plan Notes).
+  - OpenAI, first run
+    (`pydelity tests/fixtures/pdfs/irs_pub1_arabic.pdf -p 1 -np -m openai:gpt-6.2-astra -mc 20 -v`,
+    `real-openai/`): `completed`, $1.14 (survey $0.24, page $0.90 for 2
+    extractor and 2 verifier requests); native output accepted both schemas; the
+    second request of each agent read cached tokens (7,322 and 11,437). The
+    page's text copied the PDF's stored text, broken ligatures and swapped
+    letters included, with every text check passing; the design's decision 21
+    answers this.
+- Real runs again after DEV-017 (decisions 20 and 21), by the user, into new
+  folders (`real-anthropic-2/`, `real-openai-2/`), 2026-11-19:
+  - Anthropic, `irs_w9_instructions_rotated.pdf` pages 1-3 on the defaults:
+    `completed`, $1.00 (survey $0.23; pages $0.77 for 7 requests: page index 1's
+    extractor answered twice, each other agent once). Prompted output worked for
+    the survey, the extractor and the verifier, where native output had been
+    refused. Each request wrote the cache (survey 31,166 tokens, each page's
+    first requests about 9,900 to 16,200); page index 1's second extractor
+    request read 9,947 cached tokens and the verifiers of pages index 0 and 1
+    read 6,186 each, written by the verifier of page index 2, which ran first;
+    the first concurrent requests read none, as the design expects. All 3 pages
+    pass every check (`compared`), the verifier passed each, 0 review issues,
+    29, 28 and 27 items with 2 figure crops. On the pages with rotation
+    attributes 0, 90 and 180 (rotations applied 0, 270 and 180), each item's box
+    overlaps the union of the text-layer lines its text contains with a median
+    IoU of 0.87, 0.90 and 0.78 (scratchpad measurement), so the boxes land on
+    their content on rotated pages too.
+  - OpenAI, `irs_pub1_arabic.pdf` page 1 on `openai:gpt-6.2-astra`: `completed`,
+    $1.03 (survey $0.21; page $0.82 for 3 extractor answers and 1 verifier
+    verdict, which passed). Cache reads on the second and third extractor
+    requests (6,139 and 9,671 tokens). The page's text now follows the image:
+    the text layer's `1 املنشور`, `. حق االطالع1` and
+    `والتحدث إىل أحد املرشفني ...` are read as `المنشور 1`, `1. حق الاطلاع` and
+    `والتحدث إلى أحد المشرفين ...`. Such lines fail `text_dropped` (the stored
+    line) and `text_added` (the reading) after the retries, giving 11 review
+    issues (6 and 5) that name the items, as the design's risk note expects.
+  - Spend on real runs for DEV-011: $0.21 + $1.14 + $1.00 + $1.03 = $3.38.
+
+**Implementation Notes**
+
+- Every API function turns PydanticAI's banner off in `_resolve`, which each of
+  them except `load` calls first; the CLI's own line went, since it calls the
+  API.
+- `run_extraction_step` runs `_steps` with `pause=False` and returns the
+  selected pages' files; `_steps` now takes the pause, so `run_pipeline` passes
+  the setting. `RunResult.pages` holds a run's selected pages' page files, and
+  every page file in `pages/` when read back with `load()`, which also raises
+  for a missing crop, as a damaged page file is defined.
+- The survey's messages now say "page index N" and "page indexes 0-N", so a
+  summary line reads `survey, page 3: labels: a region on page index 2 ...`.
 
 ---
 
@@ -1492,7 +1613,129 @@ page file, the extraction checks and review-issue names, and the changed
 
 ---
 
+### DEV-017 — Prompted output on Anthropic and page reading from the image only
+
+`Status`: `DONE` `Depends On`: `DEV-007, DEV-010` `Acceptance`:
+`AC-005, AC-022, AC-023, AC-029`
+
+**Goal**
+
+Apply the design's decisions 20 and 21, added after DEV-011's real runs: every
+agent asks Anthropic for prompted output, and the page models read the page's
+text from the image only.
+
+**Affected Area**
+
+Approved by the user before the step (2026-11-19): `MODIFY`
+`providers/profiles.py` (`ProviderProfile.output_mode`), `providers/factory.py`
+(`output_mode` from the provider profile or the model's JSON-schema support;
+`structured_output`), `extracting/prompts.py` (no text-layer section; the rule
+to read all text from the image; `extract_page` and `verify_page` no longer take
+text-layer lines), `extracting/llm.py` (the prompt calls),
+`extracting/validators.py` (the text checks' retry note),
+`extracting/text_layer.py` (its docstring), `extracting/extraction.py` (request
+sizes without text-layer characters) and `costs/budget.py` (`PageRequestSize`
+and estimate docstrings); regenerated reference pages if they change. Not
+changed: `tests/fixtures/mock_providers.py`, which already answers Anthropic
+requests as JSON text.
+
+**Expected Outcome**
+
+- The survey's agent, the extractor and the verifier ask Anthropic for
+  `PromptedOutput` (no native output format in the request, the answer's JSON
+  schema in the instructions) and OpenAI for `NativeOutput`. A model without
+  JSON-schema output gets prompted output on either provider. The "Model ready"
+  log line names the mode.
+- No extractor or verifier request holds the page's text-layer lines. The
+  prompts say to transcribe all text from the image, since the text a PDF stores
+  can differ from what is printed. The text checks still compare the answer with
+  the text layer, and their retry message adds that the stored text can be wrong
+  (letters out of order, broken ligatures, wrong characters), so the model keeps
+  what the image shows.
+- The extraction estimate counts no text-layer characters in a request.
+- No answer or verdict schema changes; `PROMPT_VERSION` stays 1, since no page
+  file has been released.
+
+**Self-Check**
+
+Lint; unaffected tests; a scratchpad script with the stand-in that captures
+survey, extractor and verifier requests for both providers: Anthropic requests
+carry no output format and their instructions hold the answer's schema, OpenAI
+requests carry the JSON-schema format, no page request holds a text-layer line,
+and a failing text check's retry message holds the new note; the DEV-009 to
+DEV-011 self-checks again. Then DEV-011's real runs, with the user's go-ahead.
+
+Evidence, 2026-11-19, repo root, on the user's DEV-010 commit (`ce66a4f`) plus
+the uncommitted DEV-011 and DEV-017 changes (macOS arm64, Python 3.13.9,
+PydanticAI 2.69).
+
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` on `scripts src`:
+  passed; `interrogate`: 100%. Doctests: 24 passed, 1 skipped. The git hooks
+  other than ty pass on the changed files.
+- `.venv/bin/python -m pytest -q --numprocesses auto`: 81 passed, 24 failed, the
+  same 24 as after DEV-011's code (listed there and under DEV-010); the
+  stand-in's Anthropic survey tests pass under prompted output.
+  `ty check tests`: the same 2 errors.
+- Reference pages regenerated: no change beyond DEV-011's `python-api.md`.
+- A direct check of `output_mode`: an `AnthropicModel` gives `prompted` and
+  `PromptedOutput`, an `OpenAIResponsesModel` `native` and `NativeOutput`.
+- Scratchpad `dev017_check.py` (the stand-in, `pydelity.extract` on the rotated
+  PDF's pages 1-2 for each provider, page index 1's first extractor answer
+  missing its longest text item): 11 of 11 checks passed.
+  - Anthropic: the survey's, the extractor's and the verifier's requests carry
+    no output format (`output_config` holds only `{"effort": "high"}`), and each
+    one's instructions hold its answer's JSON schema (`SurveyAnswer`,
+    `PageAnswer`, `VerifierVerdict`); the stand-in's JSON text answers are
+    accepted.
+  - OpenAI: every request carries `text.format.type` `json_schema`.
+  - The "Model ready" lines name `prompted` for both of Anthropic's steps and
+    `native` for OpenAI's.
+  - No page request holds a text-layer section, and page index 0's first
+    extractor request holds none of its 97 text-layer lines longer than 20
+    characters. The `text_dropped` retry on page index 1 says the stored text
+    can be wrong (broken ligatures) and to keep what the image shows; 3
+    extractor and 2 verifier requests per provider.
+  - `request_sizes` on pages index 0 and 1 (4,880 and 5,942 text-layer
+    characters): 14,417 and 14,612 extractor characters, 18,123 and 18,318
+    verifier characters, which no longer grow with the text layer.
+- `dev009_check.py` 48 of 48, `dev010_check.py` 32 of 32 and `dev011_check.py`
+  16 of 16 again.
+- Process wording grep of the added lines: no hits.
+
+**Implementation Notes**
+
+- `output_mode` reads the model's provider (`model.system`, which the ledger
+  wrapper passes through) to find its `ProviderProfile`; a model of another
+  kind, such as a PydanticAI test model, falls back to its JSON-schema support.
+  The runner's "Model ready" line already named the mode.
+- `extract_page` and `verify_page` take only the page context (and the
+  verifier's answer and failures); `PageInput.text_lines` stays for the checks.
+- `PROMPT_VERSION` stays 1 as planned, although the comment above it asks for a
+  new version whenever a prompt's text changes: no page file has been released,
+  and DEV-011's real runs use new output folders.
+
+---
+
 ## Plan Notes
+
+### Suspended Assignment 1
+
+`Recovery Frame`: `1` `Recovery Reason`:
+`Anthropic rejects PageAnswer and VerifierVerdict as structured output: their 18 and 20 nullable fields exceed its limit of 16 union-type fields per request.`
+`Purpose`: `DEVELOPMENT` `Target`: `NONE` `Assessed Inputs`:
+`DEV-001 to DEV-010 committed through ce66a4f; DEV-011's code uncommitted (api.py, __init__.py, cli.py, pipeline/runner.py, pipeline/schemas.py, surveying/validators.py, reference/python-api.md), its stand-in checks passed (dev011_check.py 16 of 16), its real Anthropic run refused at page 1's extractor.`
+`Next Action`:
+`Reconcile the corrected design with DEV-001 to DEV-011 (schemas, prompts, agents, validators, extraction, estimate), reopen and fix the affected steps, rerun the self-checks, then repeat DEV-011's real runs on Anthropic and OpenAI with the user's go-ahead.`
+
+Reconciled on resuming (2026-11-19), after the design rerun that added decisions
+20 and 21 and closed frame 1 with no reruns: no answer, verdict or page file
+schema changed, so DEV-001 to DEV-010 stand. Decisions 20 and 21 change the
+output mode (`providers/`), the page prompts and the estimate's request sizes,
+which DEV-017 covers as one step rather than reopening DEV-003, DEV-007 and
+DEV-010, whose other outcomes still hold. DEV-011's code stands; its real runs
+repeat after DEV-017, on new output folders, since the prompt text changes
+without a new `PROMPT_VERSION`. The user approved the revised plan and DEV-017's
+files (2026-11-19).
 
 - Order: the steps run in number order, one at a time (`STEPWISE`). DEV-013 and
   DEV-014 depend on nothing and can move earlier if the user wants. Before each

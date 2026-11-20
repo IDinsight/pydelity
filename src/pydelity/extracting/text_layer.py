@@ -1,8 +1,8 @@
 """A page's text layer, and the form text is compared in.
 
-The text layer is the text a PDF stores for a page, which a model never sees: it reads
-the page image. Its lines go to the model as hints, and page extraction compares them
-with the items' text to find text the answer dropped or added.
+The text layer is the text a PDF stores for a page, which the models never see: they
+read the page image. Page extraction compares the text layer's lines with the items'
+text to find text the answer dropped or added.
 
 Text is compared as overlapping runs of three characters, after Unicode NFKC
 normalization and case folding, keeping only letters, marks and digits. Spaces,

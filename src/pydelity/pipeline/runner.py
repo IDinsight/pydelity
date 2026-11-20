@@ -2,9 +2,10 @@
 
 `run_pipeline` is the whole run: the survey, then page extraction. With ``pause`` on,
 a run that made a new survey stops after it, so the survey can be checked before the
-pages are paid for. `run_measure`, `run_estimate` and `run_survey_step` do parts of it
-for the Python API's ``measure``, ``estimate`` and ``survey``, which write no
-``run.json`` and no report. `load_run` reads a folder back.
+pages are paid for. `run_measure`, `run_estimate`, `run_survey_step` and
+`run_extraction_step` do parts of it for the Python API's ``measure``, ``estimate``,
+``survey`` and ``extract``, which write no ``run.json`` and no report and never pause.
+`load_run` reads a folder back.
 
 The cost estimate, the question before spending, the ``max_cost`` check on it and the
 API-key checks cover every step the run will perform, once, before its first model
@@ -55,6 +56,7 @@ from pydelity.extracting.extraction import (
     FIGURES_FOLDER_NAME,
     PAGES_FOLDER_NAME,
     extract_pages,
+    page_file_path,
     plan_pages,
     request_sizes,
     request_sizes_before_survey,
@@ -80,6 +82,7 @@ from pydelity.report.images import REPORT_FOLDER_NAME, render_pages
 from pydelity.review import ReviewIssue
 from pydelity.schema_versions import (
     FACTS_SCHEMA_VERSION,
+    PAGE_SCHEMA_VERSION,
     RUN_SCHEMA_VERSION,
     SURVEY_SCHEMA_VERSION,
 )
@@ -500,6 +503,47 @@ def _load_part[ModelT: BaseModel](
             f"version {major}.x"
         )
     return loaded.model
+
+
+def _load_pages(folder: Path) -> list[PageFile]:
+    """Read every page file in an output folder for `load_run`.
+
+    Parameters
+    ----------
+    folder
+        The output folder.
+
+    Returns
+    -------
+    list[PageFile]
+        The page files in ``pages/``, in page order; empty when there are none.
+
+    Raises
+    ------
+    OutputError
+        If a page file is not valid JSON, does not match its schema, has another
+        major schema version, or names a figure image that is missing.
+    """
+
+    indexes = sorted(
+        int(path.stem)
+        for path in (folder / PAGES_FOLDER_NAME).glob("*.json")
+        if path.stem.isdigit()
+    )
+    pages = []
+    for index in indexes:
+        path = page_file_path(output_folder=folder, page_index=index)
+        page = _load_part(model_type=PageFile, path=path, version=PAGE_SCHEMA_VERSION)
+        if page is None:
+            continue
+        for item in page.items:
+            if item.figure is not None and not (folder / item.figure.crop).is_file():
+                raise OutputError(
+                    f"{PAGES_FOLDER_NAME}/{path.name} names the figure image "
+                    f"{item.figure.crop}, which is missing; it cannot be read back"
+                )
+        pages.append(page)
+    return pages
 
 
 def _log_estimate(estimate: CostEstimate) -> None:
@@ -1035,7 +1079,9 @@ def _step_summary(step: StepRecord) -> str:
     return text
 
 
-async def _steps(run: _Run, *, confirm: SpendConfirmation | None) -> RunStatus:
+async def _steps(
+    run: _Run, *, confirm: SpendConfirmation | None, pause: bool
+) -> RunStatus:
     """Run the survey, then page extraction unless the run pauses.
 
     Parameters
@@ -1045,15 +1091,16 @@ async def _steps(run: _Run, *, confirm: SpendConfirmation | None) -> RunStatus:
     confirm
         Called with the cost estimate; returns whether to continue. ``None``
         continues without asking.
+    pause
+        Whether to stop after a new survey.
 
     Returns
     -------
     RunStatus
-        ``paused`` when the survey is new and ``pause`` is on, otherwise
+        ``paused`` when the survey is new and ``pause`` is set, otherwise
         ``completed``.
     """
 
-    pause = run.config.pause
     await _survey(run, confirm=confirm, extraction_follows=not pause)
     new_survey = run.steps[-1].status == "completed"
     if new_survey and pause:
@@ -1235,16 +1282,16 @@ def load_run(output_dir: Path) -> RunResult:
     Returns
     -------
     RunResult
-        The folder's ``run.json``, ``pdf_facts.json``, ``pdf_survey.json`` and
-        ``cost.jsonl``. A part is ``None``, or an empty ledger, when its file is
-        absent.
+        The folder's ``run.json``, ``pdf_facts.json``, ``pdf_survey.json``,
+        ``cost.jsonl`` and every page file in ``pages/``, in page order. A part is
+        ``None``, or empty, when its files are absent.
 
     Raises
     ------
     OutputError
         If the folder does not exist, holds none of those files, or holds one that
         is not valid JSON, does not match its schema or has another major schema
-        version.
+        version, or a page file names a figure image that is missing.
     """
 
     folder = output_dir.resolve()
@@ -1277,6 +1324,7 @@ def load_run(output_dir: Path) -> RunResult:
         facts=facts,
         ledger=ledger.entries,
         output_dir=folder,
+        pages=_load_pages(folder),
         record=record,
         survey=survey,
     )
@@ -1345,6 +1393,62 @@ async def run_estimate(*, config: Config) -> CostEstimate:
     return _estimate_cost(config=config, steps=steps)
 
 
+async def run_extraction_step(
+    *, config: Config, decide_over_max_cost: OverMaxCostDecision
+) -> list[PageFile]:
+    """Extract the selected pages, running or reusing the survey first.
+
+    No ``run.json`` and no report are written, and the run never pauses: the caller
+    asked for page extraction. The estimate, the ``max_cost`` check on it and the
+    API-key checks cover both steps before the first request, as in a full run.
+
+    Parameters
+    ----------
+    config
+        The run's settings, already checked.
+    decide_over_max_cost
+        Called with the warning's details when the run could exceed ``max_cost``;
+        returns whether to continue.
+
+    Returns
+    -------
+    list[PageFile]
+        The selected pages' page files, reused or new, in page order.
+
+    Raises
+    ------
+    BudgetExceededError
+        If the run could go over ``max_cost`` and the decision is no.
+    ConfigError
+        If ``pages`` names a page past the PDF's last page.
+    ExtractionError
+        If a model refuses, runs out of output tokens, or never gives a usable
+        answer for a page.
+    MissingApiKeyError
+        If the API key of a step's provider is not set.
+    PdfError
+        If the PDF is empty, password-protected or cannot be opened.
+    ProviderError
+        If a request fails after the provider retries.
+    SurveyError
+        If the survey's model refuses, runs out of output tokens, or never gives an
+        answer that matches the survey's answer format.
+    """
+
+    pdf = await _open(config)
+    selected = _selected_pages(config=config, pdf=pdf)
+    _prepare_folder(config.output_folder)
+    _warn_other_pdf(folder=config.output_folder, sha256=pdf.sha256)
+    run = _new_run(
+        config=config,
+        decide_over_max_cost=decide_over_max_cost,
+        pdf=pdf,
+        selected=selected,
+    )
+    await _steps(run, confirm=None, pause=False)
+    return [run.pages[index] for index in selected]
+
+
 async def run_measure(*, config: Config) -> PdfFacts:
     """Prepare the output folder, then measure the PDF or reuse its saved facts.
 
@@ -1402,7 +1506,8 @@ async def run_pipeline(
     Returns
     -------
     RunResult
-        The run's record, facts, survey and the folder's ledger.
+        The run's record, facts, survey, selected pages' page files and the
+        folder's ledger.
 
     Raises
     ------
@@ -1446,7 +1551,7 @@ async def run_pipeline(
             path=folder / RUN_FILE_NAME,
         )
         try:
-            status = await _steps(run, confirm=confirm)
+            status = await _steps(run, confirm=confirm, pause=config.pause)
         except (BudgetExceededError, SpendDeclinedError) as error:
             await _finish(run, error=error, status="stopped")
             raise
@@ -1462,6 +1567,7 @@ async def run_pipeline(
         facts=run.facts,
         ledger=read_ledger(folder / LEDGER_FILE_NAME).entries,
         output_dir=folder.resolve(),
+        pages=[run.pages[index] for index in sorted(run.pages)],
         record=record,
         survey=run.survey,
     )

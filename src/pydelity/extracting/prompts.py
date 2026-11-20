@@ -4,8 +4,9 @@ Each prompt's instructions (the system message) are the same for every page of a
 run, so providers can cache them: the task, the item vocabulary, the PDF's labels,
 the rules an extraction follows and, last, the user's page extraction instructions.
 The text sent with each page image says which page it is and gives what the survey
-and the PDF's own data know about it: its writing direction, its repeated lines, its
-fillable form fields and, when the text layer is readable, the text layer as hints.
+and the PDF's own data know about it: its writing direction, its repeated lines and
+its fillable form fields. The text the PDF stores for the page is never sent; the
+models read all text from the image.
 
 No prompt names a document type, a language or a writing direction as a default.
 """
@@ -155,12 +156,9 @@ characters may be an item with role {ItemRole.ARTIFACT.value}. A page that is on
 figure, such as a page made of a single picture, is one figure item, with a box that \
 may cover the whole page.
 
-Text layer. The text the PDF stores for the page may be given with the page, between \
-<text_layer> tags. It is exact in spelling, accents and other marks wherever the text \
-is visible on the page, so prefer its spelling there. The image decides everything \
-else: what is on the page, the reading order, kinds, roles and boxes. Leave out stored \
-text that is not visible on the page, and read from the image the text the stored \
-text lacks, such as text inside images."""
+Text from the image. Read all text from the image, exactly as printed. The text a \
+PDF stores for a page can differ from what is printed, with letters out of order, \
+broken ligatures or wrong characters, so the image alone decides what the text is."""
 
 # The verifier's verdict rules.
 _VERDICT = """\
@@ -177,7 +175,8 @@ page.
 
 The checks it still fails, if any, are given with the page. They come from code that \
 cannot see the page: a correction must pass them, but where a check finds a \
-difference from the text layer, the image decides."""
+difference from the text the PDF stores, the image decides, since that stored text \
+can be wrong."""
 
 # The version of the prompts. Increase it whenever the text of either prompt changes,
 # so a saved page file made with the older prompts is made again.
@@ -242,15 +241,13 @@ def _labels(labels: Sequence[Label]) -> str:
     return _LABELS_HEADING + "\n" + "\n".join(lines)
 
 
-def _page_text(context: PageContext, text_lines: Sequence[str]) -> list[str]:
+def _page_text(context: PageContext) -> list[str]:
     """Write what is sent about a page with its image, in sections.
 
     Parameters
     ----------
     context
         The page's context.
-    text_lines
-        The page's text-layer lines, sent only when the text layer is readable.
 
     Returns
     -------
@@ -289,8 +286,6 @@ def _page_text(context: PageContext, text_lines: Sequence[str]) -> list[str]:
             "Fillable form fields on this page:\n"
             + "\n".join(_form_field_line(field, context) for field in fields)
         )
-    if context.text_quality == "good" and text_lines:
-        sections.append("<text_layer>\n" + "\n".join(text_lines) + "\n</text_layer>")
     return sections
 
 
@@ -320,15 +315,13 @@ def _with_user_instructions(system_message: str, instructions: str | None) -> st
     )
 
 
-def extract_page(context: PageContext, text_lines: Sequence[str]) -> PromptPair:
+def extract_page(context: PageContext) -> PromptPair:
     """Write the extraction model's messages for one page.
 
     Parameters
     ----------
     context
         The page's context.
-    text_lines
-        The page's text-layer lines.
 
     Returns
     -------
@@ -347,13 +340,12 @@ def extract_page(context: PageContext, text_lines: Sequence[str]) -> PromptPair:
     )
     return PromptPair(
         system_message=_with_user_instructions(system_message, context.instructions),
-        user_message="\n\n".join(_page_text(context, text_lines)),
+        user_message="\n\n".join(_page_text(context)),
     )
 
 
 def verify_page(
     context: PageContext,
-    text_lines: Sequence[str],
     *,
     answer: PageAnswer,
     failures: Mapping[ExtractionCheckName, list[CheckFailure]],
@@ -364,8 +356,6 @@ def verify_page(
     ----------
     context
         The page's context.
-    text_lines
-        The page's text-layer lines.
     answer
         The extraction to review.
     failures
@@ -389,7 +379,7 @@ def verify_page(
     )
     found = [failure.message for found in failures.values() for failure in found]
     sections = [
-        *_page_text(context, text_lines),
+        *_page_text(context),
         "The extraction to review:\n"
         + json.dumps(answer.model_dump(mode="json"), ensure_ascii=False),
         "Checks it still fails:\n"

@@ -32,6 +32,14 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
   load); names and defaults the user chose (`--no-pause`/`-np`; page extraction
   on `anthropic:claude-opus-5-5` at effort `high`); instructions per step under
   `advanced:`, replacing the top-level setting (`AC-059` to `AC-061`).
+- Real runs during development (2026-11-19) changed two decisions. Anthropic
+  refused the page answer as native structured output (HTTP 400, "The compiled
+  grammar is too large"); its structured-outputs guide caps fields with union
+  types, nullable ones included, at 16 per request, and `PageAnswer` and
+  `VerifierVerdict` hold 18 and 20. OpenAI's native structured output accepted
+  both. On the Arabic test page (OpenAI), the extraction copied the PDF's stored
+  text, broken ligatures and swapped letters included, and every text check
+  passed. Decisions 20 and 21 answer these.
 - File and folder names are the user's to approve before the build step that
   creates them. `src/pydelity/extracting/` with `agents.py`, `llm.py`,
   `prompts.py`, `validators.py` and `schemas.py` is fixed by scope. Every other
@@ -127,7 +135,8 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
    answer lines with too little coverage in the text layer are added text. Both
    are checks and go back to the model within the check retries; the retry
    message says it may keep its reading when the text is not visible on the page
-   or was read from an image.
+   or was read from an image, and that the PDF's stored text can be wrong, so
+   the page image decides (decision 21).
 10. **A verifier reviews every page and may replace it.** After the extractor's
     answer is accepted, a verifier request with the same image, the same page
     context, the answer and its remaining check failures returns a verdict:
@@ -184,20 +193,21 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
     - the extraction and validation prompts' generic sections (image as the
       source of truth, verbatim text, every item has a kind, scan every margin,
       drawn rules are not content, box rules, heading versus caption by role,
-      content rules per kind, tables, lists, figures, text-layer hints as hints,
-      user instructions appended last under a neutral heading);
+      content rules per kind, tables, lists, figures, user instructions appended
+      last under a neutral heading);
     - the validator's audit stance, checklist, severity guide and full-answer
       correction;
     - the duplicate-box check, the table occupancy simulation (HTML-style spans,
       covered cells omitted; it also measures row width with rowspans, which
       KGForEdGlobal's width counts missed) and the "table has some text" check;
-    - the text-layer hint gate idea, replaced by the survey's measured text
-      quality.
+    - prompted output for every Anthropic agent (its `wrap_output_type`;
+      decision 20).
 
-    Not ported: every left-to-right rule, the English word lists and patterns,
-    the full-page-figure checks, the letter-run tokenizer and word-count
-    correction guard (replaced by decision 9 run on the correction), boundary
-    and continuity marks, `text_en`, `figure_kind`, `local_code`, the footnote
+    Not ported: text-layer hints and their gate (decision 21), every
+    left-to-right rule, the English word lists and patterns, the
+    full-page-figure checks, the letter-run tokenizer and word-count correction
+    guard (replaced by decision 9 run on the correction), boundary and
+    continuity marks, `text_en`, `figure_kind`, `local_code`, the footnote
     position check, the table-collapse heuristics (left to the verifier),
     `find_tables` hints, per-attempt artifact files, fixed DPI, file-existence
     resume and non-atomic writes.
@@ -221,6 +231,44 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
     `pdf_survey.json` or `pdf_facts.json` that no longer validates is treated as
     damaged and made again; a 0.1.x `cost.jsonl` with more than one line stops
     the run with `OutputError` naming the file, as any damaged ledger does.
+20. **Every step uses prompted output on Anthropic.** Anthropic compiles a
+    native output schema into a grammar with limits the flat page answer exceeds
+    (Context), and those limits can change. So every agent on Anthropic (the
+    survey's, the extractor and the verifier) asks for `PromptedOutput`, as
+    KGForEdGlobal does for Anthropic; the survey's answer fits today's limits,
+    but by the user's choice it does not depend on them. Every agent on OpenAI
+    keeps `NativeOutput`, which accepted both page schemas in the real run. This
+    replaces the survey design's rule (its decision 3) of native output wherever
+    the model supports it. `ProviderProfile` gains `output_mode` (Anthropic
+    `prompted`, OpenAI `native`); `output_mode` in `providers/factory.py`
+    returns `prompted` when the model's provider profile says so or the model
+    has no JSON-schema output, otherwise `native`, and `structured_output` wraps
+    the answer type to match. The runner's "Model ready" log line names the
+    mode. Under prompted output PydanticAI adds the answer's JSON schema to the
+    instructions, so the schema is part of the instructions Anthropic caches,
+    and both steps' estimates already count it (`AC-029`). An answer that is not
+    JSON or does not match the schema is sent back by PydanticAI as an output
+    retry within the same `check_retries` budget, and on the last allowed
+    attempt fails the page or the survey, as decision 8 and the survey's
+    decision 5 say. No answer or verdict schema changes, and no internal version
+    is raised: a saved survey stays reusable, since its answer means the same
+    whichever mode produced it.
+21. **The models read the page's text from the image only.** No extractor or
+    verifier request carries the page's text-layer lines. With them as hints and
+    a prompt that preferred their spelling, the model copied the Arabic page's
+    stored text, whose ligatures and letter order are wrong, and the text checks
+    then compared the stored text with itself. The survey's measured text
+    quality (control, private-use, replacement and unassigned characters) cannot
+    see such faults, which are common in PDFs of right-to-left and other complex
+    scripts. Without hints the comparison (decision 9) checks the model's own
+    reading against the text layer, which follows the scope's rule that the
+    model's reading wins, and requests are smaller. The prompts say to
+    transcribe all text from the image, and that the text a PDF stores can
+    differ from what is printed. The page's repeated lines stay in the page
+    context only to say which lines are page furniture. The text-comparison
+    retry message adds that the PDF's stored text can be wrong (letters out of
+    order, broken ligatures, wrong characters), so the model keeps what the
+    image shows.
 
 ### Defaults
 
@@ -251,7 +299,8 @@ uses the expected cost (decision 12).
   untouched by `pages`.
 - `AC-003`, `AC-004`: `pause`, run status `paused`, the pause message, and the
   same behavior in `run()` and the CLI (decision 3, **Pause**).
-- `AC-005`: Model resolution (decision 2, **Settings**).
+- `AC-005`: Model resolution (decision 2, **Settings**) and each provider's
+  output mode (decision 20).
 - `AC-006`: **Example config files**; the existing completeness test.
 - `AC-059`, `AC-060`, `AC-061`: Per-step instructions (decision 18,
   **Settings**, **Requests**, **CLI**); the existing unknown-setting and
@@ -277,8 +326,8 @@ uses the expected cost (decision 12).
 - `AC-020`: Neutrality rules under **Technical Acceptance Criteria**; nothing
   ported that names a document type, language or direction.
 - `AC-021`: Checks and the retry rule (decision 8); `check_retries`.
-- `AC-022`, `AC-023`: **Text comparison** (decision 9); `text_comparison` in the
-  page file.
+- `AC-022`, `AC-023`: **Text comparison** (decision 9), on a reading the models
+  make from the image alone (decision 21); `text_comparison` in the page file.
 - `AC-024`, `AC-025`: Verifier and its application (decision 10); `verification`
   in the page file.
 - `AC-026`: Shared `ReviewIssue` with `step`, `page_index`, `item_id`;
@@ -326,7 +375,7 @@ uses the expected cost (decision 12).
   image, figure crops, the grid-to-points mapping, and the single PyMuPDF worker
   that runs every PyMuPDF call of the step.
 - **Text layer** (`extracting/` `CANDIDATE`): reads a page's text-layer lines
-  and normalizes text for hints and for the comparison.
+  and normalizes text for the comparison.
 - **Prompts, agents, LLM, validators, schemas** (`extracting/`): as decision 1.
 - **Review** (shared module `CANDIDATE`, such as `src/pydelity/review.py`):
   `ReviewIssue` and the check-failure model, imported by both steps and
@@ -335,7 +384,7 @@ uses the expected cost (decision 12).
 - **Costs and providers** (`costs/budget.py`, `costs/schemas.py`,
   `providers/ledger_model.py`, `providers/factory.py`, `providers/profiles.py`):
   reservations, image counting, step models, ledger fields, the extraction
-  estimate.
+  estimate, each provider's output mode.
 - **Report** (`report/html.py`, `report.css`): page cards with items.
 - **API and CLI** (`api.py`, `cli.py`, `__init__.py`): `extract`/`aextract`, new
   options, the banner fix.
@@ -507,14 +556,15 @@ Resolved per selected page from `pdf_survey.json` and `pdf_facts.json`, so step
 - User content per request: one text part whose first line is
   `Page index <i> (page <i+1> of <n>)` (logs and the test stand-in rely on it),
   then the page's direction and rotation applied, its repeated lines with their
-  classification, its form fields (name, type, value, checked, options, grid
-  box), and, when the text quality is `good`, the page's text-layer lines inside
-  `<text_layer>` tags as hints; then the image (with `detail: "original"` for
-  OpenAI, as PydanticAI's image vendor metadata); then a `CachePoint`. The
-  verifier's text part adds the extractor's answer as JSON and the checks it
-  still fails.
+  classification, and its form fields (name, type, value, checked, options, grid
+  box); never the page's text-layer lines (decision 21); then the image (with
+  `detail: "original"` for OpenAI, as PydanticAI's image vendor metadata); then
+  a `CachePoint`. The verifier's text part adds the extractor's answer as JSON
+  and the checks it still fails.
+- Output: `PromptedOutput` on Anthropic, `NativeOutput` on OpenAI (decision 20).
 - Anthropic requests also cache the instructions (PydanticAI's Anthropic
-  instruction-caching setting). OpenAI caches prefixes itself.
+  instruction-caching setting), which hold the answer's JSON schema under
+  prompted output. OpenAI caches prefixes itself.
 - Prompt rules that matter to checks: list items in reading order for the page's
   direction (horizontal text column by column in the direction's order, so `rtl`
   starts from the right-hand column; vertical text band by band from the top,
@@ -523,11 +573,12 @@ Resolved per selected page from `pdf_survey.json` and `pdf_facts.json`, so step
   role `artifact`; transcribe text as printed, in its own script, without
   translating or correcting; one list entry per list item; tables with
   HTML-style spans and header rows; formulas with LaTeX; code with exact
-  whitespace; one item per figure with a description and any text inside it; one
-  field item per form field, naming the fillable field when there is one;
-  bordered or shaded boxes as containers; a caption names what it captions; a
-  page that is one figure is one figure item. No prompt names a document type,
-  language or direction as a default.
+  whitespace; all text read from the image, since the text a PDF stores can
+  differ from what is printed; one item per figure with a description and any
+  text inside it; one field item per form field, naming the fillable field when
+  there is one; bordered or shaded boxes as containers; a caption names what it
+  captions; a page that is one figure is one figure item. No prompt names a
+  document type, language or direction as a default.
 
 ### Model answer and verdict
 
@@ -671,7 +722,9 @@ Other review-issue names: `no_matching_label` (above) and `verifier` (decision
   `garbled`, and on `text_layer_mismatch`.
 - Retry message for these two checks: the lines found, plus that the model may
   keep its reading when the text is not visible on the page or was read from an
-  image.
+  image, and that the PDF's stored text can be wrong (letters out of order,
+  broken ligatures, wrong characters), so where the image shows the text
+  differently the model keeps what the image shows.
 
 ### Verifier application
 
@@ -699,6 +752,8 @@ issues and then each selected page's issues in page order.
   `advanced.survey.instructions`; the prompt's "user's instructions" section
   uses it (decision 18).
 - `Profile.user_instructions` is removed.
+- On Anthropic the survey's agent asks for `PromptedOutput` (decision 20); its
+  answer schema, checks and retry rule are unchanged.
 
 ### `run.json`
 
@@ -723,12 +778,13 @@ total.
 - `estimate_extraction` (beside `estimate_survey`) prices the pages that would
   be extracted (selected pages without a reusable page file; all of them with
   `overwrite`). Per page, input tokens are the instructions and context
-  characters divided by `PROMPT_CHARS_PER_TOKEN`, the provider's per-image
-  tokens, and the measured text-layer characters as hints. Expected: one
-  extractor and one verifier request, with typical output that grows with the
-  page's measured characters. Maximum: `check_retries + 1` requests of each
-  agent with `max_output_tokens` each and earlier answers added to input. When
-  the survey runs in the same run, the profile's size is a fixed allowance.
+  characters (the answer schema included) divided by `PROMPT_CHARS_PER_TOKEN`
+  and the provider's per-image tokens; no text-layer characters, since requests
+  carry none (decision 21). Expected: one extractor and one verifier request,
+  with typical output that grows with the page's measured characters. Maximum:
+  `check_retries + 1` requests of each agent with `max_output_tokens` each and
+  earlier answers added to input. When the survey runs in the same run, the
+  profile's size is a fixed allowance.
 - The run's estimate covers the survey when it will run, and extraction when it
   will run in this run (not paused); when the survey runs first, every selected
   page counts as to extract. The estimate, the CLI question, the plan-time check
@@ -794,7 +850,8 @@ are written first.
   concurrent page requests get their page's extractor or verifier answer
   whatever order they arrive in (the first text line names the page; the
   instructions tell the agents apart). It accepts image parts from both
-  providers.
+  providers, and answers every Anthropic request, the survey's included, as JSON
+  text (prompted output), and OpenAI's in their native output format.
 - Canned extraction and verifier answers for the test PDFs live beside the
   survey answers (`CANDIDATE` folder).
 - A rotated test PDF: a copy of an approved test PDF with pages whose rotation
@@ -865,7 +922,10 @@ returns the selected pages' page files. `survey()` is unchanged.
 - `AC-005`: the extraction model is `advanced.extraction.model`, else `model`,
   else `anthropic:claude-opus-5-5`; the survey's is `model`, else its default;
   extraction's default effort is `high`; ledger lines, estimates and
-  fingerprints use each step's resolved model.
+  fingerprints use each step's resolved model. Survey, extractor and verifier
+  requests to Anthropic carry no native output format and their instructions
+  hold the answer's JSON schema; to OpenAI they carry the JSON-schema output
+  format.
 - `AC-006`: both example files hold every setting at its default, including
   `pages`, `pause`, `model: null`, `advanced.survey.instructions` and
   `advanced.extraction`, hold no top-level `instructions`, and load without a
@@ -922,7 +982,8 @@ returns the selected pages' page files. `survey()` is unchanged.
 - `AC-022`: the comparison meets the guarantee under **Text comparison** on
   Arabic, Chinese, Japanese and English test pages.
 - `AC-023`: text failures retry with the message described; leftovers are review
-  issues; skipped pages record the reason in `text_comparison`.
+  issues; skipped pages record the reason in `text_comparison`. No extractor or
+  verifier request holds the page's text-layer lines.
 - `AC-024`: every extracted page has exactly one verifier verdict; the kept
   answer is the correction only when it passes every check; otherwise each
   verifier problem is a `verifier` issue.
@@ -984,7 +1045,9 @@ code they cover.
 2. **Costs and models.** `MODIFY` `costs/budget.py` (reservations, expected-cost
    plan check), `costs/schemas.py`, `providers/ledger_model.py` (images, step
    model, page and agent context, reservations), `providers/factory.py` (step
-   model; one client per step, one ledger wrapper per page and agent).
+   model; one client per step, one ledger wrapper per page and agent; output
+   mode from the provider profile), `providers/profiles.py` (each provider's
+   output mode).
 3. **Extraction core.** `CREATE` `extracting/__init__.py`, `schemas.py`,
    `prompts.py`, `validators.py`, `agents.py`, `llm.py`, and the rendering and
    text-layer modules (`CANDIDATE` names); `MODIFY` `schema_versions.py`,
@@ -1016,6 +1079,17 @@ code they cover.
 - Text layers that store right-to-left text in visual order, vertical text with
   unusual line order, or legacy font encodings rated `good` can mislead the
   comparison; the reversed-line match and `text_layer_mismatch` reduce this.
+  Stored text with broken ligatures still differs from a correct reading on
+  short lines: on the Arabic test page, hand-corrected body lines keep 67–84% of
+  their trigrams in the stored text and pass, while a short numbered heading
+  keeps 12% and fails. Such pages spend their check retries and list those lines
+  for review. Judging each page's stored text against the model's reading is a
+  possible later improvement.
+- Without text-layer hints, exact spelling on clean pages rests on the image at
+  about 200 DPI; the comparison still catches dropped and added lines.
+- Prompted output has no grammar behind it, so an Anthropic answer that is not
+  valid JSON costs a retry, and on the last allowed attempt fails the survey or
+  the page and stops the run.
 - Image limits are provider documentation as of November 2026 (Anthropic's
   vision guide for Opus 4.7 and later; OpenAI's images guide). Older Claude
   models shrink the image to their own lower limit, which the grid coordinates
@@ -1067,3 +1141,14 @@ code they cover.
 - **A shared instructions setting for every step**: replaced by the user's
   choice of instructions per step, since each step's instructions are specific
   to it.
+- **Native output on Anthropic with a smaller answer schema**: rejected. Nested
+  or union content also counts against Anthropic's union-type limit, the error
+  in the real run was a grammar-size limit that is not published, and fitting
+  the schema to it would trade the flat answer (decision 7) for a guess.
+- **Native output on Anthropic for the survey, whose answer fits today**:
+  rejected by the user's choice. Anthropic's limits can change, and one output
+  mode per provider is simpler than one per step.
+- **Text-layer hints with a prompt that trusts the image** (the first design
+  sent them when the measured quality was `good`): rejected after the Arabic
+  run. Any hint invites copying stored text the survey cannot judge, and makes
+  the text checks compare the stored text with itself.

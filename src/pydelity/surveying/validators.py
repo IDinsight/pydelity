@@ -155,8 +155,8 @@ def _page_number_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]
         issues.append(
             _issue(
                 "page_number_differs",
-                f"page {page.index} has the number {measured.value} in its {where}, "
-                f"but the profile gives {gives}",
+                f"page index {page.index} has the number {measured.value} in its "
+                f"{where}, but the profile gives {gives}",
                 details={
                     "measured": measured.value,
                     "profile": profile,
@@ -243,7 +243,7 @@ def _range_failures(
         failures.append(
             _failure(
                 check,
-                f"range {first}-{last} is not inside the PDF's pages 0-"
+                f"range {first}-{last} is not inside the PDF's page indexes 0-"
                 f"{page_count - 1}, or ends before it starts",
                 details={
                     "page_count": page_count,
@@ -259,7 +259,7 @@ def _range_failures(
             failures.append(
                 _failure(
                     check,
-                    f"page {page} is in {count} ranges; ranges must not overlap",
+                    f"page index {page} is in {count} ranges; ranges must not overlap",
                     details={"proposed": count},
                     page_index=page,
                 )
@@ -298,8 +298,8 @@ def _rotation_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
         issues.append(
             _issue(
                 "rotation_differs",
-                f"page {page.index} needs {measured} degrees by its measured text "
-                f"angle, but the profile gives {profile}",
+                f"page index {page.index} needs {measured} degrees by its measured "
+                f"text angle, but the profile gives {profile}",
                 details={"measured": measured, "profile": profile},
                 page_index=page.index,
             )
@@ -424,8 +424,8 @@ def check_labels(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
         failures.append(
             _failure(
                 "labels",
-                f"a region on page {page} uses label {region.label!r}, which is not "
-                "one of the labels",
+                f"a region on page index {page} uses label {region.label!r}, which is "
+                "not one of the labels",
                 details={"proposed": region.label},
                 page_index=page if 0 <= page < page_count else None,
             )
@@ -518,8 +518,8 @@ def check_regions(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
             failures.append(
                 _failure(
                     "regions",
-                    f"a region is on page {page}, but the PDF has pages 0-"
-                    f"{page_count - 1}",
+                    f"a region is on page index {page}, but the PDF's page indexes "
+                    f"are 0-{page_count - 1}",
                     details={"page_count": page_count, "proposed": page},
                     page_index=None,
                 )
@@ -532,7 +532,7 @@ def check_regions(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
         failures.append(
             _failure(
                 "regions",
-                f"a region on page {page} has the box {values}; a box needs "
+                f"a region on page index {page} has the box {values}; a box needs "
                 "0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1",
                 details={"proposed": values},
                 page_index=page,

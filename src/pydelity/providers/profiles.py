@@ -28,6 +28,10 @@ if TYPE_CHECKING:
 # How hard the model thinks before answering.
 type Effort = Literal["low", "medium", "high"]
 
+# How a model gives structured output: the provider's own structured output, or a
+# schema in the prompt. Forced tool choice is never used, since some models reject it.
+type OutputMode = Literal["native", "prompted"]
+
 # How a PDF reaches the provider: uploaded through its Files API, or sent inside the
 # request itself.
 type PdfTransport = Literal["upload", "request"]
@@ -171,6 +175,11 @@ class ProviderProfile:
         The shortest upload expiry the provider allows.
     name
         The provider's name, as written in a model setting.
+    output_mode
+        How every step asks the provider for structured output. ``prompted`` puts
+        the answer's JSON schema in the instructions and checks the answer after it
+        arrives; ``native`` uses the provider's own structured output where the
+        model supports it.
     pdf_image_tokens_per_page
         Estimated input tokens for the image of one PDF page.
     pdf_text_tokens_per_page
@@ -190,6 +199,7 @@ class ProviderProfile:
     max_upload_expiry_hours: int
     min_upload_expiry_hours: int
     name: ProviderName
+    output_mode: OutputMode
     pdf_image_tokens_per_page: int
     pdf_text_tokens_per_page: int
     pdf_transports: tuple[PdfTransport, ...]
@@ -245,6 +255,9 @@ PROFILES: dict[ProviderName, ProviderProfile] = {
         max_upload_expiry_hours=_ANTHROPIC_UPLOAD_EXPIRY_HOURS[1],
         min_upload_expiry_hours=_ANTHROPIC_UPLOAD_EXPIRY_HOURS[0],
         name="anthropic",
+        # Anthropic compiles a native output schema into a grammar whose limits the
+        # page answer exceeds, and those limits can change.
+        output_mode="prompted",
         pdf_image_tokens_per_page=_ANTHROPIC_PDF_IMAGE_TOKENS,
         pdf_text_tokens_per_page=_ANTHROPIC_PDF_TEXT_TOKENS,
         pdf_transports=("upload", "request"),
@@ -262,6 +275,7 @@ PROFILES: dict[ProviderName, ProviderProfile] = {
         max_upload_expiry_hours=_OPENAI_UPLOAD_EXPIRY_HOURS[1],
         min_upload_expiry_hours=_OPENAI_UPLOAD_EXPIRY_HOURS[0],
         name="openai",
+        output_mode="native",
         pdf_image_tokens_per_page=_OPENAI_PDF_IMAGE_TOKENS,
         pdf_text_tokens_per_page=_OPENAI_PDF_TEXT_TOKENS,
         pdf_transports=("upload", "request"),

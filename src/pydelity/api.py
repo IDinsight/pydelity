@@ -10,12 +10,15 @@ works anywhere.
 - `measure` measures the PDF and saves ``pdf_facts.json``, with no API key or model.
 - `estimate` estimates the cost of a run and writes nothing.
 - `survey` runs the survey step alone and saves ``pdf_survey.json``.
+- `extract` extracts the selected pages, running or reusing the survey first, and
+  saves a page file for each in ``pages/``.
 - `run` runs the whole pipeline and records it in ``run.json`` and ``report.html``.
 - `load` reads an output folder back.
 
 None of them prompts for input. The ``pydelity`` command calls `arun_with_questions`
 instead, which can ask for confirmation on the terminal before spending money on model
-requests.
+requests. Every function except `load` turns PydanticAI's first-run banner off before
+any model is asked, since pydelity's agents are its own.
 """
 
 # Standard Library
@@ -25,6 +28,8 @@ import os
 from pathlib import Path
 
 # Third Party Library
+import pydantic_ai
+
 from loguru import logger
 
 # Package Library
@@ -32,10 +37,12 @@ from pydelity.config.loading import ConfigSource, resolve_config
 from pydelity.config.schemas import Config
 from pydelity.costs.budget import OverMaxCostDecision
 from pydelity.costs.schemas import CostEstimate, MaxCostWarning
+from pydelity.extracting.schemas import PageFile
 from pydelity.pipeline.runner import (
     SpendConfirmation,
     load_run,
     run_estimate,
+    run_extraction_step,
     run_measure,
     run_pipeline,
     run_survey_step,
@@ -73,7 +80,7 @@ def _resolve(
     pdf: str | os.PathLike[str] | None,
     settings: dict[str, object],
 ) -> Config:
-    """Combine and check the settings, and log them.
+    """Turn PydanticAI's banner off, then combine and check the settings, and log them.
 
     Parameters
     ----------
@@ -95,6 +102,9 @@ def _resolve(
         Listing every invalid setting, or naming a config file that cannot be read.
     """
 
+    # PydanticAI documents setting this flag, but declares it without a type, so ty
+    # reads it as always true.
+    pydantic_ai.BANNER_ENABLED = False  # ty: ignore[invalid-assignment]
     resolved = resolve_config(config=config, pdf=pdf, settings=settings)
     logger.info("Settings OK")
     logger.debug(
@@ -117,8 +127,10 @@ async def aestimate(
     """Estimate what a run on a PDF would cost, writing nothing and calling no model.
 
     The saved facts are used when they match, and otherwise the PDF is measured
-    without saving them. A survey that would be reused costs nothing. No API key is
-    needed.
+    without saving them. A survey or page file that would be reused costs nothing.
+    The estimate covers page extraction whenever the run would extract pages: the
+    selected pages without a page file to reuse, or every selected page when the
+    survey runs first and the run would not pause. No API key is needed.
 
     Parameters
     ----------
@@ -140,13 +152,77 @@ async def aestimate(
     Raises
     ------
     ConfigError
-        Listing every invalid setting, or naming a config file that cannot be read.
+        Listing every invalid setting, or naming a config file that cannot be read,
+        or ``pages`` naming a page past the PDF's last page.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
     """
 
     resolved = _resolve(config=config, pdf=pdf, settings=settings)
     return await run_estimate(config=resolved)
+
+
+async def aextract(
+    pdf: str | os.PathLike[str] | None = None,
+    *,
+    allow_over_max_cost: bool = False,
+    config: ConfigSource | None = None,
+    **settings: object,
+) -> list[PageFile]:
+    """Extract a PDF's selected pages, running or reusing the survey first.
+
+    The survey saved in ``pdf_survey.json`` is reused when its inputs are unchanged;
+    otherwise the survey runs. Then each selected page's page file is reused when
+    its inputs are unchanged, and the other pages are extracted, several at a time,
+    and saved in ``pages/``, with figure images in ``figures/``. It never pauses,
+    writes no ``run.json`` and no report, and does not prompt for input.
+
+    Parameters
+    ----------
+    pdf
+        The PDF. Overrides a ``pdf`` in ``config``.
+    allow_over_max_cost
+        Whether to continue, with a warning, when the run could exceed ``max_cost``.
+        If false, such a run raises `BudgetExceededError` instead.
+    config
+        A JSON or YAML config file, a `pydelity.config.schemas.Config`, or a mapping
+        of settings.
+    **settings
+        Settings by name, such as ``pages="1-5,8"`` or
+        ``advanced={"extraction": {"concurrent_pages": 4}}``. They override
+        ``config``.
+
+    Returns
+    -------
+    list[PageFile]
+        The selected pages' page files, in page order.
+
+    Raises
+    ------
+    BudgetExceededError
+        If the run could go over ``max_cost`` and ``allow_over_max_cost`` is not set.
+    ConfigError
+        Listing every invalid setting, or naming a config file that cannot be read,
+        or ``pages`` naming a page past the PDF's last page.
+    ExtractionError
+        If a model refuses, runs out of output tokens, or never gives a usable
+        answer for a page.
+    MissingApiKeyError
+        If the API key of a step's provider is not set.
+    PdfError
+        If the PDF is empty, password-protected or cannot be opened.
+    ProviderError
+        If the provider rejects the upload for an invalid API key or as too large, or
+        a request fails after the provider retries.
+    SurveyError
+        If the survey's model refuses, runs out of output tokens, or never gives an
+        answer that matches the survey's answer format.
+    """
+
+    resolved = _resolve(config=config, pdf=pdf, settings=settings)
+    return await run_extraction_step(
+        config=resolved, decide_over_max_cost=_fixed_decision(allow_over_max_cost)
+    )
 
 
 async def ameasure(
@@ -199,10 +275,13 @@ async def arun(
     The run validates the settings, opens the PDF and measures it, or reuses the facts
     saved in ``pdf_facts.json`` in the output folder. It then reuses the survey saved
     in ``pdf_survey.json`` when its inputs are unchanged. Otherwise it checks the
-    provider's API key and the cost estimate against ``max_cost``, uploads the PDF (or
-    reuses its upload from ``uploads.json``), asks the model to survey it and saves
-    ``pdf_survey.json``. It records the run in ``run.json`` and ``report.html``, also
-    when it fails or stops, and does not prompt for input.
+    providers' API keys and the cost estimate against ``max_cost``, uploads the PDF
+    (or reuses its upload from ``uploads.json``), asks the model to survey it and saves
+    ``pdf_survey.json``. With ``pause`` on, the default, a run that made a new survey
+    ends there with status ``paused``, so the survey can be checked first; the next
+    run goes on. Page extraction then reuses or writes a page file in ``pages/`` for
+    each selected page. The run is recorded in ``run.json`` and ``report.html``, also
+    when it fails, stops or pauses, and does not prompt for input.
 
     Parameters
     ----------
@@ -215,22 +294,28 @@ async def arun(
         A JSON or YAML config file, a `pydelity.config.schemas.Config`, or a mapping
         of settings.
     **settings
-        Settings by name, such as ``model="openai:gpt-6.2-astra"`` or
-        ``advanced={"survey": {"effort": "medium"}}``. They override ``config``.
+        Settings by name, such as ``model="openai:gpt-6.2-astra"``, ``pages="1-5"``,
+        ``pause=False`` or ``advanced={"survey": {"effort": "medium"}}``. They
+        override ``config``.
 
     Returns
     -------
     RunResult
-        The run's record, facts, survey and the output folder's ledger.
+        The run's record, facts, survey, selected pages' page files and the output
+        folder's ledger.
 
     Raises
     ------
     BudgetExceededError
         If the run could go over ``max_cost`` and ``allow_over_max_cost`` is not set.
     ConfigError
-        Listing every invalid setting, or naming a config file that cannot be read.
+        Listing every invalid setting, or naming a config file that cannot be read,
+        or ``pages`` naming a page past the PDF's last page.
+    ExtractionError
+        If a model refuses, runs out of output tokens, or never gives a usable
+        answer for a page.
     MissingApiKeyError
-        If the selected provider's API key is not set.
+        If the API key of a step's provider is not set.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
     ProviderError
@@ -282,16 +367,21 @@ async def arun_with_questions(
     Returns
     -------
     RunResult
-        The run's record, facts, survey and the output folder's ledger.
+        The run's record, facts, survey, selected pages' page files and the output
+        folder's ledger.
 
     Raises
     ------
     BudgetExceededError
         If the run could go over ``max_cost`` and the decision is no.
     ConfigError
-        Listing every invalid setting, or naming a config file that cannot be read.
+        Listing every invalid setting, or naming a config file that cannot be read,
+        or ``pages`` naming a page past the PDF's last page.
+    ExtractionError
+        If a model refuses, runs out of output tokens, or never gives a usable
+        answer for a page.
     MissingApiKeyError
-        If the selected provider's API key is not set.
+        If the API key of a step's provider is not set.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
     ProviderError
@@ -393,7 +483,8 @@ def estimate(
     Raises
     ------
     ConfigError
-        Listing every invalid setting, or naming a config file that cannot be read.
+        Listing every invalid setting, or naming a config file that cannot be read,
+        or ``pages`` naming a page past the PDF's last page.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
     RuntimeError
@@ -402,6 +493,67 @@ def estimate(
     """
 
     return run_sync(aestimate, config=config, pdf=pdf, **settings)
+
+
+def extract(
+    pdf: str | os.PathLike[str] | None = None,
+    *,
+    allow_over_max_cost: bool = False,
+    config: ConfigSource | None = None,
+    **settings: object,
+) -> list[PageFile]:
+    """Extract a PDF's selected pages (the sync version of `aextract`).
+
+    Parameters
+    ----------
+    pdf
+        The PDF. Overrides a ``pdf`` in ``config``.
+    allow_over_max_cost
+        Whether to continue, with a warning, when the run could exceed ``max_cost``.
+        If false, such a run raises `BudgetExceededError` instead.
+    config
+        A JSON or YAML config file, a `pydelity.config.schemas.Config`, or a mapping
+        of settings.
+    **settings
+        Settings by name. They override ``config``.
+
+    Returns
+    -------
+    list[PageFile]
+        The selected pages' page files, in page order.
+
+    Raises
+    ------
+    BudgetExceededError
+        If the run could go over ``max_cost`` and ``allow_over_max_cost`` is not set.
+    ConfigError
+        Listing every invalid setting, or naming a config file that cannot be read,
+        or ``pages`` naming a page past the PDF's last page.
+    ExtractionError
+        If a model refuses, runs out of output tokens, or never gives a usable
+        answer for a page.
+    MissingApiKeyError
+        If the API key of a step's provider is not set.
+    PdfError
+        If the PDF is empty, password-protected or cannot be opened.
+    ProviderError
+        If the provider rejects the upload for an invalid API key or as too large, or
+        a request fails after the provider retries.
+    RuntimeError
+        If called while an event loop is running, as in Jupyter or async code. Use
+        ``await pydelity.aextract(...)`` there instead.
+    SurveyError
+        If the survey's model refuses, runs out of output tokens, or never gives an
+        answer that matches the survey's answer format.
+    """
+
+    return run_sync(
+        aextract,
+        allow_over_max_cost=allow_over_max_cost,
+        config=config,
+        pdf=pdf,
+        **settings,
+    )
 
 
 def load(output_dir: str | os.PathLike[str]) -> RunResult:
@@ -418,16 +570,16 @@ def load(output_dir: str | os.PathLike[str]) -> RunResult:
     Returns
     -------
     RunResult
-        The folder's ``run.json``, ``pdf_facts.json``, ``pdf_survey.json`` and
-        ``cost.jsonl``. A part is ``None``, or an empty ledger, when its file is
-        absent.
+        The folder's ``run.json``, ``pdf_facts.json``, ``pdf_survey.json``,
+        ``cost.jsonl`` and every page file in ``pages/``, in page order. A part is
+        ``None``, or empty, when its files are absent.
 
     Raises
     ------
     OutputError
         If the folder does not exist, holds none of those files, or holds one that
         is not valid JSON, does not match its schema or has another major schema
-        version.
+        version, or a page file names a figure image that is missing.
     """
 
     return load_run(Path(output_dir))
@@ -490,22 +642,28 @@ def run(
         A JSON or YAML config file, a `pydelity.config.schemas.Config`, or a mapping
         of settings.
     **settings
-        Settings by name, such as ``model="openai:gpt-6.2-astra"`` or
-        ``advanced={"survey": {"effort": "medium"}}``. They override ``config``.
+        Settings by name, such as ``model="openai:gpt-6.2-astra"``, ``pages="1-5"``,
+        ``pause=False`` or ``advanced={"survey": {"effort": "medium"}}``. They
+        override ``config``.
 
     Returns
     -------
     RunResult
-        The run's record, facts, survey and the output folder's ledger.
+        The run's record, facts, survey, selected pages' page files and the output
+        folder's ledger.
 
     Raises
     ------
     BudgetExceededError
         If the run could go over ``max_cost`` and ``allow_over_max_cost`` is not set.
     ConfigError
-        Listing every invalid setting, or naming a config file that cannot be read.
+        Listing every invalid setting, or naming a config file that cannot be read,
+        or ``pages`` naming a page past the PDF's last page.
+    ExtractionError
+        If a model refuses, runs out of output tokens, or never gives a usable
+        answer for a page.
     MissingApiKeyError
-        If the selected provider's API key is not set.
+        If the API key of a step's provider is not set.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
     ProviderError

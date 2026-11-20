@@ -247,7 +247,7 @@ async def ask_extractor(*, model: StepModel, page: PageInput) -> ModelPage:
     """
 
     context, text_lines = page.context, page.text_lines
-    prompts = extract_page(context, text_lines)
+    prompts = extract_page(context)
     agent = create_extraction_agent(
         check_retries=model.settings.check_retries,
         context=context,
@@ -305,7 +305,7 @@ async def ask_verifier(
     """
 
     context, text_lines = page.context, page.text_lines
-    prompts = verify_page(context, text_lines, answer=answer, failures=failures)
+    prompts = verify_page(context, answer=answer, failures=failures)
     agent = create_verifier_agent(
         check_retries=model.settings.check_retries,
         context=context,

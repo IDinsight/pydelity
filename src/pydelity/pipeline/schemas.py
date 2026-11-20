@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 # Package Library
 from pydelity.costs.schemas import LedgerEntry, Money
 from pydelity.errors import WarningCode
+from pydelity.extracting.schemas import PageFile
 from pydelity.providers.profiles import PdfTransport
 from pydelity.review import ReviewIssue
 from pydelity.surveying.schemas import PdfFacts, PdfSurvey
@@ -191,6 +192,10 @@ class RunResult(BaseModel):
 
     output_dir: Path
     """The output folder."""
+
+    pages: list[PageFile]
+    """Page files, in page order: a run's selected pages that have one, or, read
+    back with `pydelity.load`, every page file in ``pages/``."""
 
     record: RunRecord | None
     """The contents of ``run.json``."""

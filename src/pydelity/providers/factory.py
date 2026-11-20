@@ -10,7 +10,6 @@ It also closes the client when the step is done with the model. The SDKs read
 # Standard Library
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Literal
 
 # Third Party Library
 from anthropic import AsyncAnthropic
@@ -27,11 +26,7 @@ from pydantic_ai.settings import ModelSettings
 from pydelity.config.loading import read_api_key
 from pydelity.config.schemas import Config, ExtractionConfig, SurveyConfig
 from pydelity.providers.ledger_model import LedgerContext, LedgerModel
-from pydelity.providers.profiles import ModelChoice
-
-# How a model gives structured output: the provider's own structured output, or a
-# schema in the prompt. Forced tool choice is never used, since some models reject it.
-type OutputMode = Literal["native", "prompted"]
+from pydelity.providers.profiles import PROFILES, ModelChoice, OutputMode
 
 
 def _provider_model(
@@ -168,7 +163,7 @@ async def build_model(
 
 
 def output_mode(model: Model) -> OutputMode:
-    """Return how a model gives structured output, from its PydanticAI profile.
+    """Return how a model gives structured output.
 
     Parameters
     ----------
@@ -178,10 +173,13 @@ def output_mode(model: Model) -> OutputMode:
     Returns
     -------
     OutputMode
-        ``native`` when the model supports the provider's structured output,
-        otherwise ``prompted``.
+        ``prompted`` when the provider's profile asks for it (Anthropic) or the model
+        has no JSON-schema output, otherwise ``native``.
     """
 
+    provider = PROFILES.get(model.system)
+    if provider is not None and provider.output_mode == "prompted":
+        return "prompted"
     return "native" if model.profile.get("supports_json_schema_output") else "prompted"
 
 

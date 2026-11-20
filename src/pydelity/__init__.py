@@ -15,10 +15,12 @@ from loguru import logger as _logger
 # Package Library
 from pydelity.api import (
     aestimate,
+    aextract,
     ameasure,
     arun,
     asurvey,
     estimate,
+    extract,
     load,
     measure,
     run,
@@ -29,6 +31,7 @@ from pydelity.costs.schemas import CostEstimate
 from pydelity.errors import (
     BudgetExceededError,
     ConfigError,
+    ExtractionError,
     MissingApiKeyError,
     OutputError,
     PdfError,
@@ -37,6 +40,7 @@ from pydelity.errors import (
     PydelityWarning,
     SurveyError,
 )
+from pydelity.extracting.schemas import PageFile
 from pydelity.pipeline.schemas import RunRecord, RunResult
 from pydelity.surveying.schemas import PdfFacts, PdfSurvey
 
@@ -45,8 +49,10 @@ __all__ = [
     "Config",
     "ConfigError",
     "CostEstimate",
+    "ExtractionError",
     "MissingApiKeyError",
     "OutputError",
+    "PageFile",
     "PdfError",
     "PdfFacts",
     "PdfSurvey",
@@ -58,10 +64,12 @@ __all__ = [
     "SurveyError",
     "__version__",
     "aestimate",
+    "aextract",
     "ameasure",
     "arun",
     "asurvey",
     "estimate",
+    "extract",
     "load",
     "measure",
     "run",

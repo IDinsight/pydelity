@@ -189,13 +189,14 @@ class PageRequestSize:
     Attributes
     ----------
     extractor_chars
-        The extraction model's instructions, the page's details, its text-layer hints
-        and the answer format, in characters, without the image.
+        The extraction model's instructions, the page's details and the answer
+        format, in characters, without the image.
     text_chars
-        The page's measured text-layer characters, which an answer repeats.
+        The page's measured text-layer characters, which an answer's text roughly
+        matches.
     verifier_chars
-        The verifier's instructions, the page's details, its text-layer hints and the
-        verdict format, in characters, without the image and the answer it reviews.
+        The verifier's instructions, the page's details and the verdict format, in
+        characters, without the image and the answer it reviews.
     """
 
     extractor_chars: int

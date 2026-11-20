@@ -93,9 +93,10 @@ _OTHER_LABEL = "other"
 
 # What the model may keep when a text check sends its answer back.
 _TEXT_NOTE = (
-    "The page's text layer can hold text that is not visible on the page and lacks "
-    "text inside images. Where a line above is not visible on the page, or you read "
-    "it from an image, keep your reading."
+    "The page's text layer can hold text that is not visible on the page, lacks text "
+    "inside images, and can be wrong: letters out of order, broken ligatures or wrong "
+    "characters. Where a line above is not visible on the page, you read it from an "
+    "image, or the image shows it differently, keep what the image shows."
 )
 
 # Checks an answer against the page's context and returns every failure found.

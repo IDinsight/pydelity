@@ -73,7 +73,7 @@ from pydelity.extracting.validators import (
 )
 from pydelity.review import CheckFailure, ExtractionCheckName, ReviewIssue
 from pydelity.schema_versions import PAGE_SCHEMA_VERSION
-from pydelity.surveying.schemas import Facts, PageFacts, PdfSurvey
+from pydelity.surveying.schemas import Facts, PdfSurvey
 from pydelity.surveying.validators import covering_range
 from pydelity.utils.coroutines import warn
 from pydelity.utils.files import (
@@ -85,9 +85,9 @@ from pydelity.utils.files import (
 from pydelity.utils.fingerprints import fingerprint
 
 # The size of a page's extractor and verifier requests before the survey has made the
-# profile they are built from, in characters, without text-layer hints: the
-# instructions, the profile's labels, the page's details and the answer or verdict
-# format. Rounded up from the measured requests with a small profile.
+# profile they are built from, in characters: the instructions, the profile's labels,
+# the page's details and the answer or verdict format. Rounded up from the measured
+# requests with a small profile.
 _EXTRACTOR_ALLOWANCE_CHARS = 20_000
 _VERIFIER_ALLOWANCE_CHARS = 24_000
 
@@ -314,23 +314,6 @@ async def _extract_page(page: "PlannedPage", *, run: _StepRun) -> PageFile:
         outcome=_verifier_outcome(page_file.verification),
     )
     return page_file
-
-
-def _hint_chars(page: PageFacts) -> int:
-    """Count the text-layer characters sent with a page's requests as hints.
-
-    Parameters
-    ----------
-    page
-        The page's measured facts.
-
-    Returns
-    -------
-    int
-        The page's text-layer characters when its text layer is readable, else 0.
-    """
-
-    return page.text.chars if page.text.quality == "good" else 0
 
 
 def _item(
@@ -1109,20 +1092,16 @@ def request_sizes(
     sizes = []
     for page in pages:
         context = page.inputs.context
-        facts = survey.facts.pages[context.page_index]
-        hints = _hint_chars(facts)
-        extractor = extract_page(context, [])
-        verifier = verify_page(context, [], answer=empty, failures={})
+        extractor = extract_page(context)
+        verifier = verify_page(context, answer=empty, failures={})
         sizes.append(
             PageRequestSize(
                 extractor_chars=len(extractor.system_message)
                 + len(extractor.user_message)
-                + hints
                 + answer_format,
-                text_chars=facts.text.chars,
+                text_chars=survey.facts.pages[context.page_index].text.chars,
                 verifier_chars=len(verifier.system_message)
                 + len(verifier.user_message)
-                + hints
                 + verdict_format,
             )
         )
@@ -1135,7 +1114,7 @@ def request_sizes_before_survey(
     """Size the selected pages' requests before the survey has run.
 
     The requests are built from the survey's profile, so their size is an
-    allowance; each page's text-layer hints are measured.
+    allowance.
 
     Parameters
     ----------
@@ -1150,15 +1129,11 @@ def request_sizes_before_survey(
         Each page's request sizes, in the order of ``page_indexes``.
     """
 
-    sizes = []
-    for page_index in page_indexes:
-        page = facts.pages[page_index]
-        hints = _hint_chars(page)
-        sizes.append(
-            PageRequestSize(
-                extractor_chars=_EXTRACTOR_ALLOWANCE_CHARS + hints,
-                text_chars=page.text.chars,
-                verifier_chars=_VERIFIER_ALLOWANCE_CHARS + hints,
-            )
+    return [
+        PageRequestSize(
+            extractor_chars=_EXTRACTOR_ALLOWANCE_CHARS,
+            text_chars=facts.pages[page_index].text.chars,
+            verifier_chars=_VERIFIER_ALLOWANCE_CHARS,
         )
-    return sizes
+        for page_index in page_indexes
+    ]

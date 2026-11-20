@@ -18,7 +18,7 @@
 `Development`:
 `.standards/docs/development/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-010 is done; approve the files and folders DEV-011 will change before it starts.`
+`DEV-011 is done; approve the files and folders DEV-012 will change before it starts.`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
@@ -32,7 +32,7 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 ## Handoff
 
 `Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
-`Design rerun done (per-step instructions, effort high, -np, image size from provider limits, no 0.1.x compatibility); frame closed.`
+`Design reworked: every step uses prompted output on Anthropic and native output on OpenAI (decision 20); frame closed.`
 
 ## Recovery
 
