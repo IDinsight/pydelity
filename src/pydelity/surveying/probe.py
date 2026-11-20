@@ -251,7 +251,9 @@ def _button_state(
 
     Both come from the PDF's entries, not from the button's appearances, which a
     filled form can lack: ``AS`` is the state the button shows, and ``V``, on the
-    button or on the field it belongs to, is the field's value.
+    button or on the field it belongs to, is the field's value. A radio button that
+    shows off counts as on only when no button of its group shows on and the
+    group's value names one of its on states.
 
     Parameters
     ----------
@@ -277,9 +279,13 @@ def _button_state(
         return state not in {None, "Off"}, value if value is not None else shown
 
     on = shown not in {None, "Off"}
-    if not on and value not in {None, "Off"}:
+    if (
+        not on
+        and value not in {None, "Off"}
+        and not _group_shows_on(document=document, xref=xref)
+    ):
         # A radio group can be saved with every button showing off while its value
-        # names one button's on state.
+        # names one button's on state. When a button shows on, it is the one on.
         on = value in _on_states(document=document, xref=xref)
     return on, value
 
@@ -614,6 +620,37 @@ def _form_field(
         page_index=index,
         type=field_type,
         value=None if value is None or value == "" else str(value),
+    )
+
+
+def _group_shows_on(*, document: pymupdf.Document, xref: int) -> bool:
+    """Tell whether any button of a radio button's group shows on.
+
+    Parameters
+    ----------
+    document
+        The open PDF.
+    xref
+        The radio button's object number.
+
+    Returns
+    -------
+    bool
+        Whether a button in its group's ``Kids`` has an ``AS`` other than ``Off``;
+        ``False`` for a button with no group.
+    """
+
+    kind, value = document.xref_get_key(xref, "Parent/Kids")
+    if kind == "xref":
+        value = document.xref_object(int(value.split(maxsplit=1)[0]), compressed=True)
+    elif kind != "array":
+        return False
+    count = document.xref_length()
+    return any(
+        _name_value(document=document, key="AS", xref=int(reference))
+        not in {None, "Off"}
+        for reference, _, _ in _ARRAY_ITEM.findall(value)
+        if reference and 0 < int(reference) < count
     )
 
 

@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
-`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
+`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -30,9 +30,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FAILURE` `From`: `REVIEWING_IMPLEMENTATION` `FailureType`:
-`IMPLEMENTATION` `Reason`:
-`Implementation review findings F-002 (the probe reads two buttons of one radio group as checked) and F-005 (report item boxes take the item list's styles).`
+`Kind`: `FORWARD` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
+`F-002 and F-005 corrected (DEV-013, DEV-012); Tester reruns for the mixed radio case and the report check.`
 
 ## Recovery
 
@@ -43,7 +42,7 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 `From`: `REVIEWING_IMPLEMENTATION` `Owner`: `DEVELOPING` `FailureType`:
 `IMPLEMENTATION` `Reason`:
 `Implementation review findings F-002 (the probe reads two buttons of one radio group as checked) and F-005 (report item boxes take the item list's styles).`
-`ResumeAt`: `REVIEWING_IMPLEMENTATION` `RerunThrough`: `NONE`
+`ResumeAt`: `REVIEWING_IMPLEMENTATION` `RerunThrough`: `TESTING`
 
 ## Outstanding Obligations
 

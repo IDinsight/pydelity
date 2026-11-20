@@ -206,12 +206,12 @@ figcaption {
   padding-inline-start: 2rem;
 }
 
-.item {
+.items > .item {
   border-block-start: 1px solid var(--border);
   padding-block: 0.5rem;
 }
 
-.item:target {
+.items > .item:target {
   background: var(--highlight);
 }
 
@@ -227,11 +227,11 @@ figcaption {
   white-space: pre-wrap;
 }
 
-.item pre {
+.items > .item pre {
   overflow-x: auto;
 }
 
-.item dd {
+.items > .item dd {
   unicode-bidi: plaintext;
 }
 

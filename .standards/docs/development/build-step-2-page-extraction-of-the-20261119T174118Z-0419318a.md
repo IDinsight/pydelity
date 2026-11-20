@@ -1564,6 +1564,21 @@ uncommitted DEV-018 and DEV-012 changes (macOS arm64, Python 3.13.9).
 - A report shows the issues saved in the page files it reads: the OpenAI run's
   page, written before DEV-018, still lists its 11 text issues.
 
+Correction for
+`.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-005`,
+2026-11-20, on the user's commit `f91aac8` plus the uncommitted corrections
+(macOS arm64, Python 3.13.9, PyMuPDF 2.1).
+
+- `report.css` scopes the item list's rules to the list: `.items > .item`, its
+  `:target`, `pre` and `dd`. The page-image boxes keep `class="box item"`, which
+  the report test asserts, and no longer match them.
+- `dev012_check.py` 35 of 35 again, writing the reports anew. In the built-in
+  browser at 1,400 pixels, on the regenerated `real-anthropic-2` report: all 84
+  item boxes have no padding and are drawn exactly as tall as their page-file
+  boxes (the smallest 4.2 px); `#box-p0000-029` as the target gets the
+  translucent `--target` background `rgba(255, 214, 0, 0.35)`; the list entry
+  `#item-p0000-029` keeps its 8 px padding, border and `--highlight` background.
+
 ---
 
 ### DEV-013 — Probe follow-ups
@@ -1654,6 +1669,21 @@ the uncommitted DEV-013 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
   followed are removed from the open document, which is never saved.
 - `pages_with_tagged_content` still counts every tagged page; only the rating
   leaves out tagged pages without text.
+
+Correction for
+`.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-002`,
+2026-11-20, on the user's commit `f91aac8` plus the uncommitted corrections
+(macOS arm64, Python 3.13.9, PyMuPDF 2.1).
+
+- `_button_state` falls back to the group's `/V` only when `_group_shows_on`
+  finds no button of the group (its parent's `Kids`, direct or through an
+  indirect array) with an `/AS` other than `Off`.
+- Scratchpad `f002_check.py`: 4 of 4. With `/V /B`: A showing on and B off reads
+  `[True, False]` (the review's case); both off reads `[False, True]`; B showing
+  on reads `[False, True]`. With `/V /Off` and both off: `[False, False]`. The
+  committed code fails only the review's case (`[True, True]`).
+- `dev013_check.py` 11 of 11 again, including the all-off radio group and the 10
+  test PDFs' facts unchanged.
 
 ---
 
@@ -2373,6 +2403,36 @@ radio button now carries its group's value; checks compare only checked states);
 an interrupted overwrite can leave an old page file naming a new figure crop; a
 table header cell spanning into body rows shifts body cells in the report; the
 report header names no model for a step that failed.
+
+### Implementation review corrections
+
+Recovery frame 1 (from `REVIEWING_IMPLEMENTATION`, owner `DEVELOPING`,
+2026-11-20) routes two open findings of
+`.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md`
+to Developer. Both are defects in completed steps whose approved intent still
+holds, so DEV-013 and DEV-012 reopen rather than gaining a new step.
+
+- `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-002`
+  (DEV-013, `AC-035`): `_button_state` falls back to the group's `/V` for a
+  radio button that shows off even when another button of the group shows on, so
+  two buttons read as checked. Correction: use the fallback only when no button
+  of the group shows on, as `AC-035` asks.
+- `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-005`
+  (DEV-012, `AC-034`): the page-image boxes (`class="box item"`) match the item
+  list's `.item` and `.item:target` rules, so they get the list's padding and
+  its opaque highlight. Correction: scope those rules to the list
+  (`.items > .item` and its descendants) in `report.css`. The markup, which the
+  report test asserts, stays as it is.
+
+After the corrections, Tester reruns (the findings ask for a mixed radio case
+and a report check), and the frame resumes at `REVIEWING_IMPLEMENTATION`. The
+user approved the files (2026-11-20).
+
+Both corrections are done (2026-11-20): lint, `ty check scripts src tests` and
+interrogate pass; `.venv/bin/python -m pytest -q --numprocesses auto` gives 175
+passed with Tester's updated suite; the DEV-009 to DEV-021 self-checks pass
+again. The frame needs Tester's rerun (`RerunThrough`: `TESTING`) for the mixed
+radio case and the report check the findings ask for.
 
 ### Second design rerun
 
