@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -30,12 +30,19 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
-`Development plan complete: DEV-001 to DEV-018 done; full verification next.`
+`Kind`: `FAILURE` `From`: `TESTING` `FailureType`: `ARCHITECTURE` `Reason`:
+`Text-layer checks conflict with decision 21: verifier corrections fail text checks and are rejected, and the artifacts check needs the stored text; see the plan's review findings.`
 
 ## Recovery
 
-`Active`: `false`
+`Active`: `true`
+
+### Frame 1
+
+`From`: `TESTING` `Owner`: `ARCHITECTING` `FailureType`: `ARCHITECTURE`
+`Reason`:
+`Text-layer checks conflict with decision 21: verifier corrections fail text checks and are rejected, and the artifacts check needs the stored text; see the plan's review findings.`
+`ResumeAt`: `TESTING` `RerunThrough`: `NONE`
 
 ## Outstanding Obligations
 

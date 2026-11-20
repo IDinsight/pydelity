@@ -6,9 +6,8 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
 # Development Plan
 
 `Cycle`: `build-step-2-page-extraction-of-the-20261119T174118Z-0419318a` `Mode`:
-`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`COMPLETE` `Verification Cadence`: `AFTER_IMPLEMENTATION`
-`Current Increment`: `NONE`
+`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`: `COMPLETE`
+`Verification Cadence`: `AFTER_IMPLEMENTATION` `Current Increment`: `NONE`
 
 ## Implementation Contract
 
@@ -1841,24 +1840,25 @@ uncommitted DEV-016 changes (macOS arm64, Python 3.13.9, Node 23.10.0, pnpm).
 
 - `.venv/bin/ruff check`, `ruff format --check`, `ty check` and `interrogate` on
   `scripts`: passed (100%).
-- The generator then Prettier (`prek exec prettier-markdown -- node
-  scripts/format_markdown.mjs`), run twice: the 11 reference pages are
-  byte-identical (SHA-1 of each). New: `page-json.md` (`pages/<NNNN>.json`,
-  every field of `PageFile` and each model inside it) and
-  `extraction-checks.md` (the 11 checks in the order they run, how text is
-  compared, and the `no_matching_label` and `verifier` issues). Changed: the
-  side-panel order of `run-json.md`, `cost-jsonl.md`, `uploads-json.md` and
-  `survey-checks.md`, and `python-api.md` now links `PageFile` to its page. The
-  settings, CLI, Python API, `run.json` and `cost.jsonl` pages already came from
-  the code and needed no other change.
+- The generator then Prettier
+  (`prek exec prettier-markdown -- node scripts/format_markdown.mjs`), run
+  twice: the 11 reference pages are byte-identical (SHA-1 of each). New:
+  `page-json.md` (`pages/<NNNN>.json`, every field of `PageFile` and each model
+  inside it) and `extraction-checks.md` (the 11 checks in the order they run,
+  how text is compared, and the `no_matching_label` and `verifier` issues).
+  Changed: the side-panel order of `run-json.md`, `cost-jsonl.md`,
+  `uploads-json.md` and `survey-checks.md`, and `python-api.md` now links
+  `PageFile` to its page. The settings, CLI, Python API, `run.json` and
+  `cost.jsonl` pages already came from the code and needed no other change.
 - `just lint`: `docs-reference` and `lint-markdown` pass; `lint-python` stops at
   the 2 known ty errors in `tests/` (`Config.instructions`,
-  `Profile.user_instructions`), which are Tester's. `ruff check scripts src
-  tests` passes, and `zizmor --persona=auditor --offline .` reports nothing.
-- `just docs-build` (`pnpm install --frozen-lockfile`, `pnpm run build`, `pnpm
-  run check-links`): 27 pages built, every local link and fragment resolves. The
-  built `page-json` page's heading reads `pages/<NNNN>.json`, and both new pages
-  are in the Reference side panel.
+  `Profile.user_instructions`), which are Tester's.
+  `ruff check scripts src tests` passes, and
+  `zizmor --persona=auditor --offline .` reports nothing.
+- `just docs-build` (`pnpm install --frozen-lockfile`, `pnpm run build`,
+  `pnpm run check-links`): 27 pages built, every local link and fragment
+  resolves. The built `page-json` page's heading reads `pages/<NNNN>.json`, and
+  both new pages are in the Reference side panel.
 - `.venv/bin/python -m pytest -q --numprocesses auto`: 81 passed, 24 failed, the
   same 24 as before.
 - Process wording grep of the added script lines and both new pages: no hits.
@@ -2060,6 +2060,48 @@ uncommitted DEV-018 changes (macOS arm64, Python 3.13.9, PydanticAI 2.69).
 
 ## Plan Notes
 
+### Review findings sent to the Architect
+
+After the plan was complete, the user asked for a review of this session's code
+(2026-11-20), keeping only major issues. Two findings conflict with decision 21
+(the page image decides the text). The user sent both to the Architect. No code
+changed.
+
+1. **Verifier corrections and the text checks.** The verifier's output validator
+   (`extracting/agents.py`, `run_checks` on `verdict.corrected` near line 210)
+   runs every check on a correction, `text_dropped` and `text_added` included,
+   and asks again while retries remain. `_kept_answer`
+   (`extracting/extraction.py`, line 393) applies a correction only when it
+   fails no check. On a page whose stored text differs from what is printed
+   (broken letter forms, as on `irs_pub1_arabic.pdf`), a correction that reads
+   the image correctly fails the text checks just as the extraction did. The
+   verifier is retried for failures it cannot fix, its correction is rejected,
+   and its problems become `verifier` review issues. So the verifier can never
+   improve such a page. Decision 10 and `AC-024` ("a corrected extraction that
+   passes the code checks") require this. Decisions 9 and 21, the verifier
+   prompt ("the image decides") and the retry note (`_TEXT_NOTE`: "keep what the
+   image shows") point the other way. Confirmed by calling `_kept_answer` with
+   only `text_dropped` failures on the correction: rejected, extraction kept.
+2. **The `artifacts` check and stored text.** `check_artifacts`
+   (`extracting/validators.py`, line 701) requires each repeated line the survey
+   classed as page furniture, in `normalize_line` form (NFKC, case-folded,
+   spacing collapsed, digit runs as `#`), to appear inside an `artifact` item's
+   text. Repeated lines come from the stored text. So on such PDFs a running
+   header read correctly from the image never matches. The check fails on every
+   attempt and spends the page's check retries. It stays a review issue when the
+   verifier passes the page, since `AC-062` exempts only `text_dropped` and
+   `text_added`. Through finding 1, it also blocks every verifier correction.
+   Not run on a real PDF: the Arabic test PDF has one page and no repeated
+   lines.
+
+Also found and judged not major, so left as they are: an inline (direct) widget
+dictionary makes the probe lose every form field; a dangling outline link loses
+every bookmark; checkbox and radio `value`s changed on ordinary forms (an off
+radio button now carries its group's value; checks compare only checked states);
+an interrupted overwrite can leave an old page file naming a new figure crop; a
+table header cell spanning into body rows shifts body cells in the report; the
+report header names no model for a step that failed.
+
 ### Handoff to Tester
 
 Every step, DEV-001 to DEV-018, is `DONE` (2026-11-20). Each step's evidence
@@ -2074,28 +2116,34 @@ DEV-001, DEV-010 and DEV-011. `ty check tests` reports 2 errors, for the same
 reason. They are:
 
 - `config/test_loading.py::test_config_file_paths_resolve_against_its_folder_and_keywords_win`
-- `costs/test_budget.py`: `test_an_unpriced_model_without_max_cost_runs_and_records_no_price`,
+- `costs/test_budget.py`:
+  `test_an_unpriced_model_without_max_cost_runs_and_records_no_price`,
   `test_earlier_spend_counts_and_a_disallowed_run_stops_resumably`,
   `test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing`
-- `pipeline/test_runner.py`: `test_a_failed_survey_saves_no_survey_and_its_spend_counts_next_time`,
+- `pipeline/test_runner.py`:
+  `test_a_failed_survey_saves_no_survey_and_its_spend_counts_next_time`,
   `test_a_rerun_with_unchanged_survey_inputs_reuses_everything`,
   `test_changing_a_survey_input_or_overwrite_reruns_the_survey[instructions]`,
   `test_no_output_file_holds_the_api_key`
 - `providers/test_ledger_model.py::test_fewer_temporary_failures_than_the_retries_still_complete`
-- `providers/test_uploads.py`: `test_a_failed_upload_falls_back_to_sending_the_pdf_in_the_request`,
+- `providers/test_uploads.py`:
+  `test_a_failed_upload_falls_back_to_sending_the_pdf_in_the_request`,
   `test_a_file_the_provider_no_longer_has_is_uploaded_again_once`
 - `report/test_html.py`: `test_page_images_are_rendered_only_when_missing`,
   `test_report_escapes_text_from_the_pdf_the_user_and_the_model`
-- `surveying/test_survey.py`: `test_answers_that_differ_from_the_facts_are_kept_and_listed_by_page`,
+- `surveying/test_survey.py`:
+  `test_answers_that_differ_from_the_facts_are_kept_and_listed_by_page`,
   `test_checks_still_failing_after_the_retries_are_listed_for_review`,
   `test_request_sends_the_facts_as_hints_with_every_repeated_line`,
   `test_user_languages_lead_and_rejected_model_tags_become_review_issues`
-- `surveying/test_validators.py`: `test_labels_check_finds_empty_repeated_kindless_and_unknown_labels`,
+- `surveying/test_validators.py`:
+  `test_labels_check_finds_empty_repeated_kindless_and_unknown_labels`,
   `test_page_numbering_check_finds_ranges_outside_the_pdf_and_overlaps`,
   `test_rotation_check_finds_ranges_outside_the_pdf_and_overlaps`,
   `test_writing_direction_check_finds_ranges_outside_the_pdf_and_overlaps`
 - `test_api.py::test_async_run_gives_what_run_gives_with_the_same_warnings`
-- `test_cli.py`: `test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment`,
+- `test_cli.py`:
+  `test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment`,
   `test_over_max_cost_warns_then_a_yes_completes_with_one_question`
 
 Contract changes after DEV-011 that tests may touch:
@@ -2109,7 +2157,6 @@ Contract changes after DEV-011 that tests may touch:
 
 Not yet run: CI on GitHub, including the wheel jobs on ubuntu, macOS and
 Windows, which run after the user pushes.
-
 
 ### Suspended Assignment 1
 
