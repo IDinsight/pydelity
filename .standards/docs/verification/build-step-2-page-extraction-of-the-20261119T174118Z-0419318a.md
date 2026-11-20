@@ -6,7 +6,7 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
 # Verification Report
 
 `Cycle`: `build-step-2-page-extraction-of-the-20261119T174118Z-0419318a` `Mode`:
-`VERIFY` `Status`: `COMPLETE` `User Style`: `tony` `Assessment Purpose`: `FULL`
+`REVERIFY` `Status`: `COMPLETE` `User Style`: `tony` `Assessment Purpose`: `FULL`
 `Assessment Target`: `NONE`
 
 ## Assessed Inputs
@@ -21,14 +21,17 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
 - Context `.standards/CONTEXT.md` (blob `be80a93c12`).
 - Development plan
   `.standards/docs/development/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
-  (blob `ee8450ca87`), `COMPLETE`, DEV-001 to DEV-021 `DONE`, cadence
-  `AFTER_IMPLEMENTATION`, `Current Increment: NONE`.
+  (blob `bf0636cfd9`), `COMPLETE`, DEV-001 to DEV-021 `DONE`, cadence
+  `AFTER_IMPLEMENTATION`, `Current Increment: NONE`; DEV-012 and DEV-013 hold
+  the corrections for review findings `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-002` and `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-005`.
 - Implementation under test: `src/`, `scripts/`, `examples/`, `docs/`,
-  `.github/`, `CHANGELOG.md` and `pyproject.toml` exactly as at `5ecbf9d` on
-  `tz6/pipeline-step-2`; `git diff 5ecbf9d a0afbfa` touches only `tests/` and
-  `.standards/`. Active change: `git diff c7582e7..5ecbf9d` outside
-  `.standards/`, `.claude/` and `artifacts/`. Assessed head: `a0afbfa`, clean
-  tree.
+  `.github/`, `CHANGELOG.md` and `pyproject.toml` exactly as at `5a6800b` on
+  `tz6/pipeline-step-2`. Since the first full verification (`5ecbf9d`), the only
+  source change is `5a6800b`: `src/pydelity/surveying/probe.py`
+  (`_button_state`, new `_group_shows_on`) and `src/pydelity/report/report.css`
+  (the item list's rules scoped to `.items > .item`). Active change: `git diff
+  c7582e7..5a6800b` outside `.standards/`, `.claude/`, `artifacts/` and
+  `tests/`. Assessed head: `5a6800b` plus two uncommitted test files (below).
 - Tester's changes: committed by the user as `936003e` (draft pull request
   IDinsight/pydelity#10, tests SHA-256 `ac1ecfc7db455bdb…` over the sorted `.py`,
   `.json` and `.md` files under `tests/`, PDFs excluded): 12 modified test
@@ -36,18 +39,25 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
   `test_rendering.py`, `test_text_layer.py`, `test_validators.py`), fixtures
   `canned_answers` and `profile_labels`. The correction to
   `tests/pydelity/test_cli.py` below, committed by the user as `a0afbfa`. Tests
-  SHA-256 at `a0afbfa`: `727cfaf282be9331…`. No change to `tests/fixtures/`. `936003e` changes nothing outside `tests/` and
-  `.standards/` (the plan's change there is line reflow by the commit hook).
+  SHA-256 at `a0afbfa`: `727cfaf282be9331…`. For the review corrections,
+  uncommitted: `tests/pydelity/surveying/test_probe.py` (the radio test becomes
+  two rows, adding the mixed case) and `tests/pydelity/report/test_html.py` (a
+  test of which styles reach the item boxes). Tests SHA-256 now:
+  `52f7356cafa5ffcf…`. No change to `tests/fixtures/`. `936003e` changes nothing
+  outside `tests/` and `.standards/` (the plan's change there is line reflow by
+  the commit hook).
 - Environment: macOS arm64; Python 3.13.9 (repo `.venv`) and CPython 3.14.10 (a
   separate environment from `uv.lock`, `uv sync --locked --python 3.14`). `uv
   run` cannot reach its cache inside the sandbox, so tools run from the
   environments' `bin/` folders. pip, `gh` and prek ran outside the sandbox
   because its network proxy fails their TLS checks or blocks prek's log.
-- Reason: first formal verification of this cycle (no earlier report); the
-  previous `TESTING` entry was interrupted by recovery frame 1 before a report
-  was written. Session metadata is not visible; this chat holds no Developer
-  history. It resumed once after a client restart; the work found on disk was
-  reviewed before reuse (see Execution Evidence).
+- Reason: REVERIFY in the rerun that recovery frame 1 asks for (from
+  `REVIEWING_IMPLEMENTATION`, owner `DEVELOPING`, `RerunThrough: TESTING`,
+  `ResumeAt: REVIEWING_IMPLEMENTATION`): Developer corrected findings
+  `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-002` and `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-005`, which ask Tester for a mixed radio case and a report check. The return to
+  Reviewer needs the full gate, so the assessment stays `FULL`. The first full
+  verification (`VERIFY`, on `a0afbfa`) is the history below. Session metadata
+  is not visible; this chat holds no Developer history.
 - Project references loaded: `NONE` (`.standards/project-references/tester/`
   does not exist). Shipped reference loaded:
   `.claude/skills/tester/references/llm-api-testing.md` guidance applied through
@@ -79,7 +89,7 @@ no test reaches a provider.
 | AC-013 | `test_the_same_answer_gives_the_same_items…` (crop named after its item, cut at 200 DPI); `test_a_page_file_naming_a_missing_crop…`; upright crop (`test_rendering.py`); report shows it | VERIFIED |
 | AC-014 | `caption_of` becomes the figure's ID (`test_an_answer_becomes_a_page_file…`); captions check | VERIFIED |
 | AC-056 | Container IDs and boxes, items name them (`test_an_answer_becomes_a_page_file…`); containers check; report draws them | VERIFIED |
-| AC-016 | Form-fields check (`test_validators.py`); printed-form field value with `fillable_name: null` (`test_an_answer_becomes_a_page_file…`); scanned-form checkbox items (canned answers) | VERIFIED |
+| AC-016 | Form-fields check (`test_validators.py`); printed-form field value with `fillable_name: null` (`test_an_answer_becomes_a_page_file…`); scanned-form checkbox items (canned answers); a mixed radio group's facts give one checked button (`test_probe.py`, `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-002`) | VERIFIED |
 | AC-017 | One full-page figure passes every check (`test_validators.py`); five one-figure pages kept with no issues (`test_no_more_pages_run_at_once…`) | VERIFIED |
 | AC-018 | Artifacts check by position (`test_validators.py`, 2 scenarios: one covered place passes with differing text; uncovered fails naming places; malformed box ignored without error); furniture places on a turned page (`extracting/test_text_layer.py`); a real header passes every check (`test_each_page_request_carries…`) | VERIFIED |
 | AC-019 | `test_an_inconsistent_survey_still_gives_every_page_a_context` (overlapping, gapped and out-of-PDF ranges; repeated, conflicting and unknown artifact IDs) | VERIFIED |
@@ -99,8 +109,8 @@ no test reaches a provider.
 | AC-031 | Unchanged rerun reuses all (`test_runner.py`); `test_page_files_rerun…` (instructions, wider selection, `overwrite`); fingerprint covers all page inputs (inspection of `page_fingerprint`) | VERIFIED |
 | AC-032 | Damaged page file regenerated with a warning (`test_run_json_records_each_step…`); missing crop regenerated and leftover temp files removed (`test_a_page_file_naming_a_missing_crop…`); atomic writes (`utils/test_files.py`) | VERIFIED |
 | AC-033 | `test_a_failed_page_stops_the_run…` (provider error stops the run, written page kept, report written, next run requests only the missing pages); `test_a_model_that_never_answers…` (`ExtractionError` naming page and role) | VERIFIED |
-| AC-034 | `report/test_html.py::test_report_draws_extracted_items_numbered…` | VERIFIED |
-| AC-035 | `surveying/test_probe.py` (checkbox without appearances; one unreadable widget; radio group all off with a value) | VERIFIED |
+| AC-034 | `report/test_html.py::test_report_draws_extracted_items_numbered…`; `test_item_boxes_take_only_the_box_styles_and_the_item_list_keeps_its_own` (`.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-005`: no rule that can reach an item box gives padding, its `:target` shade is `var(--target)`, the list entry keeps padding and `var(--highlight)`); browser measurement (Execution Evidence) | VERIFIED |
+| AC-035 | `surveying/test_probe.py` (checkbox without appearances; one unreadable widget; `test_radio_group_value_turns_on_its_button_only_when_none_shows_on`: all off reads the value, one showing on stays the only one on) | VERIFIED |
 | AC-036 | `test_letter_page_labels_give_no_page_number` | VERIFIED |
 | AC-037 | `test_structure_kids_stored_in_a_separate_array…`, `test_structure_walk_cut_short…`, `test_tagged_pages_without_text…` | VERIFIED |
 | AC-038 | `test_outline_with_a_cycle_keeps_the_bookmarks_before_it` | VERIFIED |
@@ -123,7 +133,9 @@ no test reaches a provider.
 
 ## Scenario Budget
 
-User addition (2026-11-20, this Tester session): the user approved raising the
+Second user addition (2026-11-20, in the rerun for the review findings): the
+user raised `surveying/probe.py` from 8 to 9 for the mixed radio case `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-002`
+asks for. User addition (2026-11-20, this Tester session): the user approved raising the
 per-file ceiling to `extracting/validators.py` 23, `extracting/extraction.py`
 16, `pipeline/runner.py` 10, `extracting/text_layer.py` 9,
 `surveying/probe.py` 8 and `extracting/rendering.py` 7; every other file keeps
@@ -139,7 +151,7 @@ reuses its allocation.
 | `extracting/extraction.py` | 16 of 16 | `test_extraction.py` 14 (failed page; missing crop; temp cleanup; page file; inconsistent survey; concurrency; instructions rerun; wider selection; `overwrite`; same items; crop; verdict ×3); `test_runner.py` 2 (unchanged reuse; damaged page file) |
 | `pipeline/runner.py` | 10 of 10 | unchanged reuse; multi-step `run.json`; step-attributed warning; failed page record; pause and resume (CLI); `-p`/`-np` (CLI); pages past the PDF; estimate with extraction; `load` with page files; damaged page file in `load` |
 | `extracting/text_layer.py` | 9 of 9 | 8 text rows; `test_text_layer.py` 1 |
-| `surveying/probe.py` | 8 of 8 | `surveying/test_probe.py` |
+| `surveying/probe.py` | 9 of 9 | `surveying/test_probe.py` (the mixed radio row added for `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-002`) |
 | `extracting/rendering.py` | 7 of 7 | `extracting/test_rendering.py` |
 | `config/schemas.py` | 5 | removed instructions ×2; model resolution ×2; blank instructions |
 | `cli.py` | 5 | pause and resume; `-p`/`-np` summary; `-i`, `--instructions`; malformed `-p` |
@@ -151,6 +163,7 @@ reuses its allocation.
 | `providers/profiles.py` | 3 | request contents ×2; image tokens |
 | `providers/factory.py` | 2 | request contents ×2 |
 | `report/html.py` | 1 | extracted page card |
+| `report/report.css` | 1 | styles reaching item boxes and list entries (`.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-005`) |
 | `costs/pricing.py` | 1 | cache price 0 |
 | `surveying/survey.py`, `surveying/llm.py` | 1 | transport on a failed step |
 
@@ -206,6 +219,31 @@ All commands from the repository root; `.venv/bin/` is Python 3.13.9 and
   doctests on 3.14.4), `Wheel install` on macos-latest, ubuntu-latest and
   windows-latest (13 of 13 each), "Lint and test", "TruffleHog secret scan" and
   "Build the docs".
+- Rerun for the review corrections, on `5a6800b` plus the two uncommitted test
+  files (2026-11-20):
+  - `.venv/bin/python -m pytest --numprocesses auto -q`: 177 passed;
+    `GITHUB_ACTIONS=true $TMPDIR/venv314/bin/python -m pytest --numprocesses
+    auto -q`: 177 passed on 3.14.10; doctests 27 passed, 1 skipped; ruff, ty
+    and interrogate clean.
+  - Negative controls against `53e985e`'s `src` (before the corrections,
+    extracted with `git archive` and put first on `sys.path`): the mixed radio
+    row fails (`[True, True]`) and the all-off row passes; the report style test
+    fails with `[('.item', 'padding-block')]`.
+  - Browser (built-in pane, the report of a two-step run on the scanned form's
+    first page served on 127.0.0.1, image 388 px wide): 20 item boxes, none with
+    padding, each drawn within 0.01 px of its page-file height (smallest 10.8
+    px); `#box-p0000-001` as the target shaded `rgba(255, 214, 0, 0.35)`; the
+    list entry keeps 8 px padding, its border, and as the target the
+    `--highlight` color (`rgb(74, 63, 10)` in the pane's dark scheme).
+  - CI run `44813598257` on `5a6800b` (the corrected source with the tests as
+    at `a0afbfa`): every job passed, including "Lint and test (Python 3.13)",
+    "Test (Python 3.14)", `Wheel install` on macOS, Ubuntu and Windows, and
+    "Lint and test"; "TruffleHog secret scan" and "Build the docs" passed. The
+    two new test files have not run in CI yet; they run on both Pythons locally,
+    also with `GITHUB_ACTIONS=true`, and use no terminal or network.
+  - Reuse: no earlier result is reused without a rerun. The whole suite, the
+    doctests and CI ran again on the corrected source; the source change touches
+    only the radio fallback and the item list's CSS selectors.
 - Developer self-checks were not used as evidence.
 
 ## Open Findings and Dependencies
@@ -217,16 +255,20 @@ All commands from the repository root; `.venv/bin/` is Python 3.13.9 and
   the PDFs the scope names, reviewed and accepted. They also carry the
   model-dependent parts of `AC-009`, `AC-010` and `AC-011` (box accuracy,
   reading order and upright reading on real pages).
+- Review findings `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-002` and `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-005`: the corrections in `5a6800b` are verified
+  (Acceptance Evidence `AC-016`, `AC-034`, `AC-035`); closing them is
+  Reviewer's.
 - No open implementation, upstream or verification defect. The one verification
   defect found (CI color in the usage error) is corrected and verified in CI.
 
 ## Resume or Handoff
 
-Testing is complete for the full assessment: every current AC and technical
-criterion has passing evidence above, apart from the later-role dependencies
-just listed. Hand off to Reviewer, review kind `IMPLEMENTATION`, on
-`a0afbfa` (draft pull request IDinsight/pydelity#10, CI run `44805308210` all
-green). Evidence locations: the test modules named in Acceptance Evidence, the
-CI runs, and this report's Execution Evidence. The review should confirm the
-suite's coverage against the scope and design rather than rely on this report's
-dispositions.
+Testing is complete for the full assessment on `5a6800b` plus the two
+uncommitted test files: every current AC and technical criterion has passing
+evidence above, apart from the later-role dependencies listed. The two review
+findings' requests are met: the mixed radio case (`.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-002`) and the report check
+(`.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-005`). Recovery frame 1 reached its rerun boundary at `TESTING`; it is popped
+and the workflow resumes at `REVIEWING_IMPLEMENTATION` (review kind
+`IMPLEMENTATION`). Reviewer rechecks `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-002` and `.standards/docs/reviews/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a/implementation.md#F-005` against these tests, the
+browser measurement and CI run `44813598257`, and the two test files once
+committed and run in CI.

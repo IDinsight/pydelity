@@ -39,6 +39,49 @@ def _new_object(*, document: pymupdf.Document, source: str) -> int:
     return xref
 
 
+def _save_radio_group(*, path: Path, shown: tuple[str, str]) -> None:
+    """Save a one-page PDF with a radio group of two buttons whose value is ``B``.
+
+    Parameters
+    ----------
+    path
+        Where to save the PDF.
+    shown
+        The state each button shows (its ``AS``): ``A`` or ``Off`` for the first,
+        ``B`` or ``Off`` for the second. Each button has an on state named ``A``
+        or ``B`` and an off state.
+    """
+
+    document = pymupdf.open()
+    page = document.new_page()
+    appearance = _new_object(document=document, source="<<>>")
+    document.update_stream(appearance, b"")
+    group = _new_object(document=document, source="<<>>")
+    buttons = [
+        _new_object(
+            document=document,
+            source=(
+                f"<</Type/Annot/Subtype/Widget/Parent {group} 0 R/P {page.xref} 0 R"
+                f"/Rect [72 {top} 90 {top + 18}]/F 4/AS/{state_shown}"
+                f"/AP <</N <</{state} {appearance} 0 R/Off {appearance} 0 R>>>>>>"
+            ),
+        )
+        for state, state_shown, top in (
+            ("A", shown[0], 72),
+            ("B", shown[1], 112),
+        )
+    ]
+    kids = " ".join(f"{button} 0 R" for button in buttons)
+    # Field flags 49152 make the group a set of radio buttons, one of which is on.
+    document.update_object(group, f"<</FT/Btn/Ff 49152/T(choice)/V/B/Kids [{kids}]>>")
+    document.xref_set_key(page.xref, "Annots", f"[{kids}]")
+    document.xref_set_key(
+        document.pdf_catalog(), "AcroForm", f"<</Fields [{group} 0 R]>>"
+    )
+    document.save(path)
+    document.close()
+
+
 def _save_tagged_pdf(
     *,
     indirect_kids: bool = False,
@@ -453,41 +496,25 @@ def test_outline_with_a_cycle_keeps_the_bookmarks_before_it(tmp_path: Path) -> N
     assert facts.probe_errors == []
 
 
-def test_radio_group_value_turns_on_its_button_when_all_show_off(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("shown", "checked"),
+    [(("Off", "Off"), [False, True]), (("A", "Off"), [True, False])],
+    ids=["all-off", "first-on"],
+)
+def test_radio_group_value_turns_on_its_button_only_when_none_shows_on(
+    checked: list[bool], shown: tuple[str, str], tmp_path: Path
 ) -> None:
-    """A radio group saved with every button off still turns on the button it names.
+    """A radio group's value turns on the button it names only if none shows on.
 
-    Both buttons show their off state, and the group's value is the second button's
-    on state. That button is on, and both buttons report the group's value.
+    The group's value is the second button's on state. When both buttons show
+    their off state, as a group can be saved, the second button is on. When the
+    first button shows on, as a filler leaves it after setting the value without
+    updating the appearances, the page shows the first button on, and only it is
+    read as checked. Both buttons report the group's value.
     """
 
-    document = pymupdf.open()
-    page = document.new_page()
-    appearance = _new_object(document=document, source="<<>>")
-    document.update_stream(appearance, b"")
-    group = _new_object(document=document, source="<<>>")
-    buttons = [
-        _new_object(
-            document=document,
-            source=(
-                f"<</Type/Annot/Subtype/Widget/Parent {group} 0 R/P {page.xref} 0 R"
-                f"/Rect [72 {top} 90 {top + 18}]/F 4/AS/Off"
-                f"/AP <</N <</{state} {appearance} 0 R/Off {appearance} 0 R>>>>>>"
-            ),
-        )
-        for state, top in (("A", 72), ("B", 112))
-    ]
-    kids = " ".join(f"{button} 0 R" for button in buttons)
-    # Field flags 49152 make the group a set of radio buttons, one of which is on.
-    document.update_object(group, f"<</FT/Btn/Ff 49152/T(choice)/V/B/Kids [{kids}]>>")
-    document.xref_set_key(page.xref, "Annots", f"[{kids}]")
-    document.xref_set_key(
-        document.pdf_catalog(), "AcroForm", f"<</Fields [{group} 0 R]>>"
-    )
-    path = tmp_path / "radio_group_all_off.pdf"
-    document.save(path)
-    document.close()
+    path = tmp_path / "radio_group.pdf"
+    _save_radio_group(path=path, shown=shown)
 
     facts = probe_pdf(path)
 
@@ -495,7 +522,7 @@ def test_radio_group_value_turns_on_its_button_when_all_show_off(
     assert [
         (field.name, field.type, field.checked, field.value)
         for field in facts.form_fields
-    ] == [("choice", "radio", False, "B"), ("choice", "radio", True, "B")]
+    ] == [("choice", "radio", checked[0], "B"), ("choice", "radio", checked[1], "B")]
     assert facts.probe_errors == []
 
 
