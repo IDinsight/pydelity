@@ -7,7 +7,7 @@ ReviewKind: FINAL_DELIVERABLE
 # Review Report
 
 `Cycle`: `build-step-2-page-extraction-of-the-20261119T174118Z-0419318a`
-`ReviewKind`: `FINAL_DELIVERABLE` `Status`: `BLOCKED` `User Style`: `NONE`
+`ReviewKind`: `FINAL_DELIVERABLE` `Status`: `COMPLETE` `User Style`: `NONE`
 
 ## Assessed Inputs and Scope
 
@@ -49,6 +49,13 @@ ReviewKind: FINAL_DELIVERABLE
   contributing pages). Each finding and limitation below was rechecked in this
   session against the source or by running it; helper claims not rechecked are
   not recorded. `artifacts/` and KGForEdGlobal were not reassessed.
+- Re-review (2026-11-20, after recovery frame 1 closed with a `RESUME` from
+  `DOCUMENTING`): head `2f295eb`, clean tree, pushed. Since `02186fb` (this
+  report's first commit) only `contributing/releases.md` (blob `37144730caa5`
+  to `dd569f254cb0`), the documentation record (blob `d6adbcefe570`,
+  `.standards/docs/documentation/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md#DOC-001`)
+  and `STATE.md` changed; `src` `72daf0b4293b` and every other docs page
+  unchanged, so the assessments above still apply to them.
 - Session: this conversation holds none of the authoring history. The
   authoring sessions' models are not visible; this review ran on Claude Opus
   5.5.
@@ -65,20 +72,20 @@ record's checks.
 
 | Obligation / criterion | Assessed evidence | Current disposition |
 | --- | --- | --- |
-| AC-001 to AC-006, AC-059 to AC-061 | Tester tests (unchanged source and tests); implementation review; Reviewer helper reran the CLI options, exit codes, config precedence and example configs | Supported |
-| AC-007 to AC-014, AC-016 to AC-020, AC-056 | Tester tests and implementation review for code; model-dependent parts of AC-009 to AC-011 carried by AC-054 | Code supported; model-dependent parts: gap G-1 |
+| AC-001, AC-002, AC-003, AC-004, AC-005, AC-006, AC-059, AC-060, AC-061 | Tester tests (unchanged source and tests); implementation review; Reviewer helper reran the CLI options, exit codes, config precedence and example configs | Supported |
+| AC-007, AC-008, AC-009, AC-010, AC-011, AC-012, AC-013, AC-014, AC-016, AC-017, AC-018, AC-019, AC-020, AC-056 | Tester tests and implementation review for code; model-dependent parts of AC-009 to AC-011 carried by AC-054 | Supported; model-dependent parts settled by the user's real runs (G-1 closed) |
 | AC-021, AC-022, AC-025, AC-026, AC-063, AC-064 | Tester tests; implementation review; Reviewer helper checked the guide's verifier and text-comparison rules against `extraction.py` and `validators.py` | Supported |
-| AC-027 to AC-034, AC-057, AC-058 | Tester tests; implementation review; Reviewer diagnostic: 6 `arun(pause=False)` calls gathered, 5 rounds, all `completed`, identical page content (Checks) | Supported |
-| AC-035 to AC-041 | Tester tests; implementation review (`implementation.md#F-002` resolved there) | Supported |
+| AC-027, AC-028, AC-029, AC-030, AC-031, AC-032, AC-033, AC-034, AC-057, AC-058 | Tester tests; implementation review; Reviewer diagnostic: 6 `arun(pause=False)` calls gathered, 5 rounds, all `completed`, identical page content (Checks) | Supported |
+| AC-035, AC-036, AC-037, AC-038, AC-039, AC-040, AC-041 | Tester tests; implementation review (`implementation.md#F-002` resolved there) | Supported |
 | AC-042, AC-043 | Tester; CI run `44823340233` on `e9c7c94` (staleness step passed); `CHANGELOG.md` links `c63d891` | Supported |
-| AC-044 | Documenter edits to `faq.md`, `contributing/development.md`, `docs-site.md`, `releases.md`; Reviewer helper checked each listed item against the tooling | Six items supported; the patch-release item is wrong: F-001 |
+| AC-044 | Documenter edits to `faq.md`, `contributing/development.md`, `docs-site.md`, `releases.md`; Reviewer helper checked each listed item against the tooling | Supported (F-001 resolved on re-review: `releases.md` `dd569f254cb0`) |
 | AC-045, AC-046, AC-047, AC-048 | 177 tests pass locally on `e9c7c94` (Reviewer); CI run `44823340233` on `e9c7c94`: both test jobs, `Wheel install` on Ubuntu, macOS and Windows (13 of 13 smoke checks), "Lint and test" `success`; TruffleHog run `44823340298` `success` | Supported |
 | AC-049 | `pyproject.toml` description; classifiers Alpha, 3.13, 3.14; README and site description describe the survey and page extraction (Reviewer read) | Supported |
 | AC-050 | `.release-please-manifest.json` `0.1.1`; release-please configuration unchanged since `c7582e7`; a `feat:` squash commit gives a minor bump under release-please 17.6.0's rules (Reviewer read upstream source) | Supported |
 | AC-051 | Documenter's guides and example runs; Reviewer and helpers checked each task the AC lists (select pages, the pause, the model, page files, crops, verdicts, review list, report, spend control, reruns) against the code | Supported; limitations L-3 to L-9 |
 | AC-052 | CI's lint job regenerates and formats the reference pages and fails on any change or untracked page: passed on `e9c7c94`; helpers regenerated the page file, run, check, CLI, configuration, cost and Python API pages and found them current and covering every field, setting, option, check and public function | Supported; limitations L-4, L-5 |
 | AC-053 | Documenter ran every Python block (20 passed) and YAML block against the stand-in; helpers reran the README example, the CLI commands and quoted output, and the YAML blocks | Supported; limitation L-6 |
-| AC-054 | No evidence | Gap G-1: the user's real runs and acceptance |
+| AC-054 | The user's real runs on both providers (`pydelity-output/real/anthropic/` and `openai/`, 14 runs, 44 pages, $17.47); Reviewer's inspection under G-1; the user's acceptance, 2026-11-20 | Supported (G-1 closed) |
 
 Technical acceptance criteria are assessed under the same IDs. The
 implementation review's technical conclusions stand, because `src`, `tests`,
@@ -126,7 +133,7 @@ All from the repository root on `e9c7c94` (2026-11-20) unless stated.
 
 ### F-001 — The release guide says `docs:` commits make no release, but they make a patch release
 
-`Severity`: `P2` `Status`: `OPEN` `Owner`: `DOCUMENTER` `FailureType`:
+`Severity`: `P2` `Status`: `RESOLVED` `Owner`: `DOCUMENTER` `FailureType`:
 `DOCUMENTATION`
 
 - **Reference:** `docs/src/content/docs/contributing/releases.md` (blob
@@ -157,12 +164,26 @@ All from the repository root on `e9c7c94` (2026-11-20) unless stated.
   `build(deps):` and `ci(deps):` as making none, and say the rule comes from the
   changelog sections of release-please's Python release type, which this repo
   doesn't change.
+- **Reassessment (resolved, 2026-11-20, on `2f295eb`):** `releases.md`
+  (`dd569f254cb0`, lines 30–46) now puts `fix:`, `perf:`, `revert:`, `docs:`
+  and `deps:` under patch, `chore:`, `test:`, `ci:`, `build(deps):` and
+  `ci(deps):` under none, names the Python release type's changelog sections as
+  the source, and says a `docs:` pull request opens a patch release pull request
+  that publishes nothing until merged. Each matches the release-please 17.6.0
+  source lines under Checks (Python strategy sections; empty-changelog skip;
+  patch for any non-breaking, non-`feat` commit); `release.yml` runs only on a
+  published GitHub release, which release-please creates when its release pull
+  request is merged. The original failure case (a `docs:` merge) is
+  now described correctly. Boundaries: a search of `README.md` and the
+  hand-written pages finds no other statement about which commits make a
+  release; the feat-to-minor and breaking-below-1.0.0 rows are unchanged and
+  still right.
 
 **No other material findings.**
 
 ## Questions, Limitations, and Later Dependencies
 
-Gap that blocks this gate:
+Gap at the first review, now closed:
 
 - G-1, `AC-054` (with the model-dependent parts of `AC-009`, `AC-010` and
   `AC-011`, box accuracy, reading order and upright reading on real pages): no
@@ -180,6 +201,100 @@ Gap that blocks this gate:
   the user's report (which PDFs, which providers, accepted or the issues found)
   and, if the user shares the output folders, inspect their page files and
   reports. If still missing then, `Active Work.BlockedOn` holds the request.
+  Re-review (2026-11-20): the user answered "not done yet" and asked for the
+  commands; Reviewer gave CLI commands for the scope's PDF kinds from
+  `tests/fixtures/pdfs/` (Arabic and Chinese Publication 1, the Japanese
+  gazette, W-9 page 1, the scanned 1965 form, slides 1–6, CAPS) on each
+  provider, into `pydelity-output/real/<provider>/<pdf>/`. Offline estimates
+  (`pydelity.estimate`, nothing sent): about $8 on the Anthropic default and
+  about $18 on `openai:gpt-6.2-astra` in all. `BlockedOn` stays set.
+  Anthropic runs (the user's, 2026-11-20, default model, `-np`, folders
+  `pydelity-output/real/anthropic/<pdf>/`, pydelity at `2f295eb`), inspected
+  by Reviewer at the user's request as supporting evidence, not acceptance:
+  - All 7 runs `completed`, $6.36 in all (survey $0.98, extraction $5.38); 22
+    pages extracted, 0 failures. Review list: 3 issues, all on the Japanese
+    page; none elsewhere.
+  - Reading order (`AC-010`): Arabic page 1 reads the right column, then the
+    left; page 2 its three columns from the right. Chinese reads left to right,
+    two and three columns. The Japanese page is `ttb`, `column_order:
+    right_to_left`, its columns read from x 390 down to 132.
+  - Rotation (`AC-011`): all 8 CAPS pages applied 90 degrees; text compared
+    with no failure; every table box contains all of its table's words (414 to
+    608 per page) and tracks each table's width.
+  - Boxes (`AC-009`): Reviewer's scratch check of every text-layer word's
+    center against the item boxes (3 pt margin, displayed coordinates): 0
+    outside on all 6 slides, all 8 CAPS pages and Arabic page 2; 2 of 581 on
+    Arabic page 1, 6 of 933 on W-9 (field labels), 16 of 117 on Chinese page 1
+    (the footer box sits about 7 pt below its line), 5 of 276 on Chinese page 2
+    and 25 of 222 on the Japanese page. The Chinese page 2 misses are two
+    paragraphs that continue at the top of the next column (items
+    `p0001-014`, `p0001-027`): each item's text includes the continuation, its
+    box covers only the first column's part. The Japanese misses are the
+    right-margin vertical line (`p0000-005`), whose box sits about 9 pt left
+    of its two text lines. The prompt (`extracting/prompts.py`) has no rule for
+    text that continues into the next column.
+  - Forms (`AC-016`): W-9 page 1 has 25 field items, the form's 8 checkboxes and
+    15 text fields by `fillable_name` plus 2 printed fields, `form_fields`
+    passed; the 1965 scan has 38 field items, no text layer. Both forms are
+    blank, so no filled or written value was exercised.
+  - Text comparison (`AC-063`): Arabic (both pages) and Japanese keep
+    `text_dropped`/`text_added` failures from stored text with broken letter
+    forms and private-use characters; the verifier passed, so none is listed,
+    as designed.
+  - Japanese issues: 2 `no_matching_label` because the one-page survey made no
+    label for page furniture (7 text items and the masthead figure get
+    `other`); 1 for a field item made from a zero-size `Signature1` widget at
+    the page's corner (`[0, 841, 1, 842]`).
+  - Slides: one figure per slide, the logo, as an artifact; the slides' other
+    images are the full-slide background and the footer band. No slide in
+    1–6 is one picture, so `AC-017` was not exercised. Figure crops: 9, each
+    named after its item.
+  - User decision (2026-11-20): after Reviewer explained that the box misses
+    are saved `bbox` values (the text is complete and correct; the report draws
+    the page file's boxes as saved), the user accepted them for 0.2.0: "accept
+    them". No issue raised from the Anthropic runs.
+  OpenAI runs (the user's, 2026-11-20, `openai:gpt-6.2-astra` for both steps,
+  `-np -y`, folders `pydelity-output/real/openai/<pdf>/`, same PDFs, pages
+  and code), inspected the same way:
+  - All 7 runs `completed`, $11.11 in all (survey $2.09, extraction $9.02); 22
+    pages extracted, 0 failures. Review list: 1 issue, the Japanese page's
+    zero-size `Signature1` field again (`no_matching_label`).
+  - Reading order (`AC-010`): Arabic page 1 right column then left (item
+    centers x 424–545, then 174–276); page 2 three columns from the right;
+    Chinese page 2 three columns from the left; the Japanese page
+    `column_order: right_to_left`, columns from x 435 down to 138.
+  - Rotation (`AC-011`): all 8 CAPS pages applied 90 degrees; text compared
+    with no failure; every word inside a box.
+  - Boxes (`AC-009`): 0 words outside every box on all 6 slides, 8 CAPS pages
+    and both Arabic and Chinese pages; 6 of 222 on the Japanese page (single
+    marks such as `〇` and `。`). W-9: 184 of 933, in 35 lines: the field items'
+    boxes cover only the input area or checkbox, as the fillable-field hints'
+    boxes do, while each field's printed label is saved in its `prompt` (for
+    example item `p0000-009`, box `[59, 118, 576, 132]`, label line at y 97).
+    The Anthropic run's field boxes took in the label. The prompt's box rule
+    ("close around the visible content"; "Field boxes given with the page use
+    the same grid") does not say whether a field's box includes its label.
+    Every check passed on the W-9 page, text comparison included.
+  - Structure: Chinese page 1 puts the ten rights in one list item with 10
+    entries (Anthropic: 20 heading and body items); OpenAI marks more
+    containers (W-9 12, CAPS 2–3 a page). Both readings fit the item rules.
+  - Text comparison (`AC-063`): Arabic and Japanese keep stored-text
+    differences, not listed since the page was passed or corrected; the
+    verifier's correction was kept on Arabic page 2 and the 1965 scan's page
+    2.
+  - User decision (2026-11-20): after Reviewer's summary of these results,
+    the W-9 field boxes included, the user accepted them: "Accept". No issue
+    raised.
+  - Resolution (2026-11-20): G-1 is closed. The user ran the survey and page
+    extraction with real Anthropic and OpenAI models on a two-column
+    right-to-left PDF, Chinese and Japanese PDFs, two tax forms (one fillable),
+    a slide deck and CAPS, and accepted the results with no issue raised. The
+    page files and reports were reviewed through Reviewer's inspection above at
+    the user's request; the acceptance decision is the user's own. This also
+    settles the model-dependent parts of `AC-009`, `AC-010` and `AC-011`.
+    Not exercised by these runs, with mocked-test evidence only: a filled or
+    handwritten form value (`AC-016`) and a page that is one picture
+    (`AC-017`). `AC-054` names neither, so this does not keep the gap open.
 
 Earlier later dependencies, resolved with current evidence:
 
@@ -245,32 +360,42 @@ rechecked in this session; worth fixing if a page is edited anyway):
   `OutputError` naming the line (`costs/ledger.py` lines 150–153), which the
   guide does not mention. It needs a hand edit.
 
-No blocking user question at this point (see G-1).
+No blocking user question remains: the `AC-054` question was answered and
+`Active Work.BlockedOn` is cleared (2026-11-20).
 
 ## Progress and Conclusion
 
 - Completed: inputs and identities; source, tests and configuration unchanged
-  since the implementation review; local suite and CI on the head; every
+  since the implementation review; local suite and CI on `e9c7c94`; every
   hand-written docs page, the README and the generated reference pages against
-  the code; release configuration; concurrent-run diagnostic.
-- Not passing (2026-11-20, on `e9c7c94`): F-001 is open for Documenter, and gap
-  G-1 (`AC-054`) needs the user's real runs and acceptance.
-- Next: Documenter corrects F-001 (`DOCUMENTATION` failure, recovery frame with
-  `ResumeAt: REVIEWING_FINAL`). On re-review, recheck `releases.md` against the
-  release-please 17.6.0 rules above and any other page Documenter changed,
-  rerun `check`, the suite or CI on the new head as needed, and record the
-  user's `AC-054` report; if it is still missing, persist it in
-  `Active Work.BlockedOn` and ask.
+  the code; release configuration; concurrent-run diagnostic. Re-review on
+  `2f295eb`: F-001's correction rechecked and resolved; no other file the
+  assessment relies on changed; CI, Docs and TruffleHog runs on `2f295eb` all
+  `success`. G-1 closed by the user's real runs on both providers and their
+  acceptance.
+- Freshness, rechecked immediately before this conclusion (2026-11-20): head
+  `2f295eb`; the only uncommitted changes are this report and `STATE.md`;
+  `src` `72daf0b4293b`, `docs/src/content/docs` `d15cc68ffdad`, `README.md`
+  `b4451d9e668c`, `tests` `37d48a959897`, `scripts` `3a4c589069e8`, `.github`
+  `5cc03340a06e`; scope `8f6dbf9b42a6`, design `878aa2339bac`, context
+  `be80a93c129c`, development plan `bf0636cfd9ef`, verification report
+  `37e0f1d4170f`, documentation record `d6adbcefe570`: all as assessed.
+- **Passing (2026-11-20, on `2f295eb`).** F-001 is resolved; no finding is
+  open; every current AC and relevant technical criterion has a supported
+  disposition with current evidence; no later dependency, material gap,
+  blocking question or outstanding obligation remains; `check` passes. Next:
+  `SYNCHRONIZING` (`FULL_DELIVERABLE`). Passing this gate is not cycle
+  completion or sign-off.
 
-Plain-language summary: the work can't move to the last step yet, for two
-reasons. First, one sentence in the release guide is wrong: it says a commit
-titled `docs: ...` makes no new release, but this repo's release tool does make
-a small release for it. Someone trusting the guide would get a release pull
-request they didn't expect. Documenter fixes that one page. Second, the scope
-asks you to try page extraction on real documents with real Anthropic and
-OpenAI models and accept the results, and that hasn't happened yet: the right-
-to-left, Chinese or Japanese, form, slide-deck and CAPS PDFs. Only you can do
-that, since it needs your keys and your judgment. Everything else checked out:
-the code and tests are unchanged since the last review and all pass, CI passes,
-the reference pages are current, and the guides match what pydelity does,
-apart from small wording points listed in the report that don't need a fix.
+Earlier conclusions (2026-11-20): on `e9c7c94`, not passing with F-001 open for
+Documenter and G-1 open; on `2f295eb` before the real runs, not passing with
+G-1 open and its question in `Active Work.BlockedOn`.
+
+Plain-language summary: the final review passes, and the work can move on to
+synchronization. The release guide is fixed. Your real runs on both providers
+showed page extraction reading right-to-left, Chinese, vertical Japanese,
+sideways and form pages correctly, with complete text and nearly all boxes
+tight around their content. You accepted the few boxes that sit a little off
+or, on OpenAI's W-9, leave out a field's printed label. What these runs did not
+try: a filled-in form and a slide that is one picture; mocked tests cover both.
+Synchronization and your sign-off are still to come.
