@@ -1743,7 +1743,7 @@ DEV-013 (staged) and the uncommitted DEV-014 changes (macOS arm64, Python
 
 ### DEV-015 — Wheel smoke test with page extraction and package description
 
-`Status`: `PENDING` `Depends On`: `DEV-008, DEV-011` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-008, DEV-011` `Acceptance`:
 `AC-047, AC-048, AC-049`
 
 **Goal**
@@ -1753,6 +1753,7 @@ platform, and describe the release.
 
 **Affected Area**
 
+Approved by the user before the step (2026-11-20): `MODIFY`
 `scripts/smoke_installed_wheel.py`, `pyproject.toml` (description). The README
 is Documenter's.
 
@@ -1766,6 +1767,43 @@ and extracting its pages; the classifiers are unchanged.
 
 `just build` (with `twine check --strict`) and the smoke script locally; CI's
 wheel jobs on ubuntu, macOS and Windows after a push.
+
+Evidence, 2026-11-20, repo root, on the user's commit `e318364` (DEV-013 and
+DEV-014) plus the uncommitted DEV-015 changes (macOS arm64, Python 3.13.9).
+
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` on `scripts src`:
+  passed; `interrogate`: 100%. The git hooks other than ty pass on both changed
+  files.
+- `uv build` then `twine check --strict dist/*`: both artifacts `PASSED`
+  (`pydelity-0.1.1-py3-none-any.whl` and `.tar.gz`; the version is
+  release-please's to raise). Run with `UV_NATIVE_TLS=1` outside the sandbox,
+  since uv's own certificates rejected PyPI's on this machine; `just build` runs
+  the same two commands.
+- `python scripts/smoke_installed_wheel.py`: 13 of 13 checks passed. The wheel
+  installs with pip in a fresh environment; `pydelity --version` prints 0.1.1;
+  for each provider the installed `pydelity <pdf> --yes --no-pause` and
+  `pydelity.run(..., pause=False)` complete both steps on the 2-page scan, load
+  back with a page file for each page, and send exactly one upload and 5 model
+  requests (the survey's, then an extractor and a verifier request per page),
+  all to the stand-in.
+- The committed smoke script, run against the same wheel: 9 of 13, with both
+  runs per provider ending `paused`, since a new survey pauses by default. So
+  CI's wheel jobs fail on this branch until this step is committed.
+- `.venv/bin/python -m pytest -q --numprocesses auto`: 81 passed, 24 failed, the
+  same 24 as before. The DEV-009 to DEV-018 self-checks were not rerun, since
+  nothing under `src/` changed.
+- Process wording grep of the added lines: no hits.
+- CI's wheel jobs on ubuntu, macOS and Windows run after the user pushes.
+
+**Implementation Notes**
+
+- The stand-in serves `tests/fixtures/extraction_answers/irs_form_1040a_1965_scan.json`
+  for the pages. Its answers pass every check on the scan, so the request count
+  is fixed at `EXPECTED_REQUESTS`.
+- `pyproject.toml`'s description now reads "Survey any PDF and extract its pages
+  with Anthropic or OpenAI models: a profile of the PDF, then each page's items
+  in reading order with their boxes and figure crops, as JSON with a list of
+  things to review." The classifiers are unchanged.
 
 ---
 
