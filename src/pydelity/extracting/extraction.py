@@ -391,7 +391,11 @@ def _item(
 
 
 def _kept_answer(*, extracted: ModelPage, verified: ModelVerdict) -> _KeptAnswer:
-    """Apply the verifier's verdict, keeping its correction only if it passes.
+    """Apply the verifier's verdict, keeping its correction when the checks allow.
+
+    A correction is kept when it passes every check other than ``text_dropped`` and
+    ``text_added``. Those two compare it with the PDF's stored text, which can be
+    wrong, so a correction that reads the page image correctly can fail them.
 
     Parameters
     ----------
@@ -403,8 +407,9 @@ def _kept_answer(*, extracted: ModelPage, verified: ModelVerdict) -> _KeptAnswer
     Returns
     -------
     _KeptAnswer
-        The correction, when the verdict has one that passes every check, and
-        otherwise the extraction model's answer, with the verifier's review.
+        The correction, with its check failures, when the verdict has one that is
+        kept, and otherwise the extraction model's answer, with the verifier's
+        review.
     """
 
     corrected = verified.verdict.corrected
@@ -412,7 +417,11 @@ def _kept_answer(*, extracted: ModelPage, verified: ModelVerdict) -> _KeptAnswer
     if (
         corrected is not None
         and correction_failures is not None
-        and not any(correction_failures.values())
+        and not any(
+            found
+            for name, found in correction_failures.items()
+            if name not in TEXT_CHECKS
+        )
     ):
         return _KeptAnswer(
             answer=corrected,
@@ -486,12 +495,13 @@ def _page_issues(
         The checks still failing on the kept answer, then content no label fits,
         with its items' IDs added, then the verifier's problems when its correction
         was not kept. Text differences are left out when the verifier passed the
-        page, since it saw them beside the image and accepted the reading. They
-        stay in the page file's check results.
+        page or its correction was kept, since it judged the reading against the
+        image. They stay in the page file's check results.
     """
 
     listed = checks
-    if kept.verification.verdict.passed:
+    verification = kept.verification
+    if verification.verdict.passed or verification.correction_applied:
         listed = [result for result in checks if result.name not in TEXT_CHECKS]
     issues = review_issues(listed, item_ids=built.ids)
     for issue in unmatched_labels(kept.answer, context):

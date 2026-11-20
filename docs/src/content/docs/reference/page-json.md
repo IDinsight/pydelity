@@ -32,8 +32,8 @@ The contents of `pages/<NNNN>.json`: one page's items and their checks.
 - `issues` (list of objects ([`issues[]`](#issues)); required): The page's
   review issues: checks still failing on the kept answer, content no label fits,
   and verifier problems that were not corrected. Text differences from the
-  stored text are listed only when the verifier did not pass the page. The
-  `checks` list keeps them either way.
+  stored text are listed only when the page keeps the extraction and the
+  verifier did not pass it. The `checks` list keeps them either way.
 - `items` (list of objects ([`items[]`](#items)); required): The page's items,
   in reading order.
 - `page_index` (integer; required): The page (0-based).
@@ -164,7 +164,8 @@ The verifier's review of the page's extraction.
 - `attempts` (integer; required): How many verdicts the verifier gave: 1 plus
   the retries its correction used.
 - `correction_applied` (boolean; required): Whether the verifier's corrected
-  extraction replaced the extraction model's.
+  extraction replaced the extraction model's. A correction replaces it when it
+  passes every check other than `text_dropped` and `text_added`.
 - `correction_failures` (list of objects ([`checks[]`](#checks)); required): The
   checks a correction that was not applied still failed; empty when it was
   applied or there was none.

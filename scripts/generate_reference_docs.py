@@ -913,10 +913,12 @@ def extraction_checks_page() -> _Page:
                 "correction, goes through these checks. While retries remain "
                 "(``advanced.extraction.check_retries``), an answer that fails a check "
                 "is sent back to the model with every failure listed. The last answer "
-                "is kept as it is. The page file's ``checks`` holds each check's "
-                "result on the kept answer. Each check it still fails becomes a review "
+                "is kept as it is. A verifier correction replaces the extraction when "
+                "it passes every check other than ``text_dropped`` and "
+                "``text_added``. The page file's ``checks`` holds each check's result "
+                "on the kept answer. Each check it still fails becomes a review "
                 "issue, except ``text_dropped`` and ``text_added`` on a page the "
-                "verifier passes."
+                "verifier passes or whose correction is kept."
             ),
             "## Checks",
             *checks,

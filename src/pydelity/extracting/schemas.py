@@ -523,7 +523,9 @@ class PageVerification(_Output):
     """How many verdicts the verifier gave: 1 plus the retries its correction used."""
 
     correction_applied: bool
-    """Whether the verifier's corrected extraction replaced the extraction model's."""
+    """Whether the verifier's corrected extraction replaced the extraction model's.
+    A correction replaces it when it passes every check other than ``text_dropped``
+    and ``text_added``."""
 
     correction_failures: list[ExtractionCheckResult]
     """The checks a correction that was not applied still failed; empty when it was
@@ -564,8 +566,8 @@ class PageFile(_Output):
     issues: list[ReviewIssue]
     """The page's review issues: checks still failing on the kept answer, content no
     label fits, and verifier problems that were not corrected. Text differences
-    from the stored text are listed only when the verifier did not pass the page.
-    The ``checks`` list keeps them either way."""
+    from the stored text are listed only when the page keeps the extraction and the
+    verifier did not pass it. The ``checks`` list keeps them either way."""
 
     items: list[Item]
     """The page's items, in reading order."""

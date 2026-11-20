@@ -6,8 +6,9 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
 # Development Plan
 
 `Cycle`: `build-step-2-page-extraction-of-the-20261119T174118Z-0419318a` `Mode`:
-`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`: `COMPLETE`
-`Verification Cadence`: `AFTER_IMPLEMENTATION` `Current Increment`: `NONE`
+`STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
+`IN_PROGRESS` `Verification Cadence`: `AFTER_IMPLEMENTATION`
+`Current Increment`: `NONE`
 
 ## Implementation Contract
 
@@ -615,7 +616,7 @@ uncommitted DEV-005 changes (macOS arm64, Python 3.13.9).
 
 ### DEV-006 — Text layer and text comparison
 
-`Status`: `DONE` `Depends On`: `DEV-004, DEV-005` `Acceptance`: `AC-022, AC-062`
+`Status`: `DONE` `Depends On`: `DEV-004, DEV-005` `Acceptance`: `AC-022, AC-063`
 
 **Goal**
 
@@ -739,7 +740,7 @@ uncommitted DEV-006 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
 ### DEV-007 — Extractor and verifier prompts, agents and requests
 
 `Status`: `DONE` `Depends On`: `DEV-003, DEV-005, DEV-006` `Acceptance`:
-`AC-010, AC-017, AC-018, AC-020, AC-021, AC-024, AC-033, AC-058, AC-060, AC-062`
+`AC-010, AC-017, AC-018, AC-020, AC-021, AC-033, AC-058, AC-060, AC-063, AC-064`
 
 **Goal**
 
@@ -958,7 +959,7 @@ uncommitted DEV-008 changes (macOS arm64, Python 3.13.9, PyMuPDF 2.1).
 ### DEV-009 — Page extraction step
 
 `Status`: `DONE` `Depends On`: `DEV-002, DEV-007, DEV-008` `Acceptance`:
-`AC-007, AC-008, AC-009, AC-011, AC-013, AC-014, AC-016, AC-017, AC-018, AC-019, AC-021, AC-024, AC-025, AC-031, AC-032, AC-033, AC-056, AC-057, AC-058`
+`AC-007, AC-008, AC-009, AC-011, AC-013, AC-014, AC-016, AC-017, AC-018, AC-019, AC-021, AC-025, AC-031, AC-032, AC-033, AC-056, AC-057, AC-058, AC-064`
 
 **Goal**
 
@@ -1879,7 +1880,7 @@ uncommitted DEV-016 changes (macOS arm64, Python 3.13.9, Node 23.10.0, pnpm).
 ### DEV-017 — Prompted output on Anthropic and page reading from the image only
 
 `Status`: `DONE` `Depends On`: `DEV-007, DEV-010` `Acceptance`:
-`AC-005, AC-022, AC-029, AC-062`
+`AC-005, AC-022, AC-029, AC-063`
 
 **Goal**
 
@@ -1981,7 +1982,7 @@ PydanticAI 2.69).
 
 ### DEV-018 — No text review issues on pages the verifier passes
 
-`Status`: `DONE` `Depends On`: `DEV-009` `Acceptance`: `AC-062`
+`Status`: `DONE` `Depends On`: `DEV-009` `Acceptance`: `AC-063`
 
 **Goal**
 
@@ -2058,7 +2059,154 @@ uncommitted DEV-018 changes (macOS arm64, Python 3.13.9, PydanticAI 2.69).
 
 ---
 
+### DEV-019 — Keep verifier corrections that fail only the text comparison
+
+`Status`: `DONE` `Depends On`: `DEV-009, DEV-018` `Acceptance`:
+`AC-063, AC-064`
+
+**Goal**
+
+Apply the design rerun after the code review (decisions 9 and 10): a verifier
+correction that fails only `text_dropped` and `text_added` replaces the
+extraction, and a page that keeps the correction lists no text differences for
+review.
+
+**Affected Area**
+
+`extracting/extraction.py` (`_kept_answer`, `_page_issues`),
+`extracting/schemas.py` (the docstrings of `PageFile.issues` and
+`PageVerification`), `scripts/generate_reference_docs.py` (the checks page's
+opening paragraph) and the regenerated `reference/extraction-checks.md` and
+`reference/page-json.md`.
+
+**Expected Outcome**
+
+- A correction whose only failures are `text_dropped` and `text_added` is kept.
+  The page file's `checks` are the correction's, those failures included, and
+  its `issues` leave them out. The verifier's problems stay in the verdict only.
+- A correction that fails any other check is rejected as now: the page keeps the
+  extraction, each verifier problem is a `verifier` issue, and text differences
+  are listed unless the verdict passed.
+- The verifier is already asked again for text failures on its correction, with
+  the note that the image decides (`AC-063`). The self-check confirms it, and
+  that code does not change.
+- No prompt, page file field or fingerprint input changes.
+
+**Self-Check**
+
+Lint; unaffected tests; a scratchpad script with the stand-in: a correction that
+fails only `text_dropped` through its retries is kept, the verifier was asked
+again with the text note, the page file's `checks` hold the failure and its
+issues do not; a correction that fails `boxes` is rejected with `verifier` and
+text issues listed; a passed verdict is unchanged. The DEV-009 to DEV-018
+self-checks again; the reference pages regenerated twice, byte-identical.
+
+Evidence, 2026-11-20, repo root, on the user's commit `98ac7f7` plus the
+uncommitted DEV-019 changes (macOS arm64, Python 3.13.9, PydanticAI 2.69).
+
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` on `scripts src`:
+  passed; `interrogate`: 100%. Doctests: 26 passed, 1 skipped.
+- `.venv/bin/python -m pytest -q --numprocesses auto`: 81 passed, 24 failed, the
+  same 24 as before.
+- Scratchpad `dev019_check.py` (the stand-in, `pydelity.run` on the rotated
+  PDF's pages 1-3 with `pause=False`): 8 of 8 checks passed.
+  - Page index 0, whose extraction misses a line and whose correction relabels
+    an item but still misses it: the verifier was asked again twice, each time
+    with the `text_dropped` failure and the note to keep what the image shows.
+    The correction is kept (`correction_applied`, the relabeled item in the page
+    file), the page file's `checks` hold its 16 `text_dropped` failures, and the
+    page has no review issues.
+  - Page index 1, whose correction also turns a box inside out: rejected
+    (`correction_failures` name `boxes` and `text_dropped`). The extraction is
+    kept and its issues are `text_dropped` and `verifier`.
+  - Page index 2, a passed verdict: the extraction is kept with its own
+    `reading_order` failure listed, as before.
+  - `run.json`'s `review` matches the page files (27 issues).
+- The same script on the committed code, from a clone: 6 of 8. The page index
+  0 correction is rejected and `run.json` lists 44 issues.
+- The generator then Prettier, twice: byte-identical. `extraction-checks.md`
+  says when a correction replaces the extraction and that text differences are
+  not listed on a page whose correction is kept; `page-json.md` carries the new
+  `correction_applied` and `issues` docstrings.
+- `dev009_check.py` 48 of 48, `dev010_check.py` 32 of 32, `dev011_check.py` 16
+  of 16, `dev012_check.py` 35 of 35, `dev013_check.py` 11 of 11,
+  `dev017_check.py` 11 of 11 and `dev018_check.py` 7 of 7 again.
+- Process wording grep of the added lines: no hits.
+
+**Implementation Notes**
+
+- `_kept_answer` keeps a correction when no check outside `TEXT_CHECKS` failed.
+  A kept correction's failures, text ones included, become the page file's
+  `checks`, as they already did.
+- `_page_issues` leaves out the text checks when the verdict passed or the
+  correction was kept.
+- The verifier's output validator already ran the text checks on a correction
+  and sent `retry_message`, with its text note, while retries remained, so
+  nothing changed there.
+
+---
+
+### DEV-020 — Check page furniture by position
+
+`Status`: `PENDING` `Depends On`: `DEV-019` `Acceptance`: `AC-018`
+
+**Goal**
+
+Apply decision 22: the `artifacts` check finds each page-furniture line on the
+page from the stored text and checks that an `artifact` item's box covers it,
+never comparing the stored text with the model's reading.
+
+**Affected Area**
+
+`surveying/probe.py` (its line reading, with each line's box on the displayed
+page, made public so page extraction finds lines exactly as the survey did),
+`extracting/text_layer.py` (a `PageText` holding the page's text-layer lines and
+each furniture line's boxes on the upright image's grid),
+`extracting/validators.py` (`check_artifacts` by position; every check takes the
+page's `PageText`, so one check type replaces two), `extracting/agents.py` and
+`extracting/llm.py` (pass `PageText` where they pass text lines now),
+`extracting/extraction.py` (read `PageText` on the PyMuPDF worker), and the
+regenerated `reference/extraction-checks.md`.
+
+**Expected Outcome**
+
+- On each page, every line the survey classed as page furniture is found in the
+  stored text by the survey's own line reading and `normalize_line`, and its box
+  is mapped to the grid with `points_box_to_grid`.
+- The check passes a line when the center of each of its boxes lies inside the
+  box of an item with role `artifact`, within 20 grid units. A failure names the
+  line and its place on the grid. A furniture line the page's stored text does
+  not hold is skipped.
+- The check keeps its name, its place in the order and its retry rule; no
+  fingerprint input, prompt or page file field changes.
+
+**Self-Check**
+
+Lint; unaffected tests; a scratchpad script with the stand-in on the rotated W9
+instructions PDF: on pages with rotation attributes 0, 90, 180 and 270, an
+`artifact` item placed on the furniture line's box passes with its text changed,
+one placed elsewhere fails with the line and grid place named, and a page whose
+stored text lacks the line is skipped; the furniture boxes are found on every
+page the facts list each furniture line on. The DEV-009 to DEV-019 self-checks
+again; the reference pages regenerated twice, byte-identical.
+
+---
+
 ## Plan Notes
+
+### Design rerun after the code review
+
+Reconciled on resuming (2026-11-20), in the rerun that recovery frame 1 asks of
+Developer (`RerunThrough`: `DEVELOPING`, `ResumeAt`: `TESTING`). The user
+retired `AC-024` for `AC-064` and `AC-062` for `AC-063`, and the design added
+decision 22 and changed decisions 9 and 10. The steps that named the retired
+criteria now name their replacements. DEV-001 to DEV-018 stand, apart from the
+two behaviors DEV-019 and DEV-020 change: when a correction is kept, and how
+`artifacts` decides. Both add to DEV-009's and DEV-018's code rather than
+reopening them, so their recorded evidence still describes what they did. The
+plan returns to `PROPOSED` for the two new steps. After DEV-020, the frame
+closes and the workflow resumes at `TESTING`. The user approved the revised plan
+and DEV-019's files (2026-11-20).
 
 ### Review findings sent to the Architect
 
