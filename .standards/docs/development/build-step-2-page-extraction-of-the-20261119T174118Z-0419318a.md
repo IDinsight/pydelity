@@ -1468,7 +1468,7 @@ plus the uncommitted DEV-011 changes (macOS arm64, Python 3.13.9).
 
 ### DEV-012 — HTML report with extracted pages
 
-`Status`: `PENDING` `Depends On`: `DEV-010` `Acceptance`: `AC-034`
+`Status`: `DONE` `Depends On`: `DEV-010` `Acceptance`: `AC-034`
 
 **Goal**
 
@@ -1476,7 +1476,9 @@ Show each extracted page with its items so a person can check them.
 
 **Affected Area**
 
-`report/html.py`, `report/report.css`.
+Approved by the user before the step (2026-11-20): `MODIFY` `report/html.py`,
+`report/report.css` and `pipeline/runner.py` (passing the selected pages' page
+files to the report).
 
 **Expected Outcome**
 
@@ -1494,6 +1496,74 @@ Show each extracted page with its items so a person can check them.
 Lint; reports from stand-in runs and from the DEV-011 real run viewed in the
 built-in browser, light and dark; links from issues land on their boxes; markup
 in model text is shown, never run.
+
+Evidence, 2026-11-20, repo root, on the user's commit `3e2c3cb` plus the
+uncommitted DEV-018 and DEV-012 changes (macOS arm64, Python 3.13.9).
+
+- `.venv/bin/ruff check`, `ruff format --check`, `ty check` on `scripts src`:
+  passed; `interrogate`: 100%. Doctests: 26 passed, 1 skipped (new examples for
+  `_box_style` and `_page_heading`).
+- `.venv/bin/python -m pytest -q --numprocesses auto`: 81 passed, 24 failed, the
+  same 24 as before. The two report tests among them fail before the report is
+  written, for the reasons listed under DEV-010 (the extraction that now follows
+  the survey has no stand-in answers) and DEV-001 (settings).
+- Scratchpad `dev012_check.py`: 35 of 35 checks passed. It runs the stand-in on
+  the rotated PDF's pages 1-3 with `pause=False`: page index 0 adds a table with
+  a column span and a row span, a nested list, a code item, a formula with
+  LaTeX, a caption, a second container and `<script>`/`onerror` markup in text,
+  cells and the figure description; page index 1's verdict names an item, a
+  container and no item, with no correction. It also runs a paused run, and
+  writes reports for copies of `real-anthropic-2/` and `real-openai-2/` from
+  their saved files with `load()`, `render_pages` and `write_report`, with no
+  model call.
+  - No `script`, `iframe` or `object` element and no `on*` attribute in any
+    report; the markup shows as text.
+  - Every in-page link lands on an element (173, 168 and 60 links). Each item
+    has a numbered box and a list entry with anchors (81, 84 and 28 items), each
+    container a box (4, 0 and 3), numbered in reading order on each page.
+  - The items and containers that review issues name are exactly the marked
+    boxes, and each is linked from the review tables (8 in the stand-in report,
+    5 in the OpenAI one).
+  - Figure crops are shown and present (3, 2 and 1). Tables keep their spans,
+    lists their markers and nesting, a formula its LaTeX, a caption its link to
+    the item it captions.
+  - The header names the survey and page extraction models and never `None`; the
+    review section has a heading per step in run order, page extraction issues
+    sorted by page; each extracted page shows its verifier outcome (`passed`,
+    `found 3 problems, listed for review`).
+  - Pages with no page file and the paused run keep the survey's card, with no
+    item boxes. Arabic item text carries `lang="ar"` and `dir="auto"`.
+- Viewed in the built-in browser over a temporary local server on the scratchpad
+  output (the repo has no preview configuration): the stand-in report at 1,400
+  pixels in light (image beside the item list, a linked box highlighted, the
+  table, list, code, formula, figure crop and escaped markup, the review tables)
+  and in the narrow pane in dark (image above the list); the OpenAI Arabic page
+  in dark (right-to-left item text and the figure crop); the Anthropic page with
+  rotation attribute 90 in light (boxes on the sideways text columns). The first
+  view showed the review tables' page and item links wrapping; they now stay on
+  one line.
+- `dev009_check.py` 48 of 48, `dev010_check.py` 32 of 32, `dev011_check.py` 16
+  of 16, `dev017_check.py` 11 of 11 and `dev018_check.py` 7 of 7 again.
+- Process wording grep of the added lines: only HTML's `scope` attribute.
+
+**Implementation Notes**
+
+- `write_report` takes one `ReportInputs` (facts, page images, output folder,
+  the selected pages' page files, run record, survey), which keeps it within
+  Ruff's argument limit; the runner builds it.
+- An extracted page shows its items and containers instead of the survey's
+  regions and form fields; other pages keep the survey's card. Every card's
+  heading now reads `Page 1 (index 0)`, as the run summary counts pages.
+- An item's issues show under its list entry; issues about the page or a
+  container show under "Review issues about the page". A marked box shows `!` as
+  well as its color, and a box links to its list entry.
+- The header names the survey's model (from `pdf_survey.json`) and the page
+  extraction model (from the page files), instead of the `model` setting, which
+  is now `null` unless set.
+- The stylesheet adds a dark color scheme; the colors drawn over page images
+  stay the same in both, since the images are light.
+- A report shows the issues saved in the page files it reads: the OpenAI run's
+  page, written before DEV-018, still lists its 11 text issues.
 
 ---
 

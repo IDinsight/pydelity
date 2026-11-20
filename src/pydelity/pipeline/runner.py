@@ -77,7 +77,7 @@ from pydelity.pipeline.schemas import (
 from pydelity.providers.factory import build_model, output_mode
 from pydelity.providers.ledger_model import LedgerContext, LedgerModel
 from pydelity.providers.profiles import ModelChoice, PdfTransport
-from pydelity.report.html import REPORT_FILE_NAME, write_report
+from pydelity.report.html import REPORT_FILE_NAME, ReportInputs, write_report
 from pydelity.report.images import REPORT_FOLDER_NAME, render_pages
 from pydelity.review import ReviewIssue
 from pydelity.schema_versions import (
@@ -911,11 +911,14 @@ def _report_files(record: RunRecord, *, run: _Run) -> Path:
         pdf_sha256=run.pdf.sha256,
     )
     return write_report(
-        facts=run.facts,
-        manifest=manifest,
-        output_folder=run.config.output_folder,
-        record=record,
-        survey=run.survey,
+        ReportInputs(
+            facts=run.facts,
+            manifest=manifest,
+            output_folder=run.config.output_folder,
+            pages=[run.pages[index] for index in run.selected if index in run.pages],
+            record=record,
+            survey=run.survey,
+        )
     )
 
 
