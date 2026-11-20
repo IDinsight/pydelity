@@ -1,8 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `REVIEWING_IMPLEMENTATION` `CycleMode`: `STANDARD`
-`PendingCycleMode`: `UNSET` `PendingCycleRequest`: `UNSET`
-`PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `DOCUMENTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -31,8 +30,9 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `RESUME` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
-`Rerun done: F-002 and F-005 corrections verified with new tests and CI run 44813598257; frame closed, implementation review resumes.`
+`Kind`: `FORWARD` `From`: `REVIEWING_IMPLEMENTATION` `FailureType`: `NONE`
+`Reason`:
+`Implementation review passed on 4866b88 (F-002 and F-005 resolved, others withdrawn); documentation requested.`
 
 ## Recovery
 

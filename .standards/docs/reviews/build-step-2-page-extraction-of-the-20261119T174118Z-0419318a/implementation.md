@@ -7,7 +7,7 @@ ReviewKind: IMPLEMENTATION
 # Review Report
 
 `Cycle`: `build-step-2-page-extraction-of-the-20261119T174118Z-0419318a`
-`ReviewKind`: `IMPLEMENTATION` `Status`: `BLOCKED` `User Style`: `NONE`
+`ReviewKind`: `IMPLEMENTATION` `Status`: `COMPLETE` `User Style`: `NONE`
 
 ## Assessed Inputs and Scope
 
@@ -53,6 +53,15 @@ ReviewKind: IMPLEMENTATION
   report and workflows). Every finding below was reproduced or read in the code
   in this session before it was recorded; helper claims not rechecked are not
   findings.
+- Re-review (2026-11-20, after recovery frame 1 closed with a `RESUME` from
+  `TESTING`): head `4866b88`, clean tree. Since `f91aac8` (this report's first
+  commit) the source change is `5a6800b` only: `surveying/probe.py` (blob
+  `3b850bd732`) and `report/report.css` (blob `a5cb8c250e`); `4866b88` adds
+  tests. Scope, design and context unchanged (same blobs). Development plan blob
+  `bf0636cfd9` (`COMPLETE`; DEV-012 and DEV-013 record the corrections).
+  Verification report blob `37e0f1d417` (`REVERIFY`, `COMPLETE`, `FULL`).
+  Every other assessment above still applies, because no other file changed;
+  the whole suite was rerun on the new head.
 - Severity bar (reassessed at the user's request, 2026-11-20, "major issues"
   only): a finding must, on input the release targets, make the delivered
   output wrong, lose money or fail a run, or break a function the acceptance
@@ -74,24 +83,26 @@ and diagnostics.
 | AC-007, AC-008, AC-012, AC-014, AC-056 | Tester tests; Reviewer read `extraction.py` `_page_items`, `_item` and the `labels`, `content`, `captions`, `containers` checks | Supported |
 | AC-009, AC-010, AC-011 | Tester rendering and reading-order tests; Reviewer read `check_reading_order`; Reviewer helper checked the mapping table for every `/Rotate` × profile rotation × offset CropBox (32 cases, error ≤ 1 grid unit, round trip ≤ 0.24 pt), the rotated W-9 pages against the original (identical grid boxes for every line), and about 930 page sizes against every provider limit and 300 DPI (none exceeded, zoom within 0.2% of the largest) | Code: supported. Model-dependent accuracy: permitted later dependency (user, `AC-054`) |
 | AC-013 | Tester crop tests; Reviewer read `_write_page` (crops before the page file, atomic writes) | Supported; limitation L-2 |
-| AC-016 | Tester tests; the facts the `form_fields` check enforces come from the probe | Finding F-002 |
+| AC-016 | Tester tests incl. the mixed radio row; Reviewer reran F-002's input and the `form_fields` check on its facts | Supported (F-002 resolved) |
 | AC-017, AC-018, AC-019, AC-020 | Tester tests and inspection; Reviewer read `check_artifacts` (decision 22), `page_context`, both prompts (no document type, language or default direction) | Supported |
 | AC-021, AC-022, AC-063, AC-064, AC-025 | Tester tests incl. negative controls; Reviewer read `agents.py`, `llm.py`, `_kept_answer`, `_page_issues`, the text comparison | Supported |
 | AC-026 | Tester `run.json` and CLI tests | Supported |
 | AC-027 | Tester API tests; Reviewer helper reproduced `load()` on a folder reused by another PDF | Supported; withdrawn F-007 |
 | AC-028 | Tester ledger tests; Reviewer helper confirmed `step`, `page_index`, `agent` per request and per retry | Supported; limitation L-3 |
 | AC-029 | Tester estimate tests; helper confirmed paused and reused-page cases | Supported |
+| AC-057 | Tester `test_no_more_pages_run_at_once_than_the_limit` (5 pages, limit 2); Reviewer read `extract_pages` (an `asyncio.Semaphore(concurrent_pages)` held around the whole page task: render, both agents, crops, page file); default 8 and range 1–32 in `ExtractionConfig` | Supported |
+| AC-058 | Tester `test_each_page_request_carries_one_upright_image…` (both providers: one image, no PDF or file ID); Reviewer read `extracting/llm.py` `_content` (text, one JPEG, cache point) used by both agents, and each page as its own task | Supported |
 | AC-030 | Tester concurrency and image-bound tests; helper confirmed check and reservation under one lock | Supported; limitation L-4; withdrawn F-006 |
 | AC-031, AC-032, AC-033 | Tester tests; Reviewer helper ran fingerprint changes (effort, tokens, retries, model, instructions, profile) and non-changes (concurrency, timeouts, prices), failures and cancellation | Supported; limitations L-2, L-5 |
-| AC-034 | Tester report test; Reviewer read `report/html.py` and `report.css` | Finding F-005; withdrawn F-004 |
-| AC-035 | Tester probe tests | Finding F-002; withdrawn F-001 |
+| AC-034 | Tester report tests incl. the box-style test and a browser measurement; Reviewer read `report/html.py` and `report.css` | Supported (F-005 resolved); withdrawn F-004 |
+| AC-035 | Tester probe tests incl. the mixed radio row; Reviewer probe comparison on all fixtures | Supported (F-002 resolved); withdrawn F-001 |
 | AC-036, AC-039, AC-040, AC-041 | Tester tests | Supported |
 | AC-037 | Tester tests; Reviewer read `_structure_quality` | Supported; limitation L-6 |
 | AC-038 | Tester cycle test; Reviewer reproduced a dangling link | Supported; withdrawn F-003 |
 | AC-042, AC-043 | Tester workflow runs and inspection; Reviewer confirmed `c63d891` exists and the `pyproject.toml` entries are gone; helper read both workflows | Supported |
 | AC-044, AC-051, AC-053; README part of AC-049 | — | Permitted later dependency: Documenter, then final review |
-| AC-045 | 175 tests pass (Reviewer rerun); no provider reached | Supported for the current code; the corrections need Tester evidence |
-| AC-046, AC-047, AC-048 | CI run `44805308210` on `a0afbfa`: every job `success` (Reviewer read it with `gh`); source unchanged since | Supported |
+| AC-045 | 177 tests pass on `4866b88` (Reviewer rerun); no provider reached | Supported |
+| AC-046, AC-047, AC-048 | CI run `44813598257` on `5a6800b`, the corrected source: every job `success` (Reviewer read it with `gh`); the source is unchanged since; earlier run `44805308210` on `a0afbfa` | Supported |
 | AC-049 (metadata), AC-050 | `pyproject.toml` description; release-please files unchanged since `c7582e7` | Supported |
 | AC-052 | Tester regeneration check and CI staleness step | Supported |
 | AC-054 | — | Permitted later dependency: the user's real runs before sign-off |
@@ -124,6 +135,20 @@ All from the repository root on `53e985e` unless stated.
   and end to end (F-006). Outputs are quoted in each finding.
 - Read, not run: the report table and box markup and CSS (F-004, F-005); the
   helper measured both in a browser, and the code shows the cause.
+- Re-review on `4866b88` (2026-11-20):
+  - `.venv/bin/python -m pytest --numprocesses auto -q`: 177 passed; doctests
+    27 passed, 1 skipped; `ruff check`, `ruff format --check`, `ty check` on
+    `scripts src tests`: no problems; `node .standards/bin/check.mjs`: passed.
+  - F-002's reproducer on HEAD's `src`: A on, B off; `check_form_fields` with
+    the correct answer: no failure.
+  - Probe form facts for all 10 PDFs in `tests/fixtures/pdfs/` with `f91aac8`'s
+    `src` (extracted with `git archive`) and HEAD's: identical.
+  - `gh run view 44813598257`: head `5a6800b`, all six jobs `success`.
+    `gh run view 44816153651` on `4866b88` (with the new tests), while still in
+    progress: "Lint and test (Python 3.13)" `success`, "Test (Python 3.14)"
+    `success`, `Wheel install` on Ubuntu and Windows `success`, macOS still
+    running. The wheel jobs do not run the test suite, and their source is the
+    one `44813598257` passed on all three systems.
 
 ## Findings
 
@@ -149,7 +174,7 @@ All from the repository root on `53e985e` unless stated.
 
 ### F-002 — A radio button that shows off is read as checked when the group's value names another button
 
-`Severity`: `P2` `Status`: `OPEN` `Owner`: `DEVELOPER` `FailureType`:
+`Severity`: `P2` `Status`: `RESOLVED` `Owner`: `DEVELOPER` `FailureType`:
 `IMPLEMENTATION`
 
 - **Reference:** `src/pydelity/surveying/probe.py` `_button_state` (lines
@@ -177,6 +202,17 @@ All from the repository root on `53e985e` unless stated.
   say [False, True]`.
 - **Smallest correction:** apply the group-value fallback only when no button
   of the group shows on. Tester adds the mixed case to the probe tests.
+- **Reassessment (resolved, 2026-11-20, on `4866b88`):** `5a6800b` adds
+  `_group_shows_on` (reads the group's `Kids`, direct or indirect, skipping
+  object numbers outside the table) and applies the value fallback only when it
+  is false. The original input now gives `[('choice','radio',True,'B'),
+  ('choice','radio',False,'B')]` (A on, B off, as rendered), and
+  `check_form_fields` with the correct answer returns no failure. Boundaries:
+  the form facts of all 10 fixture PDFs are identical before (`f91aac8`) and
+  after; Tester's two-row test covers the all-off case (value read) and the
+  mixed case, with a negative control failing on the old source. Both buttons
+  carry the group's value `B`; the check compares only checked states for radio
+  buttons, so that does not matter.
 
 ### F-003 — A dangling outline link now loses every bookmark
 
@@ -209,7 +245,7 @@ All from the repository root on `53e985e` unless stated.
 
 ### F-005 — Item boxes on the page image take the item list's styles
 
-`Severity`: `P2` `Status`: `OPEN` `Owner`: `DEVELOPER` `FailureType`:
+`Severity`: `P2` `Status`: `RESOLVED` `Owner`: `DEVELOPER` `FailureType`:
 `IMPLEMENTATION`
 
 - **Reference:** `src/pydelity/report/html.py` line 504 writes boxes as
@@ -237,6 +273,15 @@ All from the repository root on `53e985e` unless stated.
 - **Smallest correction:** give the page-image boxes a class the item list does
   not use, or scope the list styles to the list. Tester extends the report
   test.
+- **Reassessment (resolved, 2026-11-20, on `4866b88`):** `5a6800b` scopes the
+  four list rules to `.items > .item` (`report.css` blob `a5cb8c250e`). The
+  item list entries are `<li class="item">` written directly inside `<ol
+  class="items">` (`html.py` lines 304–307 and 578), so they keep their padding
+  and `--highlight`; the boxes sit in `.page-image` and now take only `.box`
+  rules, so no padding reaches them and their `:target` shade is the
+  see-through `--target`. No other `.item` rule remains. Tester's style test
+  fails on the old source; Tester's browser check drew every box within 0.01 px
+  of its page-file height.
 
 ### F-006 — A complete but invalid last ledger line is ignored, then crashes the run after it spends
 
@@ -336,12 +381,19 @@ No blocking user question.
 
 ## Progress and Conclusion
 
-**Not passing.** Two `P2` findings are open, both owned by Developer
-(`IMPLEMENTATION`): F-002 (radio facts) and F-005 (report boxes). No material
-assessment gap remains for the current code: every current AC has a disposition
-above, the extraction core, rendering, spend control, runner, API, CLI,
-configuration, probe, report and workflows were inspected, and the suite,
-doctests, lint and types pass.
+**Passing (2026-11-20, on `4866b88`).** F-002 and F-005 are resolved and
+rechecked against their failure cases and boundaries; F-001, F-003, F-004,
+F-006 and F-007 are withdrawn with reasons. No finding is open and no material
+assessment gap remains: every current AC has a disposition above, the
+extraction core, rendering, spend control, runner, API, CLI, configuration,
+probe, report and workflows were inspected, and the suite, doctests, lint,
+types and CI pass. The only open items are the permitted later dependencies:
+Documenter (`AC-044`, `AC-051`, `AC-053`, the README part of `AC-049`) and the
+user's real runs before sign-off (`AC-054`, with the model-dependent parts of
+`AC-009` to `AC-011`). Next: `DOCUMENTING` (`FULL_DELIVERABLE`).
+
+Earlier conclusion (before the rerun): not passing, with F-002 and F-005 open
+for Developer.
 
 History: the first conclusion (2026-11-20) held seven `P2` findings and routed
 an `ARCHITECTURE` failure for F-007. At the user's request the findings were
@@ -350,21 +402,12 @@ acted on that route: F-001, F-003, F-004, F-006 and F-007 were withdrawn, and
 the uncommitted route to `ARCHITECTING` was replaced by an `IMPLEMENTATION`
 failure to `DEVELOPING` with `ResumeAt: REVIEWING_IMPLEMENTATION`.
 
-On resume: compare the inputs above with the current ones; recheck F-002 and
-F-005 against their failure cases (reproducers in `$TMPDIR/rv/` may be gone;
-each finding states its input) and the affected boundaries (the probe on the
-fixture PDFs and the `form_fields` check; the report's boxes, issue links and
-item list); check Tester's new evidence for both; then apply the full gate.
-
-Plain-language summary: the work cannot move on yet, but only two problems
-stand in the way, both small fixes for the developer. First, when a form's
-radio buttons were saved inconsistently, the survey now reports two options as
-ticked where the page shows one, and page extraction then pushes the model to
-agree, so the extracted form can come out wrong. Second, the HTML report draws
-the boxes of short items, such as headings, single lines and page numbers,
-taller than they are, and an issue's link covers the item it points at, which
-would mislead your review of the real runs. Everything else checked held up:
+Plain-language summary: the implementation review passes, and the work can move
+on to documentation. The two problems found earlier are fixed and rechecked: a
+form's radio buttons saved inconsistently are now read with one option ticked,
+as the page shows, and the HTML report draws every item's box at its real size
+without covering the item an issue points at. Everything else checked held up:
 reading pages, the checks and verifier, rotation, spending limits, resume and
-failure handling. Five smaller problems are recorded but do not block. Not
-checked here: real model runs, which you review before sign-off, and the
-documentation, which comes later.
+failure handling. Five smaller problems are recorded but do not block. Passing
+this review does not finish the cycle: the docs and README still need writing
+and a final review, and your real model runs come before sign-off.
