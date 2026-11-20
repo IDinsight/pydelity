@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -30,8 +30,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `RESUME` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
-`AC-064 keeps a verifier correction that fails only the text comparison, and AC-063 lists no text differences on a corrected page; frame closed with no rerun.`
+`Kind`: `FORWARD` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Design corrected: verifier corrections need every check but the text comparison and get text retries (AC-063, AC-064), and the artifacts check works by position (decision 22); Developer reruns.`
 
 ## Recovery
 
@@ -42,7 +42,7 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 `From`: `TESTING` `Owner`: `ARCHITECTING` `FailureType`: `ARCHITECTURE`
 `Reason`:
 `Text-layer checks conflict with decision 21: verifier corrections fail text checks and are rejected, and the artifacts check needs the stored text; see the plan's review findings.`
-`ResumeAt`: `TESTING` `RerunThrough`: `NONE`
+`ResumeAt`: `TESTING` `RerunThrough`: `DEVELOPING`
 
 ## Outstanding Obligations
 

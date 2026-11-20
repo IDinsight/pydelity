@@ -9,8 +9,8 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
 
 - Scope:
   `.standards/docs/scope/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
-  (`AC-001` to `AC-062`; `AC-015` and `AC-023` are retired). Target maturity is
-  Level 3.
+  (`AC-001` to `AC-064`; `AC-015`, `AC-023`, `AC-024` and `AC-062` are retired).
+  Target maturity is Level 3.
 - Baseline: pydelity 0.1.1, the survey only (`.standards/CONTEXT.md`). The
   survey's design
   (`git show 83743ef:.standards/docs/specs/build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c.md`,
@@ -41,6 +41,13 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
   both. On the Arabic test page (OpenAI), the extraction copied the PDF's stored
   text, broken ligatures and swapped letters included, and every text check
   passed. Decisions 20 and 21 answer these.
+- A code review after development (2026-11-20) found two checks that still
+  depended on the stored text. A verifier correction that read such a page
+  correctly failed the text comparison and was rejected, so the verifier could
+  never fix the page; the user changed the scope (`AC-063`, `AC-064`), which
+  decisions 9 and 10 follow. The `artifacts` check looked for each furniture
+  line's stored text in the answer, so a header read correctly from the image
+  never matched; decision 22 checks position instead.
 - File and folder names are the user's to approve before the build step that
   creates them. `src/pydelity/extracting/` with `agents.py`, `llm.py`,
   `prompts.py`, `validators.py` and `schemas.py` is fixed by scope. Every other
@@ -127,32 +134,35 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
    meet them. The retry rule is the survey's (decision 5 of its design): while
    check retries remain, any failed check raises `ModelRetry` with every
    failure; the last allowed answer is kept and each check still failing becomes
-   a review issue, except text differences on a page the verifier passes
-   (decision 9).
+   a review issue, except text differences as decision 9 says.
 9. **Text is compared as character trigrams, never words.** On pages whose
    measured text quality is `good`, Python compares the items' text with the
    page's text layer after Unicode normalization, using character trigrams that
    ignore spaces, so scripts written without spaces work the same as others.
    Text-layer lines with too little coverage in the answer are dropped text;
    answer lines with too little coverage in the text layer are added text. Both
-   are checks and go back to the model within the check retries; the retry
-   message says it may keep its reading when the text is not visible on the page
-   or was read from an image, and that the PDF's stored text can be wrong, so
-   the page image decides (decision 21). Text differences left after the retries
-   become review issues only when the verifier does not pass the page
-   (`AC-062`). The verifier sees them beside the image, so its pass means the
-   reading is right and the stored text differs, as on PDFs with broken letter
-   forms or ligatures. The failures stay in the page file's check results either
-   way. No prompt, field or fingerprint input changes.
+   are checks and go back, within the check retries, to the model whose answer
+   it is: the extractor for its extraction, the verifier for its correction. The
+   retry message says the model may keep its reading when the text is not
+   visible on the page or was read from an image, and that the PDF's stored text
+   can be wrong, so the page image decides (decision 21). Text differences left
+   after the retries become review issues only when the page keeps the
+   extraction and the verdict did not pass (`AC-063`). The verifier sees them
+   beside the image, so a pass or a correction of its own means it judged the
+   reading against the image, as on PDFs with broken letter forms or ligatures.
+   The failures stay in the page file's check results either way. No prompt,
+   field or fingerprint input changes.
 10. **A verifier reviews every page and may replace it.** After the extractor's
     answer is accepted, a verifier request with the same image, the same page
     context, the answer and its remaining check failures returns a verdict:
     passed, or problems plus a full corrected answer. The correction runs
     through every code check in the verifier's output validator, with the same
-    retry rule. A correction that passes every check replaces the extraction; a
-    rejected or missing correction keeps the extraction, and each problem the
-    verifier named becomes a review issue. No loop back to the extractor and no
-    second verification. The verdict is saved in the page file.
+    retry rule. A correction that passes every check other than `text_dropped`
+    and `text_added` replaces the extraction (`AC-064`), since those two compare
+    with stored text that can be wrong; a rejected or missing correction keeps
+    the extraction, and each problem the verifier named becomes a review issue.
+    No loop back to the extractor and no second verification. The verdict is
+    saved in the page file.
 11. **Pages run concurrently up to a limit; PyMuPDF runs one call at a time.**
     `advanced.extraction.concurrent_pages` (1–32, default 8) bounds the page
     tasks in flight with a semaphore; a page task covers rendering, extraction,
@@ -276,6 +286,18 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
     retry message adds that the PDF's stored text can be wrong (letters out of
     order, broken ligatures, wrong characters), so the model keeps what the
     image shows.
+22. **The `artifacts` check finds page furniture by position.** Stored text is
+    used only to find where each furniture line sits on the page, never compared
+    with the model's text. The page task reads the page's text-layer lines with
+    their boxes, finds each line the survey classified as `artifact` by its
+    normalized form (the survey's own line reading and normalization, so stored
+    text meets stored text), and maps its box to the upright image's grid with
+    the inverse of the box mapping. The check passes a line when the center of
+    its box lies inside the box of an item with role `artifact`, within 20 grid
+    units, the containers check's tolerance. A furniture line the page's text
+    layer does not hold is skipped. The check's name, its place in the order and
+    its retry rule stay as they are, and no fingerprint input changes, since the
+    PDF and the page are already in it.
 
 ### Defaults
 
@@ -327,17 +349,18 @@ uses the expected cost (decision 12).
 - `AC-016`: Field content, form-field hints, check `form_fields`.
 - `AC-017`: No check or verifier rule counts items or figure coverage; prompts
   and the verifier state that a one-figure page is valid.
-- `AC-018`: Prompt rule for page furniture; check `artifacts`.
+- `AC-018`: Prompt rule for page furniture; check `artifacts` by position
+  (decision 22).
 - `AC-019`: **Page context** resolution rules for ranges and the artifact
   mapping.
 - `AC-020`: Neutrality rules under **Technical Acceptance Criteria**; nothing
   ported that names a document type, language or direction.
 - `AC-021`: Checks and the retry rule (decision 8); `check_retries`.
-- `AC-022`, `AC-062`: **Text comparison** (decision 9), on a reading the models
-  make from the image alone (decision 21); `text_comparison` in the page file;
-  text issues only on pages the verifier does not pass (**Verifier
-  application**).
-- `AC-024`, `AC-025`: Verifier and its application (decision 10); `verification`
+- `AC-022`, `AC-063`: **Text comparison** (decision 9), on a reading the models
+  make from the image alone (decision 21), retried to the extractor or the
+  verifier; `text_comparison` in the page file; text issues only on pages that
+  keep the extraction without a pass (**Verifier application**).
+- `AC-064`, `AC-025`: Verifier and its application (decision 10); `verification`
   in the page file.
 - `AC-026`: Shared `ReviewIssue` with `step`, `page_index`, `item_id`;
   `run.json` `review`; CLI summary (decision 14).
@@ -383,8 +406,9 @@ uses the expected cost (decision 12).
 - **Rendering and coordinates** (`extracting/` `CANDIDATE`): the upright page
   image, figure crops, the grid-to-points mapping, and the single PyMuPDF worker
   that runs every PyMuPDF call of the step.
-- **Text layer** (`extracting/` `CANDIDATE`): reads a page's text-layer lines
-  and normalizes text for the comparison.
+- **Text layer** (`extracting/` `CANDIDATE`): reads a page's text-layer lines,
+  normalizes text for the comparison, and finds the page furniture lines' boxes
+  (decision 22).
 - **Prompts, agents, LLM, validators, schemas** (`extracting/`): as decision 1.
 - **Review** (shared module `CANDIDATE`, such as `src/pydelity/review.py`):
   `ReviewIssue` and the check-failure model, imported by both steps and
@@ -645,8 +669,9 @@ no correction; not passed means at least one problem.
   answer's trigrams occur in a text layer measured as `good`, so it cannot be
   relied on);
 - `checks: list[ExtractionCheckResult]` (name, passed, failures, attempts) for
-  the kept extraction, every failure included; `issues: list[ReviewIssue]`,
-  which leaves out `text_dropped` and `text_added` when the verdict passed;
+  the kept answer, the extraction or the applied correction, every failure
+  included; `issues: list[ReviewIssue]`, which leaves out `text_dropped` and
+  `text_added` when the verdict passed or the correction was applied;
 - `verification`: the verdict as given, `correction_applied: bool`, the checks
   the correction still failed when rejected, and the verifier's attempts.
 
@@ -697,9 +722,10 @@ returns failures with a message naming the item ref.
    (`rtl`) by at least 200. `ttb` pages: `column_order` must be set, and a jump
    by more than 150 against it (right for `right_to_left`, left for
    `left_to_right`) must move down by at least 200.
-8. `artifacts`: each repeated line the survey classified as `artifact` that is
-   on the page is contained, in the repeated line's normalized form, in the text
-   of some item with role `artifact`.
+8. `artifacts`: each repeated line the survey classified as `artifact` that the
+   page's text layer holds has its box's center inside the box of some item with
+   role `artifact`, within 20 units (decision 22). The message names the line
+   and where it is on the grid.
 9. `form_fields`: each fillable form field on the page except push buttons is
    named by exactly one field item, whose `value` or `checked` matches the
    form's after whitespace is collapsed.
@@ -740,15 +766,17 @@ Other review-issue names: `no_matching_label` (above) and `verifier` (decision
 
 1. Extractor answer accepted (all checks passed, or retries ran out).
 2. Verifier request. Its output validator runs every check on `corrected` when
-   present, with the retry rule; a verdict whose correction still fails on the
-   last attempt is accepted as given.
+   present, text checks included, with the retry rule and the text retry
+   message; a verdict whose correction still fails on the last attempt is
+   accepted as given.
 3. `passed`: keep the extraction. Problems with a correction that passes every
-   check: keep the correction; the problems stay in the verdict only. Problems
-   otherwise: keep the extraction; each problem becomes a `verifier` review
-   issue naming its item when it has one.
+   check other than `text_dropped` and `text_added`: keep the correction; the
+   problems stay in the verdict only (`AC-064`). Problems otherwise: keep the
+   extraction; each problem becomes a `verifier` review issue naming its item
+   when it has one.
 4. The kept answer's check results and issues go into the page file. Each check
    still failing is a review issue, except `text_dropped` and `text_added` when
-   the verdict passed (`AC-062`).
+   the verdict passed or the correction was applied (`AC-063`).
 
 ### Review issues
 
@@ -903,10 +931,11 @@ staleness check covers them.
    the key check happen here.
 4. Build the step's provider client once; run one page task per page to extract
    in a `TaskGroup`, at most `concurrent_pages` at once. A page task: render the
-   image and read the text-layer lines (PyMuPDF worker); extractor agent with
-   checks and retries; verifier agent with checks on its correction; apply the
-   verdict; map boxes to points and assign IDs; render and write crops; write
-   the page file; remove stale crops; log the page's outcome and cost.
+   image, read the text-layer lines and find the furniture lines' boxes on the
+   grid (PyMuPDF worker); extractor agent with checks and retries; verifier
+   agent with checks on its correction; apply the verdict; map boxes to points
+   and assign IDs; render and write crops; write the page file; remove stale
+   crops; log the page's outcome and cost.
 5. Each request: `LedgerModel` reserves its bound (images counted), sends,
    writes its ledger line with page and agent, releases the reservation.
 6. On the first page error or a `max_cost` no: cancel the other page tasks,
@@ -981,8 +1010,9 @@ returns the selected pages' page files. `survey()` is unchanged.
   with `fillable_name: null`.
 - `AC-017`: a page answer of one full-page figure passes every check and is not
   a verifier problem by itself.
-- `AC-018`: repeated lines classified as artifacts appear in `artifact` items,
-  or the page has an `artifacts` issue.
+- `AC-018`: repeated lines classified as artifacts sit inside `artifact` item
+  boxes, or the page has an `artifacts` issue; a furniture line whose stored
+  text differs from a correct reading passes when the boxes agree.
 - `AC-019`: overlapping, gapped or out-of-PDF ranges and a missing, repeated or
   unknown artifact mapping resolve by the **Page context** rules without error.
 - `AC-020`: `extracting/` code, prompts, page file fields and defaults contain
@@ -993,14 +1023,16 @@ returns the selected pages' page files. `survey()` is unchanged.
   review issue.
 - `AC-022`: the comparison meets the guarantee under **Text comparison** on
   Arabic, Chinese, Japanese and English test pages.
-- `AC-062`: text failures retry with the message described; leftovers stay in
-  the page file's `checks`, and are review issues in the page file, `run.json`
-  and the report only when the verdict did not pass; skipped pages record the
-  reason in `text_comparison`. No extractor or verifier request holds the page's
-  text-layer lines.
-- `AC-024`: every extracted page has exactly one verifier verdict; the kept
-  answer is the correction only when it passes every check; otherwise each
-  verifier problem is a `verifier` issue.
+- `AC-063`: text failures on an extraction retry to the extractor, and on a
+  correction to the verifier, with the message described; leftovers stay in the
+  page file's `checks`, and are review issues in the page file, `run.json` and
+  the report only when the page keeps the extraction and the verdict did not
+  pass; skipped pages record the reason in `text_comparison`. No extractor or
+  verifier request holds the page's text-layer lines.
+- `AC-064`: every extracted page has exactly one verifier verdict; the kept
+  answer is the correction when it passes every check other than `text_dropped`
+  and `text_added`, including a correction that fails only those two; otherwise
+  each verifier problem is a `verifier` issue.
 - `AC-025`: every page file holds its verdict, whether the correction was
   applied, and why not.
 - `AC-026`: extraction issues carry `step: "extraction"`, `page_index` and
@@ -1101,9 +1133,13 @@ code they cover.
   lines for review only when the verifier does not pass the page. Judging each
   page's stored text against the model's reading is a possible later
   improvement.
-- A verifier that wrongly passes a page also keeps a real dropped or added line
-  off the review list. The failure stays in the page file's `checks`, and the
-  verifier saw it beside the image before passing.
+- A verifier that wrongly passes a page, or whose correction drops or adds a
+  line, keeps that line off the review list. The failure stays in the page
+  file's `checks`, and the verifier saw it beside the image, with its own
+  retries for a correction, before passing or correcting.
+- The `artifacts` check trusts the model's boxes: a furniture line inside a
+  loose `artifact` box passes, and a tight but misplaced box fails and costs
+  retries. It no longer checks that the furniture's words were read.
 - Without text-layer hints, exact spelling on clean pages rests on the image at
   about 200 DPI; the comparison still catches dropped and added lines.
 - Prompted output has no grammar behind it, so an Anthropic answer that is not
@@ -1171,6 +1207,14 @@ code they cover.
   sent them when the measured quality was `good`): rejected after the Arabic
   run. Any hint invites copying stored text the survey cannot judge, and makes
   the text checks compare the stored text with itself.
-- **Listing every text difference left after the retries** (`AC-023`): replaced
-  by the user's choice (`AC-062`). On PDFs whose stored text is wrong, those
-  differences only added review noise on pages the verifier had passed.
+- **Listing every text difference left after the retries** (`AC-023`, then
+  `AC-062`): replaced by the user's choice (`AC-063`). On PDFs whose stored text
+  is wrong, those differences only added review noise on pages the verifier had
+  passed or corrected.
+- **Holding a verifier correction to the text comparison** (`AC-024`): replaced
+  by the user's choice (`AC-064`). A correction that reads such a page correctly
+  fails it, so the verifier could never fix the page.
+- **Matching furniture by text, exactly or by trigram share**: rejected. Exact
+  text never matches a correct reading of faulty stored text, and trigram shares
+  fail on short lines (the Arabic heading kept 12%); position needs no text at
+  all.
