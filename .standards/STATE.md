@@ -18,7 +18,7 @@
 `Development`:
 `.standards/docs/development/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`Tester needs a CI run for AC-046 and AC-047 (Python 3.14 and the Windows wheel job): the test changes committed and pushed, and a draft pull request to main opened. Who does it, the user or Tester?`
+`Tester needs a passing CI run for AC-046: commit and push the tests/pydelity/test_cli.py correction to draft pull request IDinsight/pydelity#10.`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

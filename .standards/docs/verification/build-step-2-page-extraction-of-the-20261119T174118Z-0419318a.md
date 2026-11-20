@@ -28,12 +28,15 @@ Cycle: build-step-2-page-extraction-of-the-20261119T174118Z-0419318a
   `tz6/pipeline-step-2` (`git status` shows changes only under `tests/` and this
   report). Active change: `git diff c7582e7..5ecbf9d` outside `.standards/`,
   `.claude/` and `artifacts/`.
-- Tester's changes, uncommitted: 12 modified test files, new
-  `tests/pydelity/extracting/` (`conftest.py`, `test_extraction.py`,
-  `test_rendering.py`, `test_text_layer.py`, `test_validators.py`) and fixtures
-  `canned_answers` (`tests/conftest.py`) and `profile_labels`. SHA-256 over the
-  sorted `.py`, `.json` and `.md` files under `tests/` (PDFs excluded):
-  `ac1ecfc7db455bdb…`. No change to `tests/fixtures/`.
+- Tester's changes: committed by the user as `936003e` (draft pull request
+  IDinsight/pydelity#10, tests SHA-256 `ac1ecfc7db455bdb…` over the sorted `.py`,
+  `.json` and `.md` files under `tests/`, PDFs excluded): 12 modified test
+  files, new `tests/pydelity/extracting/` (`conftest.py`, `test_extraction.py`,
+  `test_rendering.py`, `test_text_layer.py`, `test_validators.py`), fixtures
+  `canned_answers` and `profile_labels`. Uncommitted on top of it: the
+  correction to `tests/pydelity/test_cli.py` below. No change to
+  `tests/fixtures/`. `936003e` changes nothing outside `tests/` and
+  `.standards/` (the plan's change there is line reflow by the commit hook).
 - Environment: macOS arm64; Python 3.13.9 (repo `.venv`) and CPython 3.14.10 (a
   separate environment from `uv.lock`, `uv sync --locked --python 3.14`). `uv
   run` cannot reach its cache inside the sandbox, so tools run from the
@@ -107,9 +110,9 @@ no test reaches a provider.
 | AC-043 | Inspection: `CHANGELOG.md` links `c63d891`; `pyproject.toml` lacks the `def cli` exclusion and the `__init__.py` omit | VERIFIED |
 | AC-044 | — | PENDING Documenter: the listed docs wording fixes. |
 | AC-045 | Suite: 175 tests, stand-in or test models only; an autouse fixture points both providers at a closed port | VERIFIED |
-| AC-046 | `ci.yml` inspection (3.13 and 3.14 test jobs gate "Lint and test"); `gh api …/rules/branches/main` lists "Lint and test" and "TruffleHog secret scan"; suite passes locally on 3.13.9 and 3.14.10 | BLOCKED: no CI run yet (CI runs on pull requests to `main`; none exists) |
-| AC-047 | Local smoke test on macOS 13 of 13 | BLOCKED: needs the Windows wheel job of a CI run |
-| AC-048 | `uv build` then `twine check --strict` PASSED (wheel and sdist); smoke test in a fresh venv with pip from PyPI, 13 of 13 | VERIFIED locally; CI's three-OS wheel jobs pending the same run as AC-046 |
+| AC-046 | `ci.yml` inspection (3.13 and 3.14 test jobs gate "Lint and test"); `gh api …/rules/branches/main` lists "Lint and test" and "TruffleHog secret scan"; CI run `44804492613` on `936003e` ran both test jobs, which failed on a Tester test defect (corrected below); suite passes locally on 3.13.9 and 3.14.10, also with `GITHUB_ACTIONS=true` | BLOCKED: needs a passing CI run with the correction pushed |
+| AC-047 | CI run `44804492613`, `Wheel install (windows-latest)`: `twine check --strict` PASSED, smoke test 13 of 13 (pip install of the built wheel, `pydelity --yes --no-pause` and the Python API with both providers, survey and page extraction, all requests to the stand-in) | VERIFIED |
+| AC-048 | `uv build` then `twine check --strict` PASSED locally; CI run `44804492613`: `Wheel install` on macos-latest, ubuntu-latest and windows-latest each 13 of 13 | VERIFIED |
 | AC-049 | Wheel metadata `Summary` describes surveying and extracting pages; classifiers unchanged | Metadata VERIFIED; README PENDING Documenter |
 | AC-050 | Inspection: `release-please-config.json`, `.release-please-manifest.json` (`0.1.1`) and `release.yml` unchanged since `c7582e7` | VERIFIED (configuration); release itself happens after merge, outside in-cycle evidence |
 | AC-051 | — | PENDING Documenter: guides; Reviewer then checks them against behavior. |
@@ -179,8 +182,19 @@ All commands from the repository root; `.venv/bin/` is Python 3.13.9 and
   -- node scripts/format_markdown.mjs`: `git status docs` clean. The formatter
   also reflowed the plan and `STATE.md`; both were restored to their committed
   text (whitespace only).
-- `gh run list --branch tz6/pipeline-step-2`, `gh pr list --head …`: no runs, no
-  pull request. CI triggers only on pull requests to `main` and pushes to `main`.
+- CI run `44804492613` on `936003e` (draft pull request IDinsight/pydelity#10):
+  `Wheel install` ubuntu, macOS and Windows passed (13 of 13 each); "TruffleHog
+  secret scan" and "Build the docs" passed. "Lint and test (Python 3.13)" and
+  "Test (Python 3.14)" failed at
+  `test_cli.py::test_the_removed_instructions_option_is_an_unknown_option[--instructions]`
+  (51 passed before `--exitfirst` stopped them), so "Lint and test" failed.
+  Cause, a Tester test defect: on GitHub Actions Rich colors the usage error and
+  styles `--instructions` as `-` plus `-instructions`, so the plain substring
+  check missed it. Reproduced locally with `GITHUB_ACTIONS=true`. Correction:
+  compare `click.unstyle(result.output)` with `No such option: <option>`. After
+  it, with `GITHUB_ACTIONS=true`: 175 passed on 3.13.9 and on 3.14.10; both rows
+  pass with and without `GITHUB_ACTIONS=true` and `FORCE_COLOR=1`; ruff, ty and
+  interrogate clean.
 - Work from before the client restart (the 24 updated tests, new budget, runner,
   API, CLI and report tests, and the probe, rendering, validator and text-layer
   tests written by helper agents) was read and rerun in this session; it is
@@ -189,11 +203,9 @@ All commands from the repository root; `.venv/bin/` is Python 3.13.9 and
 
 ## Open Findings and Dependencies
 
-- Blocking user action (`Active Work.BlockedOn`): `AC-046` and `AC-047` need a
-  CI run, which happens only on a pull request to `main`. The test changes must
-  be committed and pushed, and a draft pull request opened, so that "Lint and
-  test" (3.13, 3.14, wheel jobs on ubuntu, macOS, Windows) runs. `AC-048`'s
-  three-OS evidence comes from the same run.
+- Blocking user action (`Active Work.BlockedOn`): `AC-046` needs a passing CI
+  run. The `test_cli.py` correction must be committed and pushed to
+  IDinsight/pydelity#10 so "Lint and test" runs again.
 - PENDING Documenter: `AC-044`, the README part of `AC-049`, `AC-051`, `AC-053`.
 - PENDING the user: `AC-054` real runs and review, which also carry the
   model-dependent parts of `AC-009`, `AC-010` and `AC-011`.
@@ -201,9 +213,8 @@ All commands from the repository root; `.venv/bin/` is Python 3.13.9 and
 
 ## Resume or Handoff
 
-Next action: once the CI run on the draft pull request finishes, record its run
-ID and the results of "Lint and test", "Test (Python 3.14)" and the three
-"Wheel install" jobs for `AC-046`, `AC-047` and `AC-048`, check the tested head
-matches `5ecbf9d` plus these test changes, rerun `check`, mark the report
-`COMPLETE` if all pass, and hand off to Reviewer (`IMPLEMENTATION`). A failure
-there is diagnosed and routed under the defect table.
+Next action: once the CI run on the pushed correction finishes, record its run
+ID and the results of "Lint and test" and its jobs for `AC-046`, check the tested
+head is `936003e` plus the `test_cli.py` correction only, rerun `check`, mark the
+report `COMPLETE` if all pass, and hand off to Reviewer (`IMPLEMENTATION`). A
+failure there is diagnosed and routed under the defect table.

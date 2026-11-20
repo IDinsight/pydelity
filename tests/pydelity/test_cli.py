@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 # Third Party Library
+import click
 import pytest
 import typer
 
@@ -524,14 +525,18 @@ def test_the_removed_instructions_option_is_an_unknown_option(
     run_cli: Callable[..., Result],
     survey_answer: Callable[..., dict],
 ) -> None:
-    """Instructions have no option, so either spelling is a usage error, exit 2."""
+    """Instructions have no option, so either spelling is a usage error, exit 2.
+
+    The message is compared without its colors, which the error panel has when
+    the environment asks for them, as on CI.
+    """
 
     mock = mock_providers(answers=[survey_answer()])
 
     result = run_cli([str(pdf_path(_SCAN)), "-y", "-d", "out", option, "Read it."])
 
-    assert result.exit_code == ExitCode.INVALID_INPUT, result.output
-    assert "No such option" in result.output
-    assert option in result.output
+    output = click.unstyle(result.output)
+    assert result.exit_code == ExitCode.INVALID_INPUT, output
+    assert f"No such option: {option}" in output
     assert mock.requests == []
     assert not Path("out").exists()
