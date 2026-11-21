@@ -17,7 +17,8 @@
 `.standards/docs/specs/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
 `Development`:
 `.standards/docs/development/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
+`Tester waits for CI on the final commit for AC-027, AC-028 and AC-029: the user commits the test change and records, pushes the branch and opens a pull request to main, then invokes Tester (verification report, Open Findings and Dependencies).`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

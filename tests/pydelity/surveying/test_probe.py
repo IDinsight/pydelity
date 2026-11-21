@@ -490,32 +490,30 @@ def test_letter_page_labels_give_no_page_number(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("dangling", "cycle"), [("Next", False), ("First", True)], ids=["next", "first"]
 )
-def test_outline_links_to_missing_objects_keep_the_bookmarks_pymupdf_reads(
+def test_outline_links_to_missing_objects_are_dropped_and_every_other_bookmark_kept(
     cycle: bool, dangling: str, tmp_path: Path
 ) -> None:
-    """A link to an object the PDF does not have is skipped, with no probe error.
+    """A link to an object the PDF does not have is dropped, with no probe error.
 
-    The bookmarks are what PyMuPDF reads from the outline, which ends at that link.
-    A cycle after it is still cut, so they are the same as from the outline without
-    the cycle, where PyMuPDF would read none.
+    Every other bookmark is kept in reading order, with no blank entry for the
+    missing object, including the entry after one whose first child is missing. A
+    cycle after the link is still cut, so the bookmarks are the same as without it.
     """
 
     path = tmp_path / "outline.pdf"
     _save_outline(cycle=cycle, dangling=dangling, path=path)
     without_cycle = tmp_path / "outline_without_cycle.pdf"
     _save_outline(cycle=False, dangling=dangling, path=without_cycle)
-    with pymupdf.open(without_cycle) as document:
-        read = document.get_toc(simple=True)
 
     facts = probe_pdf(path)
 
     assert facts.bookmarks == [
-        Bookmark(level=level, page_index=page - 1 if page >= 1 else None, title=title)
-        for level, title, page in read
+        Bookmark(level=1, page_index=0, title="Intro"),
+        Bookmark(level=1, page_index=1, title="Methods"),
+        Bookmark(level=1, page_index=2, title="Results"),
     ]
-    assert facts.bookmarks is not None
-    assert [bookmark.title for bookmark in facts.bookmarks[:2]] == ["Intro", "Methods"]
     assert facts.probe_errors == []
+    assert probe_pdf(without_cycle).bookmarks == facts.bookmarks
 
 
 def test_outline_with_a_cycle_keeps_the_bookmarks_before_it(tmp_path: Path) -> None:
