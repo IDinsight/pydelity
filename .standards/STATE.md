@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -30,12 +30,20 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `CHECKPOINT` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
-`Increment 4 verified: load() keeps only the folder's PDF's page files, report tables keep body cells in their columns, and the probe survives dangling outline links and inline widgets (AC-021 to AC-025); Developer selects the next work.`
+`Kind`: `USER_REWORK` `From`: `DEVELOPING` `FailureType`: `ARCHITECTURE`
+`Reason`:
+`The user asked that the probe set an outline link to a missing object to null, so get_toc reads every remaining bookmark with no blank entry; the design's outline rule leaves such a link in place.`
 
 ## Recovery
 
-`Active`: `false`
+`Active`: `true`
+
+### Frame 1
+
+`From`: `DEVELOPING` `Owner`: `ARCHITECTING` `FailureType`: `ARCHITECTURE`
+`Reason`:
+`The user asked that the probe set an outline link to a missing object to null, so get_toc reads every remaining bookmark with no blank entry; the design's outline rule leaves such a link in place.`
+`ResumeAt`: `DEVELOPING` `RerunThrough`: `NONE`
 
 ## Outstanding Obligations
 

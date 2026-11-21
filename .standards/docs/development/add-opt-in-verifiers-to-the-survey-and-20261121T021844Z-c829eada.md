@@ -1145,7 +1145,8 @@ describe 0.2.0 as built.
 
 **Affected Area**
 
-`src/pydelity/extracting/prompts.py`, `src/pydelity/extracting/text_layer.py`
+`src/pydelity/extracting/prompts.py` (docstrings, and the extraction model's
+instructions, under plan revision 1), `src/pydelity/extracting/text_layer.py`
 (docstrings), `scripts/generate_reference_docs.py` (the hand-written check
 texts: the survey checks page gains `verifier`, and the extraction checks page's
 wording no longer calls the verifier a model or says it reviews every page; the
@@ -1167,6 +1168,10 @@ other docstring or comment that still calls the verifier a model (such as in
   `verifier` issue.
 - `pyproject.toml`'s description says pydelity surveys a PDF and extracts its
   pages, with an optional verifier for each step.
+- Plan revision 1: the extraction model's instructions end "Your answer is
+  checked by code. You will be told what to fix if a check fails." They no
+  longer say a second model reviews the answer. `PROMPT_VERSION` stays 1, as the
+  scope says.
 - The wheel smoke test runs the survey and page extraction with default settings
   from the built wheel.
 
@@ -1389,3 +1394,50 @@ Budget** has no allowance left for `pipeline/runner.py`, which DEV-008 changes.
   with PyMuPDF.
 - Limitations: the wheel smoke test and Python 3.14 were not run locally.
 - Next after the return: DEV-011, then full completion and full verification.
+
+### Increment 4 return
+
+Tester returned Increment 4 `VERIFIED` (verification report, E32–E38; no open
+defect), with its tests in `5ec4eec`. Reconciled on `5ec4eec`: since `5bddc38`
+(DEV-010), `src/`, `scripts/`, `examples/`, `docs/` and `pyproject.toml` are
+unchanged; `5ec4eec` changes only `tests/` and STANDARDS records. Rerun on
+`5ec4eec`: tests 207 passed; `ruff check`, `ruff format --check` (89 files),
+`ty check scripts src tests` and `check` clean.
+
+DEV-011 belongs to no increment. `Current Increment` stays 4 until full
+completion sets it to `NONE` and hands the plan to full verification.
+
+Found while planning DEV-011: the extraction model's instructions
+(`extract_page` in `extracting/prompts.py`) say "Your answer is checked by code
+and reviewed by a second model". Since decision 1 the verifier is off by
+default, so the sentence is untrue on a default run. No design decision or plan
+step covers this prompt text. Changing it is a plan revision for the user's
+approval.
+
+### Plan revision 1
+
+The user approved two changes on 2026-11-21:
+
+- DEV-011 also corrects the extraction model's instructions. It drops "and
+  reviewed by a second model", so the sentence is true with the verifier on or
+  off; `PROMPT_VERSION` stays 1, as the scope says. No design decision covers
+  that sentence, so this is a change to the plan only, now approved.
+- The probe sets an outline `First` or `Next` link to an object the PDF does not
+  have to null, rather than leaving it, so `get_toc` reads every remaining
+  bookmark with no blank placeholder entry. This changes the design's
+  **Remaining fixes** outline rule ("the walk carries on with the links left, so
+  PyMuPDF's `get_toc` reads the outline as it did before"). So it is routed to
+  Architect as `USER_REWORK` (`ARCHITECTURE`), not absorbed into this plan.
+  `AC-023`'s "yields the bookmarks that can be read … instead of none" still
+  holds; Architect decides whether the scope needs Scoper. When the design is
+  corrected, DEV-010 reopens for it: its outcome changes, and DEV-010 is the
+  probe step.
+
+### Suspended Assignment 1
+
+`Recovery Frame`: `1` `Recovery Reason`:
+`The user asked that the probe set an outline link to a missing object to null, so get_toc reads every remaining bookmark with no blank entry; the design's outline rule leaves such a link in place.`
+`Purpose`: `DEVELOPMENT` `Target`: `NONE` `Assessed Inputs`:
+`5ec4eec (Increment 4 verified; DEV-001 to DEV-010 DONE; DEV-011 PENDING with plan revision 1)`
+`Next Action`:
+`Reconcile the corrected outline rule: reopen DEV-010 to set dangling outline links to null, then implement DEV-011 with plan revision 1, then full completion and full verification.`
