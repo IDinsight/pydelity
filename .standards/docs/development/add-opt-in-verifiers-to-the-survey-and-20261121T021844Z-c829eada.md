@@ -977,7 +977,7 @@ wording) and the generated `docs/src/content/docs/reference/python-api.md`
 
 ### DEV-009 — Report tables keep body cells in their columns
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`: `AC-022`
+`Status`: `DONE` `Depends On`: `DEV-001` `Acceptance`: `AC-022`
 
 **Goal**
 
@@ -998,6 +998,39 @@ file gives it.
 
 Ruff, ty and interrogate; a scratchpad page file with such a table rendered and
 its HTML parsed to check each cell's column; the existing tests.
+
+**Evidence**
+
+Evidence, 2026-11-21, repo root, on `a307946` plus the uncommitted DEV-009
+change to `src/pydelity/report/html.py` (macOS arm64, Python 3.13.9, `.venv`).
+
+- Scratch script `dev009/check_tables.py` in the session scratchpad, run with
+  `.venv/bin/python -I check_tables.py <repo>`: 13 of 13 checks passed.
+  - The script parses the rendered table with the standard library's HTML parser
+    and places each cell as the HTML table model does, ending a row span at the
+    end of its row group. It compares each cell's column with the page file's
+    own grid.
+  - Four tables: a header cell spanning two body rows; two header rows with a
+    column span and a row span through the whole body; no header rows; spans
+    inside the header only.
+  - After the fix, every cell is in the page file's column, in one row group,
+    with header-row cells `th scope="col"`, body cells `td`, and every span as
+    given. `_item_table` at `a307946`, run on the same tables, puts the body
+    cells of the first two one column to the left; the other two are unchanged.
+- In the built-in browser, the first table before and after the fix, served from
+  the scratchpad on `127.0.0.1`: before, the spanning header cell stops at the
+  header row and `b1` and `c1` sit under its own column and the next; after, it
+  spans all three rows and `b1` and `c1` sit under "Item" and "Amount".
+- `ruff check` "All checks passed!"; `ruff format --check scripts src tests` "89
+  files already formatted"; `ty check scripts src tests` "All checks passed!";
+  `interrogate` 100.0%; doctests 28 passed, 1 skipped.
+- Tests: 200 passed. No test or stylesheet refers to `thead`.
+- Reference pages: no change.
+
+**Implementation Notes**
+
+- Only `_item_table` changes. The report's other tables (`_table`) keep their
+  `thead`: their one header row has no spans.
 
 ---
 

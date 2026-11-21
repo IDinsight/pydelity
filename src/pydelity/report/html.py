@@ -607,6 +607,11 @@ def _item_link(item_id: str) -> str:
 def _item_table(table: Table, *, attributes: str) -> str:
     """Show a table item as an HTML table, with its spans and header rows.
 
+    Every row goes in one row group, with header-row cells as ``th``. HTML ends a
+    cell's row span at the end of its row group, so a header cell that spans into
+    the body would otherwise stop short and push the body's cells into the wrong
+    columns.
+
     Parameters
     ----------
     table
@@ -636,10 +641,9 @@ def _item_table(table: Table, *, attributes: str) -> str:
         + "</tr>"
         for number, row in enumerate(table.rows)
     ]
-    head = "".join(rows[: table.header_rows])
-    body = "".join(rows[table.header_rows :])
-    thead = f"<thead>{head}</thead>" if head else ""
-    return f'<table class="item-table"{attributes}>{thead}<tbody>{body}</tbody></table>'
+    return (
+        f'<table class="item-table"{attributes}><tbody>{"".join(rows)}</tbody></table>'
+    )
 
 
 def _list(items: list[str]) -> str:

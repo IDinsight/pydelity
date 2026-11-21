@@ -18,7 +18,7 @@
 `Development`:
 `.standards/docs/development/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-008 is done; continue with DEV-009 (report tables keep body cells in their columns).`
+`DEV-009 is done; continue with DEV-010 (probe fixes for outline links and inline widgets, and the TEXT_FLAGS comment).`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
