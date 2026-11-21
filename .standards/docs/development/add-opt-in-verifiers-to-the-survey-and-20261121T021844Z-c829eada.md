@@ -1051,9 +1051,11 @@ or an inline widget, and correct the `TEXT_FLAGS` comment.
 **Expected Outcome**
 
 - An outline `First` or `Next` link to an object number outside
-  `1..xref_length() - 1` is not followed, and `get_toc` reads the outline as
-  before the cycle cut existed. Which PyMuPDF calls raise on such a number is
-  confirmed first.
+  `1..xref_length() - 1` is set to null in the open document, and the walk
+  carries on, so `get_toc` reads every bookmark reachable without that link, in
+  reading order, with no blank entry and no probe error; a cycle after the link
+  is still cut (the corrected design, plan revision 1). Which PyMuPDF calls
+  raise on such a number is confirmed first.
 - An annotation with object number 0 is skipped with one `form` probe error
   naming its page, without reading keys of object 0, and the other fields are
   kept; `_field_error` never reads keys of object 0.
@@ -1129,6 +1131,37 @@ changes to `src/pydelity/surveying/probe.py` and `src/pydelity/utils/pdf.py`
   goes beyond `AC-023`'s "as 0.1.x did", so it is not done here.
 - `_form` skips object 0 before loading it. `_field_error` reads no key of
   object 0, though `_form` no longer passes it one.
+
+**Rework Evidence (plan revision 1)**
+
+Evidence, 2026-11-21, repo root, on `81d7dcd` plus the uncommitted rework of
+`src/pydelity/surveying/probe.py`: `git diff HEAD -- src scripts examples docs`
+has 14 insertions and 11 deletions, SHA-256 starting `1f9284d55a30de84` (macOS
+arm64, Python 3.13.9, `.venv`, PyMuPDF 2.1).
+
+- `_cut_outline_cycle` is renamed `_cut_broken_outline_links`, as the design
+  allows. It sets a `First` or `Next` link to an object outside
+  `1..xref_length() - 1` to null in the open document and carries on. The
+  `_bookmarks` docstring says so too.
+- Scratch `dev010/check_probe.py`, updated to the corrected rule: 12 of 12
+  checks passed. The expected bookmarks are worked out independently, by setting
+  every dangling link to null by hand and calling `get_toc`.
+  - A dangling `Next` on the last entry, or a dangling `First` on a leaf, now
+    gives all five bookmarks, A, B, B1, B2 and C, with no blank entry and no
+    probe error. A dangling `Next` mid-level gives A, the only one reachable,
+    and a dangling `Outlines` root gives none.
+  - A cycle together with a dangling `First` gives the same five bookmarks as
+    the PDF without the cycle.
+  - The walk changes the open document's outline but not the file's bytes.
+  - The inline-widget, `_field_error` and `PROBE_VERSION` checks pass unchanged.
+- `probe_pdf` gives the same facts as at `c7d8ac7` for all 10 fixture PDFs.
+- `ruff check`, `ruff format --check scripts src tests` (89 files),
+  `ty check scripts src tests` and `interrogate` clean; doctests 28 passed, 1
+  skipped. Reference pages: no change.
+- Tests: 205 passed, 2 failed. Both are Tester's tests of the replaced rule, for
+  full verification: the two rows (`first`, `next`) of
+  `test_probe.py::test_outline_links_to_missing_objects_keep_the_bookmarks_pymupdf_reads`
+  expect the blank entry the corrected design removes.
 
 ---
 
@@ -1441,3 +1474,20 @@ The user approved two changes on 2026-11-21:
 `5ec4eec (Increment 4 verified; DEV-001 to DEV-010 DONE; DEV-011 PENDING with plan revision 1)`
 `Next Action`:
 `Reconcile the corrected outline rule: reopen DEV-010 to set dangling outline links to null, then implement DEV-011 with plan revision 1, then full completion and full verification.`
+
+### Outline rework return
+
+Architect corrected the design in `81d7dcd`. **Remaining fixes** now sets an
+outline `First` or `Next` link to a missing object to null, and `AC-023`'s
+technical criterion asks for every bookmark reachable without that link, with no
+blank entry and no probe error. Architect found no rerun needed, popped recovery
+frame 1, and resumed development (`RESUME`).
+
+Reconciled on `81d7dcd`:
+
+- since `5ec4eec`, only `.standards/STATE.md` and the design changed;
+- the corrected rule is the change the user approved in plan revision 1.
+
+Suspended Assignment 1 is restored. DEV-010 reopens with the corrected outcome,
+then DEV-011 follows with plan revision 1. The DEV-010 evidence above describes
+the first version, which left such links in place.

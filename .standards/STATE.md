@@ -17,7 +17,8 @@
 `.standards/docs/specs/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
 `Development`:
 `.standards/docs/development/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
+`DEV-010's rework is done; continue with DEV-011 (docstrings, reference pages, the package description and plan revision 1's prompt change).`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

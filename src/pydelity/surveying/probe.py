@@ -234,10 +234,11 @@ def _bookmarks(document: pymupdf.Document) -> list[Bookmark]:
     -------
     list[Bookmark]
         The bookmarks in order; empty when the PDF has none. An outline whose links
-        lead back to an entry already read gives the bookmarks before that entry.
+        lead back to an entry already read gives the bookmarks before that entry,
+        and a link to an object the PDF does not have is skipped.
     """
 
-    _cut_outline_cycle(document)
+    _cut_broken_outline_links(document)
     return [
         Bookmark(level=level, page_index=page - 1 if page >= 1 else None, title=title)
         for level, title, page in document.get_toc(simple=True)
@@ -347,21 +348,22 @@ def _common_band(bands: list[Band]) -> Band:
     return max(order, key=lambda band: counts[band])
 
 
-def _cut_outline_cycle(document: pymupdf.Document) -> None:
-    """End the outline at the first link back to an entry already read.
+def _cut_broken_outline_links(document: pymupdf.Document) -> None:
+    """Remove the outline's links to missing objects and to entries already read.
 
-    PyMuPDF reads no bookmarks at all from an outline whose links form a cycle. The
-    outline is walked in reading order: each entry, then its children, then its next
-    sibling. At the first link to an entry already read, that link and every link
-    not yet followed are removed, so the outline ends there. A link to an object the
-    PDF does not have is not followed and is left as it is, since PyMuPDF raises on
-    reading such an object but reads the outline past it. Only the open document
+    The outline is walked in reading order: each entry, then its children, then its
+    next sibling. A link to an object the PDF does not have is removed, and the walk
+    carries on. PyMuPDF raises on reading such an object, and `get_toc` would show it
+    as a blank entry and, for a missing first child, drop the entries after it.
+    PyMuPDF reads no bookmarks at all from an outline whose links form a cycle, so at
+    the first link to an entry already read, that link and every link not yet
+    followed are removed, and the outline ends there. Only the open document
     changes; the file is not written.
 
     Parameters
     ----------
     document
-        The open PDF; its outline is changed in place when it has a cycle.
+        The open PDF; its outline is changed in place when it has a broken link.
     """
 
     kind, value = document.xref_get_key(document.pdf_catalog(), "Outlines")
@@ -380,6 +382,7 @@ def _cut_outline_cycle(document: pymupdf.Document) -> None:
             continue
         entry = int(value.split(maxsplit=1)[0])
         if entry not in objects:
+            document.xref_set_key(holder, key, "null")
             continue
         if entry in seen:
             for open_holder, open_key in [(holder, key), *links]:
