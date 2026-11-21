@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
-`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
+`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -15,8 +15,10 @@
 `.standards/docs/scope/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
 `Architecture`:
 `.standards/docs/specs/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
-`Development`: `NONE` `PromotionReason`: `NONE` `AuditTarget`: `NONE`
-`BlockedOn`: `NONE` `PendingVerificationCadence`: `NONE`
+`Development`:
+`.standards/docs/development/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
+`PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
 
@@ -28,8 +30,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
-`Design covers the reorder (decision 13, Module order, AC-041 and AC-042) as build step 1; rerun boundary reached, so the recovery frame closes and development resumes.`
+`Kind`: `CHECKPOINT` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
+`Increment 1 ready: DEV-001 reordered src/pydelity and scripts (AC-041); Tester reorders tests (AC-042) and assesses both reorders.`
 
 ## Recovery
 
