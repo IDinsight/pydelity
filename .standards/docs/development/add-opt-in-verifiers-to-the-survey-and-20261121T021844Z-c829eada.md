@@ -176,8 +176,9 @@ reads another definition of the module.
   `TextFacts` above it), `ProbeError`, `RepeatedLine` and `StructureFacts` above
   `Facts`; `PdfIdentity` above `PdfFacts`; `RotationRange`, `StartMarker` and
   `WritingDirection` above `Profile`; `Region` above `Proposal`;
-  `SurveySettings` above `SurveyInputs`; `Profile`, `Proposal` and
-  `SurveyInputs` above `PdfSurvey`.
+  `SurveySettings` above `SurveyInputs`; `Profile`, `Proposal`, `SurveyInputs`
+  and `SurveyVerification` (with `SurveyAnswer`, `SurveyProblem` and
+  `SurveyVerdict` above it) above `PdfSurvey`, which DEV-006 moved to the end.
 - `src/pydelity/surveying/validators.py`: `CHECKS` below the check functions it
   lists (after `check_writing_direction`).
 
@@ -663,7 +664,7 @@ not yet run the verifier.
 
 ### DEV-006 — The survey applies the verdict
 
-`Status`: `PENDING` `Depends On`: `DEV-002, DEV-005` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-002, DEV-005` `Acceptance`:
 `AC-001, AC-006, AC-008, AC-010, AC-011, AC-013, AC-014, AC-017`
 
 **Goal**
@@ -700,6 +701,120 @@ Ruff, ty and interrogate; a scratchpad run against the stand-in with
 outcome (passed, correction kept, correction not kept, no correction, failed
 request), checking `pdf_survey.json`, `run.json`'s review list, the report text
 and the exit code; the existing tests.
+
+**Evidence**
+
+Evidence, 2026-11-21, repo root, on `e4d479f` plus the uncommitted DEV-006
+changes to `src/pydelity/surveying/survey.py`, `surveying/schemas.py`,
+`review.py`, `report/html.py`, `pipeline/runner.py` and the generated
+`docs/src/content/docs/reference/pdf-survey-json.md`, `page-json.md` and
+`run-json.md` (macOS arm64, Python 3.13.9, `.venv`).
+
+- Scratch script `dev006/check_survey_verdict.py` in the session scratchpad, run
+  with `.venv/bin/python -I check_survey_verdict.py <repo>` against the stand-in
+  on `irs_form_1040a_1965_scan.pdf`, with the survey's canned answer and then
+  the verdicts queued as later answers: 51 of 51 checks passed.
+  - Verifier off (the default): `verification: null`, the last key of
+    `pdf_survey.json`; one `surveyor` ledger line; the report's survey section
+    says "Verifier: no verifier ran"; the log line says `no verifier`.
+  - With `advanced.survey.verify: true`:
+    - **Passed:** the answer is kept, with `verification` passed, 1 attempt and
+      no failures. There is one upload and two model requests; the `surveyor`
+      line comes before the `verifier` line. `run.json`'s survey step shows 2
+      requests, transport `upload`, `completed`. The report says `passed` and
+      the log line `verifier passed`.
+    - **Correction kept**, run with `languages: ["fr"]`: the profile and
+      proposal come from the correction, `fr` stays first, and the facts copy
+      equals `pdf_facts.json`'s. No `verifier` issue is listed; the checks carry
+      the verifier's attempts. The report says "found 1 problem and its
+      correction was kept" and the log line `verifier corrected the survey`.
+    - **Correction not kept**: every one of 3 verdicts gives a correction that
+      fails C7. The survey's answer is kept, with checks at its own attempts,
+      and `correction_failures` holds the `languages` result with attempts 3.
+      The review list in `pdf_survey.json` and `run.json` is the design's single
+      `verifier` issue (`details: {"category": "labels"}`, the problem's
+      `page_index`, `item_id: null`). The report says "found 1 problem, listed
+      for review"; the ledger has `surveyor` then three `verifier` lines.
+    - **No correction**, two problems: two `verifier` issues in problem order;
+      the report says "found 2 problems, listed for review" and the log line
+      `verifier found 2 problems`.
+  - Reuse:
+    - A survey made without a verifier is reused while the verifier is off. It
+      is run again, with the line "No verifier reviewed the survey in ..., so
+      the survey runs again with the verifier", once it is on.
+    - `pydelity.estimate` calls it not reused with the verifier on and reused
+      with it off.
+    - A reviewed survey is reused with the verifier either on or off, with no
+      survey request.
+  - An old `pdf_survey.json` without `verification` gives `damaged_output` and a
+    new survey request.
+  - Failed verifier request:
+    - Three answers that are not verdicts raise `SurveyError` "The verifier gave
+      no usable verdict on the survey: ...".
+    - A 400 injected into only the verifier's request raises `ProviderError`
+      with the provider's message.
+    - Either way, `run.json`'s survey step is `failed` with the error and the
+      ledger keeps the survey's paid line. No `pdf_survey.json` is written, or
+      an existing unreviewed one is left byte for byte as it was.
+    - The CLI with `--verify --yes` exits 1 and shows the error.
+  - `build_survey` with facts edited to give a `rotation_differs` lists:
+    - with no verifier, `languages` then `rotation_differs`;
+    - with a passed verdict or a kept correction, `languages` only;
+    - with a correction not kept, `languages`, `rotation_differs`, then one
+      `verifier` issue per problem.
+- The DEV-004 and DEV-005 scratch checks still pass (9 of 9, 42 of 42).
+- `ruff check` "All checks passed!"; `ruff format --check scripts src tests` "89
+  files already formatted"; `ty check scripts src` "All checks passed!";
+  `interrogate` 100.0%; doctests 28 passed, 1 skipped.
+- The module order check finds one new departure, `PdfSurvey` below
+  `SurveyVerification`, now listed above; `ProposedRegion` and `SurveyAnswer`
+  moved up to keep the rest alphabetical. A comparison with `e4d479f` finds
+  every class but `PdfSurvey` unchanged apart from its place.
+- Reference pages:
+  - `pdf-survey-json.md` gains `verification` and its parts, and the new
+    `checks` and `issues` texts.
+  - `page-json.md`, `run-json.md` and `pdf-survey-json.md` list `verifier` as
+    its own issue name, after `page_number_differs`.
+- Tests: 176 passed, 12 failed. Each failure is a replaced contract, for Tester
+  in Increment 3:
+  - Ten tests pass the global `verify=True`, which now runs the survey's
+    verifier too, while the stand-in answers that request with a survey answer:
+    - `test_extraction.py`:
+      `test_each_page_request_carries_one_upright_image_and_only_its_own_instructions`
+      (both providers) and
+      `test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues` (all
+      three outcomes);
+    - `test_html.py`:
+      `test_report_draws_extracted_items_numbered_with_links_from_their_issues`;
+    - `test_budget.py`:
+      `test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing`;
+    - `test_runner.py`:
+      `test_run_json_records_each_step_its_pages_cost_and_review_issues`;
+    - `test_cli.py`:
+      `test_verify_adds_a_verifier_request_for_each_page_and_to_the_estimate`
+      (`--verify` and `-vf`).
+  - `test_html.py::test_a_page_no_verifier_reviewed_says_so_in_the_report`
+    counts two "no verifier ran" lines, and the survey section now adds a third.
+  - `test_survey.py::test_profile_owns_other_dedupes_kinds_and_converts_region_boxes`
+    calls `build_survey` without the new required `verification`;
+    `ty check tests` reports the same one call.
+
+**Implementation Notes**
+
+- `survey.py` mirrors page extraction: a private `_KeptAnswer` and
+  `_kept_answer` apply the verdict, `_verifier_issue` and `_verifier_outcome`
+  give the issue and the log text. `build_survey` takes the kept answer, its
+  attempts and the required `verification`, and builds the review list. A
+  correction is kept only when it passes every check.
+- `run_survey` returns the transport of the verifier's last request when the
+  verifier ran, so a replacement upload is reported.
+- `saved_survey` gains `quiet`, as `plan_pages` has. The runner's private
+  `_reusable_survey` is gone: the estimate calls `saved_survey(quiet=True)`, so
+  both follow the same reuse rule.
+- `review.py`: `ExtractionIssueName` is `no_matching_label` alone, and the new
+  `VerifierIssueName` (`verifier`) is shared by both steps.
+- `report/html.py`: the existing `_verifier_text` takes a page's or the survey's
+  verification, and the profile section's details end with "Verifier".
 
 ---
 
@@ -846,7 +961,9 @@ describe 0.2.0 as built.
 `src/pydelity/extracting/prompts.py`, `src/pydelity/extracting/text_layer.py`
 (docstrings), `scripts/generate_reference_docs.py` (the hand-written check
 texts: the survey checks page gains `verifier`, and the extraction checks page's
-wording no longer calls the verifier a model or says it reviews every page), any
+wording no longer calls the verifier a model or says it reviews every page; the
+generated type text says "one of" for a list of one name, such as `verifier`,
+and the `verification` fields say `None` where a JSON page means `null`), any
 other docstring or comment that still calls the verifier a model (such as in
 `src/pydelity/review.py` and `src/pydelity/extracting/schemas.py`),
 `pyproject.toml` (`description`), the generated pages under

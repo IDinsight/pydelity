@@ -34,7 +34,14 @@ from pydelity.extracting.schemas import (
 from pydelity.pipeline.schemas import RunRecord
 from pydelity.report.schemas import PageImage, ReportManifest
 from pydelity.review import ReviewIssue
-from pydelity.surveying.schemas import Facts, ItemKind, PageFacts, PdfFacts, PdfSurvey
+from pydelity.surveying.schemas import (
+    Facts,
+    ItemKind,
+    PageFacts,
+    PdfFacts,
+    PdfSurvey,
+    SurveyVerification,
+)
 from pydelity.surveying.validators import covering_range
 from pydelity.utils.files import write_text_atomic
 
@@ -913,6 +920,7 @@ def _profile_section(survey: PdfSurvey) -> str:
                 or "none",
             ),
             ("Your survey instructions", survey.inputs.instructions or "none"),
+            ("Verifier", _verifier_text(survey.verification)),
         ]
     )
     notes = "<h3>Continuation notes</h3>" + _list(profile.continuation_notes)
@@ -1130,13 +1138,16 @@ def _table(*, caption: str | None, headers: list[str], rows: list[list[str]]) ->
     return f"<table>{title}<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
 
 
-def _verifier_text(verification: PageVerification | None) -> str:
-    """Say what the verifier made of a page.
+def _verifier_text(
+    verification: PageVerification | SurveyVerification | None,
+) -> str:
+    """Say what the verifier made of a page or of the survey.
 
     Parameters
     ----------
     verification
-        The verifier's review of the page, or ``None`` when no verifier ran.
+        The verifier's review of the page or the survey, or ``None`` when no verifier
+        ran.
 
     Returns
     -------

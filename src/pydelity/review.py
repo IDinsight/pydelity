@@ -27,14 +27,17 @@ type ExtractionCheckName = Literal[
     "text_added",
 ]
 
-# Page extraction's other review issues, which are recorded without sending the answer
-# back: content that no label in the profile fits, and a problem the verifier model
-# found whose correction was not kept.
-type ExtractionIssueName = Literal["no_matching_label", "verifier"]
+# Page extraction's other review issue, which is recorded without sending the answer
+# back: content that no label in the profile fits.
+type ExtractionIssueName = Literal["no_matching_label"]
 
 # The name of what found a review issue, in any step.
 type IssueName = (
-    ExtractionCheckName | ExtractionIssueName | SurveyCheckName | SurveyComparisonName
+    ExtractionCheckName
+    | ExtractionIssueName
+    | SurveyCheckName
+    | SurveyComparisonName
+    | VerifierIssueName
 )
 
 # The steps whose problems go on the review list.
@@ -54,6 +57,9 @@ type SurveyCheckName = Literal[
 # The survey's comparisons of the accepted answer with the facts, whose differences
 # are review issues.
 type SurveyComparisonName = Literal["rotation_differs", "page_number_differs"]
+
+# A problem a step's verifier found whose correction was not kept, in either step.
+type VerifierIssueName = Literal["verifier"]
 
 
 class _Output(BaseModel):

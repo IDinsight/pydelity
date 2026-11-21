@@ -1,13 +1,17 @@
 """The survey step: reuse ``pdf_survey.json``, or ask the model and write a new one.
 
 A valid ``pdf_survey.json`` whose fingerprint matches the survey's inputs is reused
-unless ``overwrite`` is set. Otherwise the model surveys the PDF, and Python builds the
-profile from its accepted answer. It adds the ``other`` label, merges the languages,
-and converts region boxes to points.
+unless ``overwrite`` is set, or the survey's verifier is on and no verifier reviewed
+the saved survey. Otherwise the model surveys the PDF and, when the verifier is on,
+the verifier reviews its accepted answer. Python builds the profile from the kept
+answer: the verifier's correction when it passes every check, else the model's
+answer. It adds the ``other`` label, merges the languages, and converts region boxes
+to points.
 """
 
 # Standard Library
 from collections.abc import Callable
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
@@ -20,8 +24,15 @@ from pydelity.costs.budget import format_usd
 from pydelity.costs.ledger import LEDGER_FILE_NAME, read_ledger
 from pydelity.providers.ledger_model import LedgerModel
 from pydelity.providers.profiles import PdfTransport
+from pydelity.review import ReviewIssue
 from pydelity.schema_versions import SURVEY_SCHEMA_VERSION
-from pydelity.surveying.llm import SurveyStep, ask_model
+from pydelity.surveying.llm import (
+    ModelSurvey,
+    ModelVerdict,
+    SurveyStep,
+    ask_model,
+    ask_verifier,
+)
 from pydelity.surveying.prompts import PROMPT_VERSION
 from pydelity.surveying.schemas import (
     Facts,
@@ -35,7 +46,9 @@ from pydelity.surveying.schemas import (
     Region,
     SurveyAnswer,
     SurveyInputs,
+    SurveyProblem,
     SurveySettings,
+    SurveyVerification,
 )
 from pydelity.surveying.validators import (
     check_results,
@@ -58,6 +71,25 @@ _OTHER_LABEL = Label(
 
 # The survey's file name in the output folder.
 SURVEY_FILE_NAME = "pdf_survey.json"
+
+
+@dataclass(frozen=True)
+class _KeptAnswer:
+    """The answer the survey keeps, and the verifier's review of the survey.
+
+    Attributes
+    ----------
+    answer
+        The survey's answer, or the verifier's correction when it was kept.
+    attempts
+        How many answers the model that gave it gave.
+    verification
+        The verifier's review, or ``None`` when no verifier ran.
+    """
+
+    answer: SurveyAnswer
+    attempts: int
+    verification: SurveyVerification | None
 
 
 def _describe(survey: PdfSurvey) -> str:
@@ -90,6 +122,64 @@ def _describe(survey: PdfSurvey) -> str:
     return (
         f"labels {labels}; languages {languages}; rotation {rotation}; {issues} review "
         f"issue{'' if issues == 1 else 's'}"
+    )
+
+
+def _kept_answer(
+    *, surveyed: ModelSurvey, verified: ModelVerdict | None
+) -> _KeptAnswer:
+    """Apply the verifier's verdict, keeping its correction when it passes every check.
+
+    Parameters
+    ----------
+    surveyed
+        The survey's accepted answer.
+    verified
+        The verifier's verdict on it, or ``None`` when no verifier ran.
+
+    Returns
+    -------
+    _KeptAnswer
+        The correction, when the verdict has one that passes every check, and
+        otherwise the survey's answer, with the verifier's review when one ran.
+    """
+
+    if verified is None:
+        return _KeptAnswer(
+            answer=surveyed.answer, attempts=surveyed.attempts, verification=None
+        )
+
+    corrected = verified.verdict.corrected
+    correction_failures = verified.correction_failures
+    if (
+        corrected is not None
+        and correction_failures is not None
+        and not any(correction_failures.values())
+    ):
+        return _KeptAnswer(
+            answer=corrected,
+            attempts=verified.attempts,
+            verification=SurveyVerification(
+                attempts=verified.attempts,
+                correction_applied=True,
+                correction_failures=[],
+                verdict=verified.verdict,
+            ),
+        )
+
+    rejected = []
+    if correction_failures is not None:
+        results = check_results(correction_failures, attempts=verified.attempts)
+        rejected = [result for result in results if not result.passed]
+    return _KeptAnswer(
+        answer=surveyed.answer,
+        attempts=surveyed.attempts,
+        verification=SurveyVerification(
+            attempts=verified.attempts,
+            correction_applied=False,
+            correction_failures=rejected,
+            verdict=verified.verdict,
+        ),
     )
 
 
@@ -223,30 +313,98 @@ def _spent_since(*, entries_before: int, ledger_path: Path) -> str:
     return f"{format_usd(total)} for {count}"
 
 
+def _verifier_issue(problem: SurveyProblem) -> ReviewIssue:
+    """Turn a problem the verifier found into a review issue of the survey.
+
+    Parameters
+    ----------
+    problem
+        The problem, from a verdict whose correction was not kept.
+
+    Returns
+    -------
+    ReviewIssue
+        The issue, with the problem's category in its details.
+    """
+
+    return ReviewIssue(
+        check="verifier",
+        details={"category": problem.category},
+        item_id=None,
+        message=f"verifier: {problem.description}",
+        page_index=problem.page_index,
+        step="survey",
+    )
+
+
+def _verifier_outcome(verification: SurveyVerification | None) -> str:
+    """Describe the verifier's review for the survey's log line.
+
+    Parameters
+    ----------
+    verification
+        The verifier's review, or ``None`` when no verifier ran.
+
+    Returns
+    -------
+    str
+        ``verifier passed``, ``verifier corrected the survey``, such as ``verifier
+        found 2 problems``, or ``no verifier``.
+    """
+
+    if verification is None:
+        return "no verifier"
+    if verification.verdict.passed:
+        return "verifier passed"
+    if verification.correction_applied:
+        return "verifier corrected the survey"
+    count = len(verification.verdict.problems)
+    return f"verifier found {count} problem{'' if count == 1 else 's'}"
+
+
 def build_survey(
-    *, answer: SurveyAnswer, attempts: int, config: Config, facts: PdfFacts
+    *,
+    answer: SurveyAnswer,
+    attempts: int,
+    config: Config,
+    facts: PdfFacts,
+    verification: SurveyVerification | None,
 ) -> PdfSurvey:
-    """Build ``pdf_survey.json`` from the model's accepted answer.
+    """Build ``pdf_survey.json`` from the kept answer and the verifier's review.
 
     Parameters
     ----------
     answer
-        The accepted answer.
+        The kept answer: the survey's, or the verifier's correction.
     attempts
-        How many answers the model gave.
+        How many answers the model that gave it gave.
     config
         The run's settings.
     facts
         The measured facts the answer was checked against.
+    verification
+        The verifier's review, or ``None`` when no verifier ran.
 
     Returns
     -------
     PdfSurvey
-        The survey, with the checks' results on the answer, a review issue for each
-        failure, and a review issue for each page that differs from the facts.
+        The survey, with the checks' results on the answer and the review list: a
+        review issue for each failure; one for each page that differs from the facts,
+        unless the verifier passed the answer or its correction was kept; and one for
+        each problem the verifier found, when its correction was not kept.
     """
 
     checks = check_results(run_checks(answer, facts.facts), attempts=attempts)
+    issues = review_issues(checks)
+    accepted = verification is not None and (
+        verification.verdict.passed or verification.correction_applied
+    )
+    if not accepted:
+        issues += compare_with_facts(answer, facts.facts)
+    if verification is not None and not verification.correction_applied:
+        issues += [
+            _verifier_issue(problem) for problem in verification.verdict.problems
+        ]
     labels = _labels(answer)
     inputs = survey_inputs(config=config, facts=facts)
     return PdfSurvey(
@@ -254,7 +412,7 @@ def build_survey(
         facts=facts.facts,
         fingerprint=survey_fingerprint(inputs),
         inputs=inputs,
-        issues=review_issues(checks) + compare_with_facts(answer, facts.facts),
+        issues=issues,
         profile=Profile(
             continuation_notes=answer.continuation_notes,
             labels=labels,
@@ -271,6 +429,7 @@ def build_survey(
             regions=_regions(answer=answer, facts=facts.facts, labels=labels),
         ),
         schema_version=SURVEY_SCHEMA_VERSION,
+        verification=verification,
     )
 
 
@@ -283,6 +442,10 @@ async def run_survey(
     pdf: PdfInfo,
 ) -> tuple[PdfSurvey, PdfTransport]:
     """Ask the model to survey the PDF and write ``pdf_survey.json`` atomically.
+
+    When the survey's verifier is on, it reviews the model's accepted answer before
+    the survey is built. A failed request leaves an existing ``pdf_survey.json`` as it
+    was.
 
     Parameters
     ----------
@@ -312,41 +475,48 @@ async def run_survey(
         If the provider rejects the upload for an invalid API key or as too large, or
         a request fails after the provider retries.
     SurveyError
-        If the model refuses, runs out of output tokens, or never gives an answer that
-        matches the survey's answer format.
+        If the model or the verifier refuses, runs out of output tokens, or never
+        gives an answer that matches its answer format.
     """
 
     ledger_path = config.output_folder / LEDGER_FILE_NAME
     entries_before = len(read_ledger(ledger_path).entries)
-    surveyed = await ask_model(
-        SurveyStep(
-            config=config, facts=facts, model=model, on_attached=on_attached, pdf=pdf
-        )
+    step = SurveyStep(
+        config=config, facts=facts, model=model, on_attached=on_attached, pdf=pdf
     )
+    surveyed = await ask_model(step)
+    verified = (
+        await ask_verifier(step, surveyed=surveyed) if config.verify_survey else None
+    )
+    kept = _kept_answer(surveyed=surveyed, verified=verified)
     survey = build_survey(
-        answer=surveyed.answer,
-        attempts=surveyed.attempts,
+        answer=kept.answer,
+        attempts=kept.attempts,
         config=config,
         facts=facts,
+        verification=kept.verification,
     )
     path = config.output_folder / SURVEY_FILE_NAME
     write_model_atomic(model=survey, path=path)
     logger.info(
-        "Survey finished: {description}; cost {cost}. Saved to {path}",
+        "Survey finished: {description}; {outcome}; cost {cost}. Saved to {path}",
         cost=_spent_since(entries_before=entries_before, ledger_path=ledger_path),
         description=_describe(survey),
+        outcome=_verifier_outcome(survey.verification),
         path=path,
     )
-    return survey, surveyed.attachment.transport
+    last = surveyed if verified is None else verified
+    return survey, last.attachment.transport
 
 
 def saved_survey(
-    *, config: Config, facts: PdfFacts, output_folder: Path
+    *, config: Config, facts: PdfFacts, output_folder: Path, quiet: bool = False
 ) -> PdfSurvey | None:
     """Return the saved survey if it can be reused.
 
     It can be reused when ``pdf_survey.json`` is valid, its fingerprint matches the
-    survey's inputs and ``overwrite`` is not set. A damaged file gives a warning.
+    survey's inputs, ``overwrite`` is not set, and it holds a verifier's review or the
+    survey's verifier is off. A damaged file gives a warning.
 
     Parameters
     ----------
@@ -356,6 +526,8 @@ def saved_survey(
         The measured facts the survey would use.
     output_folder
         The output folder.
+    quiet
+        Whether to decide without the warning and the log lines, as an estimate does.
 
     Returns
     -------
@@ -365,22 +537,32 @@ def saved_survey(
 
     path = output_folder / SURVEY_FILE_NAME
     saved = load_model(model_type=PdfSurvey, path=path)
-    if saved.damage is not None:
+    if saved.damage is not None and not quiet:
         warn(
             f"{saved.damage}; running the survey again",
             code="damaged_output",
             details={"file": SURVEY_FILE_NAME},
         )
+    survey = saved.model
     expected = survey_fingerprint(survey_inputs(config=config, facts=facts))
-    if saved.model is None or saved.model.fingerprint != expected or config.overwrite:
+    if survey is None or survey.fingerprint != expected or config.overwrite:
+        return None
+    if survey.verification is None and config.verify_survey:
+        if not quiet:
+            logger.info(
+                "No verifier reviewed the survey in {path}, so the survey runs again "
+                "with the verifier",
+                path=path,
+            )
         return None
 
-    logger.info(
-        "Survey reused from {path}: {description}",
-        description=_describe(saved.model),
-        path=path,
-    )
-    return saved.model
+    if not quiet:
+        logger.info(
+            "Survey reused from {path}: {description}",
+            description=_describe(survey),
+            path=path,
+        )
+    return survey
 
 
 def survey_fingerprint(inputs: SurveyInputs) -> str:

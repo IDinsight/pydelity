@@ -625,82 +625,6 @@ class Proposal(_Output):
     """Areas of single pages the model labeled."""
 
 
-class SurveySettings(_Output):
-    """The survey settings a survey's result depends on."""
-
-    check_retries: int
-    """How many times the model could answer again after failing the checks."""
-
-    effort: Effort
-    """How hard the model thought before answering."""
-
-    max_output_tokens: int
-    """The most tokens one model answer could contain, thinking included."""
-
-
-class SurveyInputs(_Output):
-    """What a survey was made from."""
-
-    facts_fingerprint: str
-    """The fingerprint of the ``pdf_facts.json`` the survey used."""
-
-    instructions: str | None
-    """The user's survey instructions (``advanced.survey.instructions``), if any."""
-
-    languages: list[str]
-    """The user's languages, in standard form."""
-
-    model: str
-    """The model, as ``<provider>:<model-id>``."""
-
-    page_count: int
-    """The PDF's number of pages."""
-
-    pdf_bytes: int
-    """The PDF's size in bytes."""
-
-    pdf_name: str
-    """The PDF's file name."""
-
-    pdf_sha256: str
-    """The PDF's SHA-256 hex digest."""
-
-    prompt_version: int
-    """The version of the survey prompt."""
-
-    settings: SurveySettings
-    """The survey settings used."""
-
-
-class PdfSurvey(_Output):
-    """The contents of ``pdf_survey.json``: the checked survey of one PDF."""
-
-    checks: list[CheckResult]
-    """The result of each check, C1 to C7 in order."""
-
-    facts: Facts
-    """A copy of the measured facts the survey used."""
-
-    fingerprint: str
-    """``sha256:`` fingerprint of what the survey depends on; a matching file is
-    reused."""
-
-    inputs: SurveyInputs
-    """What the survey was made from."""
-
-    issues: list[ReviewIssue]
-    """One review issue per failure on the accepted answer."""
-
-    profile: Profile
-    """How the PDF's pages are laid out, for later steps."""
-
-    proposal: Proposal
-    """The rest of the model's answer."""
-
-    schema_version: str
-    """The version of this file's schema, ``"MAJOR.MINOR"``."""
-
-
 class ProposedRegion(_Output):
     """An area of one page the model labels, with its box as page fractions."""
 
@@ -754,6 +678,53 @@ class SurveyAnswer(_Output):
 
     writing_direction: WritingDirection
     """The writing direction of the pages."""
+
+
+class SurveySettings(_Output):
+    """The survey settings a survey's result depends on."""
+
+    check_retries: int
+    """How many times the model could answer again after failing the checks."""
+
+    effort: Effort
+    """How hard the model thought before answering."""
+
+    max_output_tokens: int
+    """The most tokens one model answer could contain, thinking included."""
+
+
+class SurveyInputs(_Output):
+    """What a survey was made from."""
+
+    facts_fingerprint: str
+    """The fingerprint of the ``pdf_facts.json`` the survey used."""
+
+    instructions: str | None
+    """The user's survey instructions (``advanced.survey.instructions``), if any."""
+
+    languages: list[str]
+    """The user's languages, in standard form."""
+
+    model: str
+    """The model, as ``<provider>:<model-id>``."""
+
+    page_count: int
+    """The PDF's number of pages."""
+
+    pdf_bytes: int
+    """The PDF's size in bytes."""
+
+    pdf_name: str
+    """The PDF's file name."""
+
+    pdf_sha256: str
+    """The PDF's SHA-256 hex digest."""
+
+    prompt_version: int
+    """The version of the survey prompt."""
+
+    settings: SurveySettings
+    """The survey settings used."""
 
 
 class SurveyProblem(_Output):
@@ -825,3 +796,38 @@ class SurveyVerification(_Output):
 
     verdict: SurveyVerdict
     """The verdict as the verifier gave it."""
+
+
+class PdfSurvey(_Output):
+    """The contents of ``pdf_survey.json``: the checked survey of one PDF."""
+
+    checks: list[CheckResult]
+    """The result of each check on the kept answer, C1 to C7 in order: the survey's
+    answer, or the verifier's correction when it was kept."""
+
+    facts: Facts
+    """A copy of the measured facts the survey used."""
+
+    fingerprint: str
+    """``sha256:`` fingerprint of what the survey depends on; a matching file is
+    reused."""
+
+    inputs: SurveyInputs
+    """What the survey was made from."""
+
+    issues: list[ReviewIssue]
+    """The review list: each failure still on the kept answer; then its differences
+    from the facts, unless the verifier passed the answer or its correction was kept;
+    then the verifier's problems, when its correction was not kept."""
+
+    profile: Profile
+    """How the PDF's pages are laid out, for later steps."""
+
+    proposal: Proposal
+    """The rest of the model's answer."""
+
+    schema_version: str
+    """The version of this file's schema, ``"MAJOR.MINOR"``."""
+
+    verification: SurveyVerification | None
+    """The verifier's review; ``None`` when no verifier reviewed the survey."""

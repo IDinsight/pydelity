@@ -93,8 +93,6 @@ from pydelity.surveying.survey import (
     SURVEY_FILE_NAME,
     run_survey,
     saved_survey,
-    survey_fingerprint,
-    survey_inputs,
 )
 from pydelity.utils.coroutines import (
     IssuedWarning,
@@ -937,31 +935,6 @@ def _report_files(record: RunRecord, *, run: _Run) -> Path:
     )
 
 
-def _reusable_survey(*, config: Config, facts: PdfFacts) -> PdfSurvey | None:
-    """Return the saved survey if the run would reuse it, without logging it.
-
-    Parameters
-    ----------
-    config
-        The run's settings.
-    facts
-        The facts the survey would use.
-
-    Returns
-    -------
-    PdfSurvey | None
-        The saved survey when ``pdf_survey.json`` is valid, matches the inputs and
-        ``overwrite`` is not set; otherwise ``None``.
-    """
-
-    path = config.output_folder / SURVEY_FILE_NAME
-    saved = load_model(model_type=PdfSurvey, path=path).model
-    expected = survey_fingerprint(survey_inputs(config=config, facts=facts))
-    if saved is None or saved.fingerprint != expected or config.overwrite:
-        return None
-    return saved
-
-
 def _review(run: _Run) -> list[ReviewIssue]:
     """List the run's review issues: the survey's, then each selected page's.
 
@@ -1383,7 +1356,9 @@ async def run_estimate(*, config: Config) -> CostEstimate:
         pdf=pdf,
         save=False,
     )
-    survey = _reusable_survey(config=config, facts=facts)
+    survey = saved_survey(
+        config=config, facts=facts, output_folder=config.output_folder, quiet=True
+    )
     steps = [_survey_estimate(config=config, facts=facts, reused=survey is not None)]
     if survey is not None:
         plan = plan_pages(

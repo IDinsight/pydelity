@@ -18,7 +18,7 @@
 `Development`:
 `.standards/docs/development/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-005 is done; continue with DEV-006 (the survey applies the verdict).`
+`DEV-006 is done; continue with DEV-007 (the survey verifier in estimates).`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
