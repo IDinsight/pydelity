@@ -17,8 +17,9 @@ import pymupdf
 from pydelity.errors import PdfError
 
 # How a page's stored text is read: ligatures and whitespace as written, only text
-# inside the page's media box, and no images. Without TEXT_USE_CID_FOR_UNKNOWN_UNICODE,
-# a glyph with no known character comes out as U+FFFD, which the survey's garbled-text
+# inside the page's CropBox (PyMuPDF clips to the page's displayed area, despite the
+# flag's name), and no images. Without TEXT_USE_CID_FOR_UNKNOWN_UNICODE, a glyph
+# with no known character comes out as U+FFFD, which the survey's garbled-text
 # measure counts.
 TEXT_FLAGS = (
     pymupdf.TEXT_PRESERVE_LIGATURES

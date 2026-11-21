@@ -353,7 +353,9 @@ def _cut_outline_cycle(document: pymupdf.Document) -> None:
     PyMuPDF reads no bookmarks at all from an outline whose links form a cycle. The
     outline is walked in reading order: each entry, then its children, then its next
     sibling. At the first link to an entry already read, that link and every link
-    not yet followed are removed, so the outline ends there. Only the open document
+    not yet followed are removed, so the outline ends there. A link to an object the
+    PDF does not have is not followed and is left as it is, since PyMuPDF raises on
+    reading such an object but reads the outline past it. Only the open document
     changes; the file is not written.
 
     Parameters
@@ -365,14 +367,20 @@ def _cut_outline_cycle(document: pymupdf.Document) -> None:
     kind, value = document.xref_get_key(document.pdf_catalog(), "Outlines")
     if kind != "xref":
         return
+    objects = range(1, document.xref_length())
+    root = int(value.split(maxsplit=1)[0])
+    if root not in objects:
+        return
     seen: set[int] = set()
-    links = [(int(value.split(maxsplit=1)[0]), "First")]
+    links = [(root, "First")]
     while links:
         holder, key = links.pop()
         kind, value = document.xref_get_key(holder, key)
         if kind != "xref":
             continue
         entry = int(value.split(maxsplit=1)[0])
+        if entry not in objects:
+            continue
         if entry in seen:
             for open_holder, open_key in [(holder, key), *links]:
                 document.xref_set_key(open_holder, open_key, "null")
@@ -512,7 +520,8 @@ def _field_error(
     """
 
     name = f"object {xref}"
-    for key in ("T", "Parent/T"):
+    # Object 0 is not a real object, and reading its keys raises.
+    for key in ("T", "Parent/T") if xref > 0 else ():
         kind, value = document.xref_get_key(xref, key)
         if kind == "string" and value:
             name = value
@@ -528,14 +537,17 @@ def _form(
     """Read the PDF's interactive form fields and which kinds of form it holds.
 
     Each field is read on its own, so a field that cannot be read is left out and
-    the others are kept.
+    the others are kept. A field written inside the page's annotation list, with no
+    object number of its own, is left out too: PyMuPDF loads every such field on a
+    page as the first one, and its entries cannot be read by object number.
 
     Parameters
     ----------
     document
         The open PDF.
     errors
-        The probe errors so far; each field that cannot be read adds one.
+        The probe errors so far; each field that cannot be read or is left out adds
+        one.
 
     Returns
     -------
@@ -553,6 +565,16 @@ def _form(
         page = document[index]
         for xref, annotation_type, *_ in page.annot_xrefs():
             if annotation_type != pymupdf.PDF_ANNOT_WIDGET:
+                continue
+            if xref == 0:
+                errors.append(
+                    ProbeError(
+                        fact="form",
+                        message=f"Page {index + 1} (index {index}): a form field "
+                        "written inside the page's annotation list has no object "
+                        "number, so it was not read",
+                    )
+                )
                 continue
             # A malformed field can raise many kinds of exceptions, so catch them all.
             # Only that field is lost.

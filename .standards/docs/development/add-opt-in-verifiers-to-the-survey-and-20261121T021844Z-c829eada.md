@@ -1036,8 +1036,7 @@ change to `src/pydelity/report/html.py` (macOS arm64, Python 3.13.9, `.venv`).
 
 ### DEV-010 — Probe fixes for outline links and inline widgets, and the `TEXT_FLAGS` comment
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`:
-`AC-023, AC-024, AC-025`
+`Status`: `DONE` `Depends On`: `DEV-001` `Acceptance`: `AC-023, AC-024, AC-025`
 
 **Goal**
 
@@ -1066,6 +1065,70 @@ or an inline widget, and correct the `TEXT_FLAGS` comment.
 Ruff, ty and interrogate; scratchpad PDFs built with PyMuPDF (not added to the
 repo) with a dangling `Next` link and with an inline widget, probed before and
 after the fix; the existing tests.
+
+**Evidence**
+
+Evidence, 2026-11-21, repo root, on `c7d8ac7` plus the uncommitted DEV-010
+changes to `src/pydelity/surveying/probe.py` and `src/pydelity/utils/pdf.py`
+(macOS arm64, Python 3.13.9, `.venv`, PyMuPDF 2.1).
+
+- PyMuPDF calls confirmed first (scratch `dev010/confirm.py`, on PDFs built by
+  `dev010/make_pdfs.py` in the session scratchpad):
+  - `Document.xref_get_key` and `xref_set_key` raise `ValueError: bad xref` for
+    object 0 and for any number at or past `xref_length()`. `get_toc` raises on
+    neither; it reads the outline and returns `[level, " ", -1]` where the
+    missing object would be.
+  - `Page.annot_xrefs()` gives an inline widget object number 0.
+    `load_widget(0)` loads the first inline widget on the page, so a second one
+    comes back as the first. Reading an inline checkbox's state by object number
+    raises, and `_field_error` then raises again on object 0's keys.
+  - `get_text` leaves out text outside the CropBox, with or without
+    `TEXT_MEDIABOX_CLIP`, since PyMuPDF reads within the page's displayed area.
+- Scratch script `dev010/check_probe.py`, run with
+  `.venv/bin/python -I check_probe.py`, compares `probe_pdf` at `c7d8ac7` with
+  the fix: 11 of 11 checks passed.
+  - Outline cases, each with a link to an object the PDF does not have:
+    - a `Next` on the last top-level entry;
+    - a `First` on a leaf entry, with a `Next` to `0 0 R`;
+    - a `Next` in the middle of the top level;
+    - the catalog's `Outlines` itself;
+    - a cycle (`C` → `A`) together with a dangling `First`.
+
+    Before the fix, each gave no bookmarks and the probe error
+    `ValueError: bad xref`; the cycle case gave no bookmarks. After it, each
+    gives exactly what `get_toc` reads, with no probe error. For the cycle case
+    that means `get_toc` on the same PDF with only the cycle link removed.
+
+  - Inline widgets, each beside a normal text field (`kept`, page index 1):
+    - one inline text field: before, kept as `inline`;
+    - two inline text fields: before, recorded as `first` twice;
+    - an inline checkbox: before, every field lost, with `bad xref`.
+
+    After the fix, each keeps only `kept`, with one `form` probe error per
+    inline widget: "Page 2 (index 1): a form field written inside the page's
+    annotation list has no object number, so it was not read".
+
+  - `_field_error` on object 0 returns "Field object 0: ..." without reading a
+    key (before: `bad xref`). A PDF with no inline field gives the same facts
+    before and after. `PROBE_VERSION` is unchanged.
+- `probe_pdf` gives the same facts before and after for all 10 PDFs in
+  `tests/fixtures/pdfs/`.
+- `ruff check` "All checks passed!"; `ruff format --check scripts src tests` "89
+  files already formatted"; `ty check scripts src tests` "All checks passed!";
+  `interrogate` 100.0%; doctests 28 passed, 1 skipped.
+- Tests: 200 passed. Reference pages: no change.
+
+**Implementation Notes**
+
+- `_cut_outline_cycle` skips a link outside `1..xref_length() - 1`, the
+  `Outlines` root included, and leaves it in the document, so `get_toc` reads
+  the outline as 0.1.x did (`AC-023`), placeholder entry included.
+- Observation, for the user: if dangling links were set to null instead,
+  `get_toc` would read every remaining entry with no blank placeholder. For
+  example, a dangling `First` on a leaf now loses the entries after it. That
+  goes beyond `AC-023`'s "as 0.1.x did", so it is not done here.
+- `_form` skips object 0 before loading it. `_field_error` reads no key of
+  object 0, though `_form` no longer passes it one.
 
 ---
 
@@ -1303,3 +1366,26 @@ Rerun on `83faebb`: tests 200 passed; `ruff check`, `ruff format --check` (89
 files), `ty check scripts src tests` and `check` clean. The report's **Scenario
 Budget** has no allowance left for `pipeline/runner.py`, which DEV-008 changes.
 `Current Increment` moves to 4.
+
+### Checkpoint: Increment 4
+
+- Ready: DEV-008 to DEV-010 are `DONE`, with their self-check evidence under
+  each step. Claim: `load()`, report tables, outline links, inline widgets and
+  the `TEXT_FLAGS` comment behave as **Remaining fixes** says (`AC-021` to
+  `AC-025`).
+- Assessed content: `83faebb..c7d8ac7` (`a307946` DEV-008, `c7d8ac7` DEV-009),
+  plus the uncommitted DEV-010 changes to `src/pydelity/surveying/probe.py` and
+  `src/pydelity/utils/pdf.py`. Those are
+  `git diff HEAD -- src scripts examples docs`: 30 insertions and 7 deletions,
+  SHA-256 starting `0af92bee3665119a`. If the user commits them before Tester
+  runs, the commit holds the same content.
+- Tests of the replaced contract: none; all 200 tests pass.
+- The report's **Scenario Budget** has no allowance left for
+  `pipeline/runner.py`, which DEV-008 changes, so `AC-021`'s scenario may need
+  the user's decision.
+- The scratch PDFs and scripts live only in this session's scratchpad and are
+  not part of the deliverable. The design asks for a PDF with a dangling link
+  and one with an inline widget; `dev010/make_pdfs.py` shows how they were built
+  with PyMuPDF.
+- Limitations: the wheel smoke test and Python 3.14 were not run locally.
+- Next after the return: DEV-011, then full completion and full verification.
