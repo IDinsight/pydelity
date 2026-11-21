@@ -9,7 +9,10 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 
 - Scope:
   `.standards/docs/scope/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
-  (`AC-001` to `AC-040`). Target maturity is Level 3. Architect mode: feature.
+  (`AC-001` to `AC-042`). Target maturity is Level 3. Architect mode: feature.
+  Its first work item, `AC-041` and `AC-042`, reorders every Python module to
+  the ordering rule of the developer and tester user styles before the other
+  work changes them.
 - Baseline: the survey and page extraction on `tz6/pipeline-step-2`
   (`.standards/CONTEXT.md`). Page extraction's design
   (`.standards/docs/specs/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`,
@@ -178,6 +181,25 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
     links to objects the PDF does not have, the form reader skips inline widgets
     with a probe error, and the `TEXT_FLAGS` comment names the CropBox. Details
     under **Remaining fixes**.
+13. **Every module is reordered first, by moving whole definitions only.**
+    Before any other build step, each Python module in `src/pydelity/`,
+    `scripts/` and `tests/` is put in the order **Module order** defines. A move
+    takes a definition with its decorators and the comment lines directly above
+    it, and changes no text. Nothing whose order is part of a contract moves:
+    fields of Pydantic models and dataclasses (they fix the JSON key order of
+    every output file and the constructor's arguments), enum members (their
+    order reaches prompts and outputs through `list(ItemKind)` and the like),
+    parameters, and `__all__`. Where the rule's order would break import, as a
+    definition placed above a name its decorators, default values, base classes
+    or eagerly evaluated annotations use, the module keeps the order that works.
+    Such departures, including the dependency order that schema modules such as
+    `surveying/schemas.py` already use, are listed by module with their reason
+    in the development plan for `src/pydelity/` and `scripts/` and in the
+    verification report for `tests/`. Annotations are not rewritten as strings
+    to make a move possible. Developer reorders `src/pydelity/` and `scripts/`
+    (`AC-041`); Tester reorders `tests/` (`AC-042`), since tests are Tester's.
+    Each reorder is ready to commit on its own, so the user can review it apart
+    from the verifier work.
 
 ### Defaults
 
@@ -243,6 +265,10 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
   steps.
 - `AC-039`, `AC-040`: No architectural impact — the user's review of real runs
   after the build, made with the default settings and with `verify` on.
+- `AC-041`: decision 13, **Module order** (`src/pydelity/` and `scripts/`, by
+  Developer).
+- `AC-042`: decision 13, **Module order** (`tests/`, `conftest.py` files
+  included, by Tester).
 
 ## Components
 
@@ -268,11 +294,48 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
   ran", table row groups.
 - **Probe** (`surveying/probe.py`) and `utils/pdf.py`: the outline, inline
   widget and comment fixes.
+- **Every Python module** in `src/pydelity/`, `scripts/` and `tests/`: the
+  reorder (decision 13).
 
 Dependency direction is unchanged: `extracting` imports `surveying.schemas` and
 `review`; `surveying` never imports `extracting`; `pipeline` imports both.
 
 ## Interfaces and Contracts
+
+### Module order
+
+Top-level statements of each module, in this order:
+
+1. The module docstring, `from __future__` imports, the other imports and any
+   `if TYPE_CHECKING:` import block, as they are.
+2. Module-level assignments (constants and any other module variables) and type
+   aliases (`type` statements). Dunder names such as `__all__` and `__version__`
+   first, then private names, then public names. Within the private names and
+   within the public names, assignments come before type aliases, each in
+   alphabetical order.
+3. Private classes, then private functions, each in alphabetical order.
+4. Public classes, then public functions, each in alphabetical order.
+5. Statements that run code, such as `_logger.disable("pydelity")` in
+   `__init__.py` or `sys.path.insert(...)` in
+   `scripts/smoke_installed_wheel.py`, keep their place relative to what they
+   use and what uses them, and an `if __name__ == "__main__":` block stays last.
+
+Inside each class: its docstring, then class attributes and fields where they
+are, then methods: names that begin with an underscore (dunder methods included)
+before the others, each in alphabetical order, except that `__init__` comes
+first, a property's setter stays right after its getter, and Pydantic validators
+stay where the model needs them. Nested classes stay where they are.
+
+Alphabetical order compares names as Python strings, so `_` and capitals sort
+before lowercase letters. Test modules follow the same rule: `test_` functions
+and fixtures are public names, helpers with an underscore are private.
+
+The docs generator (`scripts/generate_reference_docs.py` `_constants`) lists the
+public constants of `costs/budget.py` and `surveying/probe.py` in source order,
+each with the comment lines directly above it. So a moved constant takes its
+comment with it, and after the reorder `just docs-reference` is run and its
+changes, which only reorder those lists, land with the reorder, keeping CI's
+stale-reference check passing.
 
 ### Settings
 
@@ -570,38 +633,59 @@ verifier adds cost.
 - `AC-024`: a PDF with an inline widget keeps its other form fields, with one
   `form` probe error for the inline one.
 - `AC-025`: the `TEXT_FLAGS` comment names the CropBox.
+- `AC-041`, `AC-042`: against the commit before the reorder, each reordered file
+  has the same multiset of non-blank lines, each module the same multiset of
+  top-level statements (`ast.dump`), each class the same members, and every
+  Pydantic model, dataclass and enum the same fields or members in the same
+  order; every module follows **Module order** except for the departures the
+  development record or the verification report lists; `pytest` and the doctests
+  collect and pass the same tests, and `ruff check`, `ruff format --check`,
+  `ty check` and `interrogate` report what they did before, on Python 3.13,
+  which evaluates annotations when it defines a function or class, and on 3.14.
+  `AC-041` holds this for `src/pydelity/` and `scripts/` with the tests
+  unchanged; `AC-042` for `tests/` with the package already reordered.
 
 ## Build Plan
 
-1. **Settings and switches** (`AC-001` to `AC-004`). MODIFY
+1. **Reorder every module** (`AC-041`, then `AC-042`). MODIFY every Python
+   module in `src/pydelity/` and `scripts/` (Developer) and in `tests/`
+   (Tester), and the generated `docs/src/content/docs/reference/` pages if
+   `just docs-reference` changes them. Record the checks' results before the
+   reorder first, so "the same results" has a baseline. Nothing else changes in
+   this step. With the `INCREMENTAL` verification cadence, which the user
+   chooses with Developer, this step is the first increment, so Tester reorders
+   the tests and confirms the results before step 2 starts; with
+   `AFTER_IMPLEMENTATION`, Tester reorders the tests first when its turn comes.
+2. **Settings and switches** (`AC-001` to `AC-004`). MODIFY
    `src/pydelity/config/schemas.py`, `src/pydelity/cli.py`,
    `examples/config.json`, `examples/config.yaml`. Names approved by the user
-   first.
-2. **Page extraction with an optional verifier** (`AC-005`, `AC-006`, `AC-018`
+   first. Depends on 1.
+3. **Page extraction with an optional verifier** (`AC-005`, `AC-006`, `AC-018`
    to `AC-020` for pages). MODIFY `src/pydelity/extracting/extraction.py`,
    `src/pydelity/extracting/llm.py`, `src/pydelity/extracting/schemas.py`,
    `src/pydelity/costs/budget.py`, `src/pydelity/costs/schemas.py`,
    `src/pydelity/report/html.py`, `src/pydelity/pipeline/runner.py` (estimate
-   lines). Depends on 1.
-3. **The survey's verifier** (`AC-005` to `AC-017` for the survey). MODIFY
+   lines). Depends on 2.
+4. **The survey's verifier** (`AC-005` to `AC-017` for the survey). MODIFY
    `src/pydelity/surveying/schemas.py`, `prompts.py`, `agents.py`, `llm.py`,
    `survey.py`, `src/pydelity/review.py`,
    `src/pydelity/providers/ledger_model.py`, `src/pydelity/costs/budget.py`,
    `src/pydelity/costs/schemas.py`, `src/pydelity/pipeline/runner.py`,
-   `src/pydelity/report/html.py`. Depends on 1 and on 2's
+   `src/pydelity/report/html.py`. Depends on 2 and on 3's
    `StepEstimate.verifier`. This is the critical path.
-4. **Remaining fixes** (`AC-021` to `AC-025`). MODIFY
+5. **Remaining fixes** (`AC-021` to `AC-025`). MODIFY
    `src/pydelity/pipeline/runner.py`, `src/pydelity/pipeline/schemas.py`
    (docstring), `src/pydelity/report/html.py`,
-   `src/pydelity/surveying/probe.py`, `src/pydelity/utils/pdf.py`. Independent
-   of 1–3; may go first.
-5. **Docstrings, references and package text** (`AC-030`, `AC-033`, `AC-034` in
+   `src/pydelity/surveying/probe.py`, `src/pydelity/utils/pdf.py`. Depends on 1
+   only; may go before 2–4.
+6. **Docstrings, references and package text** (`AC-030`, `AC-033`, `AC-034` in
    code). MODIFY `scripts/generate_reference_docs.py` (only if the survey's
    `verifier` issue name is not picked up by itself),
    `src/pydelity/extracting/prompts.py`, `src/pydelity/extracting/text_layer.py`
    (docstrings), `pyproject.toml` (description); regenerate
-   `docs/src/content/docs/reference/` with `just docs-reference`. After 1–4.
+   `docs/src/content/docs/reference/` with `just docs-reference`. After 2–5.
 
+New and changed code in steps 2–6 follows **Module order** as it is written.
 Tests are Tester's, the docs guides, README and `artifacts/next_cycle_inputs.md`
 are Documenter's.
 
@@ -629,6 +713,13 @@ are Documenter's.
   that folder stop with `OutputError` (decision 8). The real runs use new
   folders.
 - `load()` returns no page files for a folder without `pdf_facts.json`.
+- The reorder moves most of the code, so `git blame` points at it for moved
+  lines; `git blame --ignore-rev` with its commit, or a `.git-blame-ignore-revs`
+  file the user may add, hides it.
+- Python 3.13 evaluates annotations when it defines a function or class, and
+  3.14 does not, so a move that breaks import may pass on 3.14 alone. No private
+  definition annotates a public class of its own module today, so no departure
+  is expected from that cause; the checks run on 3.13 first.
 
 ## Alternatives
 
