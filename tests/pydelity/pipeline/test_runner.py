@@ -38,6 +38,90 @@ def _model_requests(mock: MockProviders) -> int:
     return sum(1 for request in mock.requests if request.route == "model")
 
 
+def test_a_failed_survey_saves_no_survey_and_its_spend_counts_next_time(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """A survey that fails leaves valid files, no ``pdf_survey.json`` and its spend.
+
+    The next run surveys again, and the folder's total includes the failed run's
+    requests.
+    """
+
+    mock_providers(
+        answers=[survey_answer(languages=[]), "not an answer", survey_answer()]
+    )
+    advanced = {"survey": {"check_retries": 1}}
+
+    with pytest.raises(SurveyError):
+        pydelity.run(pdf_path(_SCAN), advanced=advanced, output_dir="out")
+
+    failed = pydelity.load("out")
+    assert failed.record is not None
+    assert failed.record.status == "failed"
+    assert failed.survey is None
+    assert failed.facts is not None
+    assert len(failed.ledger) == 2
+    assert Path("out/report.html").is_file()
+
+    retried = pydelity.run(pdf_path(_SCAN), advanced=advanced, output_dir="out")
+
+    assert retried.record is not None
+    assert retried.record.status == "paused"
+    assert len(retried.ledger) == 3
+    cost = retried.record.cost
+    assert cost.output_folder_usd == sum(
+        entry.cost_usd for entry in retried.ledger if entry.cost_usd is not None
+    )
+    assert cost.run_usd < cost.output_folder_usd
+
+
+def test_a_folder_holding_another_pdfs_results_gives_a_warning(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """Running a second PDF into a folder warns that it holds the first PDF's files."""
+
+    mock_providers(answers=[survey_answer()])
+    pydelity.run(pdf_path(_SCAN), output_dir="out")
+
+    with pytest.warns(PydelityWarning, match="for another PDF"):
+        result = pydelity.run(pdf_path("irs_pub1_arabic.pdf"), output_dir="out")
+
+    assert result.record is not None
+    (warning,) = result.record.warnings
+    assert warning.code == "other_pdf_in_folder"
+    assert warning.step is None
+    files = warning.details["files"]
+    assert isinstance(files, dict)
+    assert set(files) == {"run.json", "pdf_facts.json"}
+
+
+def test_a_new_probe_version_measures_again_and_reruns_the_survey(
+    mock_providers: Callable[..., MockProviders],
+    monkeypatch: pytest.MonkeyPatch,
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """Saved facts from another probe version are measured again; the survey reruns."""
+
+    mock = mock_providers(answers=[survey_answer()])
+    first = pydelity.run(pdf_path(_SCAN), output_dir="out")
+    monkeypatch.setattr("pydelity.surveying.facts.PROBE_VERSION", 2)
+
+    second = pydelity.run(pdf_path(_SCAN), output_dir="out")
+
+    assert first.facts is not None
+    assert second.facts is not None
+    assert second.facts.fingerprint != first.facts.fingerprint
+    assert second.facts.probe_version == 2
+    assert _model_requests(mock) == 2
+    assert second.survey is not None
+    assert second.survey.inputs.facts_fingerprint == second.facts.fingerprint
+
+
 def test_a_rerun_with_unchanged_inputs_reuses_everything(
     canned_answers: Callable[[str], dict[str, object]],
     mock_providers: Callable[..., MockProviders],
@@ -119,29 +203,6 @@ def test_changing_a_survey_input_or_overwrite_reruns_the_survey(
     assert rerun.record.steps[0].status == "completed"
 
 
-def test_a_new_probe_version_measures_again_and_reruns_the_survey(
-    mock_providers: Callable[..., MockProviders],
-    monkeypatch: pytest.MonkeyPatch,
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """Saved facts from another probe version are measured again; the survey reruns."""
-
-    mock = mock_providers(answers=[survey_answer()])
-    first = pydelity.run(pdf_path(_SCAN), output_dir="out")
-    monkeypatch.setattr("pydelity.surveying.facts.PROBE_VERSION", 2)
-
-    second = pydelity.run(pdf_path(_SCAN), output_dir="out")
-
-    assert first.facts is not None
-    assert second.facts is not None
-    assert second.facts.fingerprint != first.facts.fingerprint
-    assert second.facts.probe_version == 2
-    assert _model_requests(mock) == 2
-    assert second.survey is not None
-    assert second.survey.inputs.facts_fingerprint == second.facts.fingerprint
-
-
 def test_damaged_outputs_and_leftover_temp_files_are_replaced(
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
@@ -168,67 +229,6 @@ def test_damaged_outputs_and_leftover_temp_files_are_replaced(
     damaged = [w.details for w in result.record.warnings if w.code == "damaged_output"]
     assert damaged == [{"file": "pdf_facts.json"}, {"file": "pdf_survey.json"}]
     assert pydelity.load("out") == result
-
-
-def test_a_failed_survey_saves_no_survey_and_its_spend_counts_next_time(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """A survey that fails leaves valid files, no ``pdf_survey.json`` and its spend.
-
-    The next run surveys again, and the folder's total includes the failed run's
-    requests.
-    """
-
-    mock_providers(
-        answers=[survey_answer(languages=[]), "not an answer", survey_answer()]
-    )
-    advanced = {"survey": {"check_retries": 1}}
-
-    with pytest.raises(SurveyError):
-        pydelity.run(pdf_path(_SCAN), advanced=advanced, output_dir="out")
-
-    failed = pydelity.load("out")
-    assert failed.record is not None
-    assert failed.record.status == "failed"
-    assert failed.survey is None
-    assert failed.facts is not None
-    assert len(failed.ledger) == 2
-    assert Path("out/report.html").is_file()
-
-    retried = pydelity.run(pdf_path(_SCAN), advanced=advanced, output_dir="out")
-
-    assert retried.record is not None
-    assert retried.record.status == "paused"
-    assert len(retried.ledger) == 3
-    cost = retried.record.cost
-    assert cost.output_folder_usd == sum(
-        entry.cost_usd for entry in retried.ledger if entry.cost_usd is not None
-    )
-    assert cost.run_usd < cost.output_folder_usd
-
-
-def test_a_folder_holding_another_pdfs_results_gives_a_warning(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """Running a second PDF into a folder warns that it holds the first PDF's files."""
-
-    mock_providers(answers=[survey_answer()])
-    pydelity.run(pdf_path(_SCAN), output_dir="out")
-
-    with pytest.warns(PydelityWarning, match="for another PDF"):
-        result = pydelity.run(pdf_path("irs_pub1_arabic.pdf"), output_dir="out")
-
-    assert result.record is not None
-    (warning,) = result.record.warnings
-    assert warning.code == "other_pdf_in_folder"
-    assert warning.step is None
-    files = warning.details["files"]
-    assert isinstance(files, dict)
-    assert set(files) == {"run.json", "pdf_facts.json"}
 
 
 def test_no_output_file_holds_the_api_key(

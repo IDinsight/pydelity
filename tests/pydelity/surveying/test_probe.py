@@ -139,6 +139,67 @@ def _save_tagged_pdf(
     document.close()
 
 
+def test_a_damaged_page_label_tree_counts_as_no_labels(tmp_path: Path) -> None:
+    """A page-label tree PyMuPDF cannot read leaves the numbers to the page text.
+
+    The tree lists page 0 as the start of two ranges, which makes PyMuPDF raise
+    while it sorts them. The pages' printed numbers then come from their text.
+    """
+
+    document = pymupdf.open()
+    for number in (12, 13, 14):
+        page = document.new_page()
+        page.insert_text(
+            (72, 300), "Body text that changes on each page.", fontname="helv"
+        )
+        page.insert_text((290, 820), str(number), fontname="helv")
+    document.xref_set_key(
+        document.pdf_catalog(), "PageLabels", "<</Nums [0 <</S/D>> 0 <</S/r>>]>>"
+    )
+    path = tmp_path / "damaged_labels.pdf"
+    document.save(path)
+    document.close()
+
+    facts = probe_pdf(path)
+
+    numbers = [page.printed_number for page in facts.pages]
+    assert [(n.value, n.source) for n in numbers if n] == [
+        (12, "text"),
+        (13, "text"),
+        (14, "text"),
+    ]
+    assert [
+        (block.first_page_index, block.last_page_index, block.offset)
+        for block in facts.page_numbering
+    ] == [(0, 2, 12)]
+    assert facts.probe_errors == []
+
+
+def test_a_fact_that_cannot_be_read_is_null_with_a_probe_error(
+    monkeypatch: pytest.MonkeyPatch, pdf_path: Callable[[str], Path]
+) -> None:
+    """When reading the bookmarks raises, they are null and the error is recorded.
+
+    PyMuPDF raises on some malformed PDFs; the test makes it raise for a sound one.
+    """
+
+    def broken_toc(self: pymupdf.Document, simple: bool = True) -> list:
+        """Fail as PyMuPDF does on an outline it cannot read."""
+
+        raise RuntimeError("cannot read the outline")
+
+    monkeypatch.setattr(pymupdf.Document, "get_toc", broken_toc)
+
+    facts = probe_pdf(pdf_path("irs_w9_instructions.pdf"))
+
+    assert facts.bookmarks is None
+    assert [(error.fact, error.message) for error in facts.probe_errors] == [
+        ("bookmarks", "RuntimeError: cannot read the outline")
+    ]
+    assert facts.form_fields == []
+    assert facts.structure is not None
+
+
 def test_arabic_two_column_pages_read_right_to_left(
     facts_of: Callable[[str], Facts],
 ) -> None:
@@ -152,67 +213,6 @@ def test_arabic_two_column_pages_read_right_to_left(
     assert facts.structure is not None
     assert facts.structure.tagged
     assert facts.structure.quality == "good"
-
-
-def test_japanese_vertical_writing_page_label_and_signature_field(
-    facts_of: Callable[[str], Facts],
-) -> None:
-    """Vertical Japanese text, a page label and a signature field are measured."""
-
-    facts = facts_of("japan_official_gazette_2019_extra_9.pdf")
-    page = facts.pages[0]
-
-    assert page.direction.vertical_share >= 0.5
-    assert page.text.quality == "good"
-    assert page.printed_number is not None
-    assert (page.printed_number.value, page.printed_number.source) == (1, "page_label")
-    assert facts.form_fields is not None
-    assert [field.type for field in facts.form_fields] == ["signature"]
-    assert facts.structure is not None
-    assert (facts.structure.tagged, facts.structure.quality) == (False, "none")
-
-
-def test_sideways_tables_on_upright_pages_report_their_turn(
-    facts_of: Callable[[str], Facts],
-) -> None:
-    """Text printed sideways on pages with rotation 0 reports a 90-degree turn.
-
-    The PDF's page labels give the printed numbers, and its running lines repeat in
-    the top and bottom bands with their digits treated alike.
-    """
-
-    facts = facts_of("caps_english_hl_pages_28_35.pdf")
-
-    for page in facts.pages:
-        assert page.rotation_attribute == 0
-        assert (page.orientation.dominant, page.orientation.confident) == (90, True)
-    numbers = [page.printed_number for page in facts.pages]
-    assert [number.value for number in numbers if number] == list(range(23, 31))
-    assert {number.source for number in numbers if number} == {"page_label"}
-    assert [
-        (block.first_page_index, block.last_page_index, block.offset, block.style)
-        for block in facts.page_numbering
-    ] == [(0, 7, 23, "arabic")]
-    bands = {line.normalized: line.band for line in facts.repeated_lines}
-    assert bands["#"] == "bottom"
-    assert bands["english home language grades r-#"] == "top"
-    assert facts.bookmarks == []
-    assert facts.structure is not None
-    assert facts.structure.tagged is False
-
-
-def test_scanned_pages_have_no_text_layer(facts_of: Callable[[str], Facts]) -> None:
-    """Pages that are only images have no text, direction, angle or page number."""
-
-    facts = facts_of("irs_form_1040a_1965_scan.pdf")
-
-    for page in facts.pages:
-        assert (page.text.quality, page.text.chars) == ("none", 0)
-        assert page.direction.inline == "none"
-        assert (page.orientation.dominant, page.orientation.confident) == (None, False)
-        assert page.printed_number is None
-    assert facts.repeated_lines == []
-    assert facts.page_numbering == []
 
 
 def test_bookmarks_and_printed_page_numbers_are_read(
@@ -241,6 +241,38 @@ def test_bookmarks_and_printed_page_numbers_are_read(
     ] == [(1, 6, 1)]
     assert facts.structure is not None
     assert facts.structure.quality == "good"
+
+
+def test_checked_checkbox_without_appearances_is_read_as_checked(
+    tmp_path: Path,
+) -> None:
+    """A checkbox with no appearances is checked when its entries say it is on.
+
+    The widget's shown state (``AS``) and its field's value (``V``) are both
+    ``Yes``, and the widget has no appearance streams that name an on state.
+    """
+
+    document = pymupdf.open()
+    page = document.new_page()
+    checkbox = pymupdf.Widget()
+    checkbox.field_name = "agree"
+    checkbox.field_type = pymupdf.PDF_WIDGET_TYPE_CHECKBOX
+    checkbox.field_value = True
+    checkbox.rect = pymupdf.Rect(72, 72, 90, 90)
+    page.add_widget(checkbox)
+    document.xref_set_key(checkbox.xref, "AP", "null")
+    path = tmp_path / "checkbox_without_appearances.pdf"
+    document.save(path)
+    document.close()
+
+    facts = probe_pdf(path)
+
+    assert facts.form_fields is not None
+    assert [
+        (field.name, field.type, field.checked, field.value)
+        for field in facts.form_fields
+    ] == [("agree", "checkbox", True, "Yes")]
+    assert facts.probe_errors == []
 
 
 def test_filled_form_fields_give_their_values_and_checkbox_states(
@@ -291,122 +323,6 @@ def test_filled_form_fields_give_their_values_and_checkbox_states(
     assert repeated["page #"].band == "top"
 
 
-def test_unreadable_characters_make_a_page_garbled(tmp_path: Path) -> None:
-    """A page whose text is mostly characters with no readable form is garbled."""
-
-    document = pymupdf.open()
-    page = document.new_page()
-    page.insert_text((72, 100), "One readable line.", fontname="helv")
-    page.insert_text((72, 140), "\x01\x02\x03\x04\x05\x06\x07", fontname="helv")
-    path = tmp_path / "garbled.pdf"
-    document.save(path)
-    document.close()
-
-    text = probe_pdf(path).pages[0].text
-
-    unreadable = (
-        text.control_chars
-        + text.private_use_chars
-        + text.replacement_chars
-        + text.unassigned_chars
-    )
-    assert text.quality == "garbled"
-    assert unreadable >= 7
-
-
-def test_a_fact_that_cannot_be_read_is_null_with_a_probe_error(
-    monkeypatch: pytest.MonkeyPatch, pdf_path: Callable[[str], Path]
-) -> None:
-    """When reading the bookmarks raises, they are null and the error is recorded.
-
-    PyMuPDF raises on some malformed PDFs; the test makes it raise for a sound one.
-    """
-
-    def broken_toc(self: pymupdf.Document, simple: bool = True) -> list:
-        """Fail as PyMuPDF does on an outline it cannot read."""
-
-        raise RuntimeError("cannot read the outline")
-
-    monkeypatch.setattr(pymupdf.Document, "get_toc", broken_toc)
-
-    facts = probe_pdf(pdf_path("irs_w9_instructions.pdf"))
-
-    assert facts.bookmarks is None
-    assert [(error.fact, error.message) for error in facts.probe_errors] == [
-        ("bookmarks", "RuntimeError: cannot read the outline")
-    ]
-    assert facts.form_fields == []
-    assert facts.structure is not None
-
-
-def test_a_damaged_page_label_tree_counts_as_no_labels(tmp_path: Path) -> None:
-    """A page-label tree PyMuPDF cannot read leaves the numbers to the page text.
-
-    The tree lists page 0 as the start of two ranges, which makes PyMuPDF raise
-    while it sorts them. The pages' printed numbers then come from their text.
-    """
-
-    document = pymupdf.open()
-    for number in (12, 13, 14):
-        page = document.new_page()
-        page.insert_text(
-            (72, 300), "Body text that changes on each page.", fontname="helv"
-        )
-        page.insert_text((290, 820), str(number), fontname="helv")
-    document.xref_set_key(
-        document.pdf_catalog(), "PageLabels", "<</Nums [0 <</S/D>> 0 <</S/r>>]>>"
-    )
-    path = tmp_path / "damaged_labels.pdf"
-    document.save(path)
-    document.close()
-
-    facts = probe_pdf(path)
-
-    numbers = [page.printed_number for page in facts.pages]
-    assert [(n.value, n.source) for n in numbers if n] == [
-        (12, "text"),
-        (13, "text"),
-        (14, "text"),
-    ]
-    assert [
-        (block.first_page_index, block.last_page_index, block.offset)
-        for block in facts.page_numbering
-    ] == [(0, 2, 12)]
-    assert facts.probe_errors == []
-
-
-def test_checked_checkbox_without_appearances_is_read_as_checked(
-    tmp_path: Path,
-) -> None:
-    """A checkbox with no appearances is checked when its entries say it is on.
-
-    The widget's shown state (``AS``) and its field's value (``V``) are both
-    ``Yes``, and the widget has no appearance streams that name an on state.
-    """
-
-    document = pymupdf.open()
-    page = document.new_page()
-    checkbox = pymupdf.Widget()
-    checkbox.field_name = "agree"
-    checkbox.field_type = pymupdf.PDF_WIDGET_TYPE_CHECKBOX
-    checkbox.field_value = True
-    checkbox.rect = pymupdf.Rect(72, 72, 90, 90)
-    page.add_widget(checkbox)
-    document.xref_set_key(checkbox.xref, "AP", "null")
-    path = tmp_path / "checkbox_without_appearances.pdf"
-    document.save(path)
-    document.close()
-
-    facts = probe_pdf(path)
-
-    assert facts.form_fields is not None
-    assert [
-        (field.name, field.type, field.checked, field.value)
-        for field in facts.form_fields
-    ] == [("agree", "checkbox", True, "Yes")]
-    assert facts.probe_errors == []
-
-
 def test_form_field_that_cannot_be_read_is_left_out_with_a_probe_error(
     tmp_path: Path,
 ) -> None:
@@ -442,6 +358,24 @@ def test_form_field_that_cannot_be_read_is_left_out_with_a_probe_error(
     assert len(facts.probe_errors) == 1
     assert facts.probe_errors[0].fact == "form"
     assert facts.probe_errors[0].message.startswith("Field last_name: ")
+
+
+def test_japanese_vertical_writing_page_label_and_signature_field(
+    facts_of: Callable[[str], Facts],
+) -> None:
+    """Vertical Japanese text, a page label and a signature field are measured."""
+
+    facts = facts_of("japan_official_gazette_2019_extra_9.pdf")
+    page = facts.pages[0]
+
+    assert page.direction.vertical_share >= 0.5
+    assert page.text.quality == "good"
+    assert page.printed_number is not None
+    assert (page.printed_number.value, page.printed_number.source) == (1, "page_label")
+    assert facts.form_fields is not None
+    assert [field.type for field in facts.form_fields] == ["signature"]
+    assert facts.structure is not None
+    assert (facts.structure.tagged, facts.structure.quality) == (False, "none")
 
 
 def test_letter_page_labels_give_no_page_number(tmp_path: Path) -> None:
@@ -526,6 +460,49 @@ def test_radio_group_value_turns_on_its_button_only_when_none_shows_on(
     assert facts.probe_errors == []
 
 
+def test_scanned_pages_have_no_text_layer(facts_of: Callable[[str], Facts]) -> None:
+    """Pages that are only images have no text, direction, angle or page number."""
+
+    facts = facts_of("irs_form_1040a_1965_scan.pdf")
+
+    for page in facts.pages:
+        assert (page.text.quality, page.text.chars) == ("none", 0)
+        assert page.direction.inline == "none"
+        assert (page.orientation.dominant, page.orientation.confident) == (None, False)
+        assert page.printed_number is None
+    assert facts.repeated_lines == []
+    assert facts.page_numbering == []
+
+
+def test_sideways_tables_on_upright_pages_report_their_turn(
+    facts_of: Callable[[str], Facts],
+) -> None:
+    """Text printed sideways on pages with rotation 0 reports a 90-degree turn.
+
+    The PDF's page labels give the printed numbers, and its running lines repeat in
+    the top and bottom bands with their digits treated alike.
+    """
+
+    facts = facts_of("caps_english_hl_pages_28_35.pdf")
+
+    for page in facts.pages:
+        assert page.rotation_attribute == 0
+        assert (page.orientation.dominant, page.orientation.confident) == (90, True)
+    numbers = [page.printed_number for page in facts.pages]
+    assert [number.value for number in numbers if number] == list(range(23, 31))
+    assert {number.source for number in numbers if number} == {"page_label"}
+    assert [
+        (block.first_page_index, block.last_page_index, block.offset, block.style)
+        for block in facts.page_numbering
+    ] == [(0, 7, 23, "arabic")]
+    bands = {line.normalized: line.band for line in facts.repeated_lines}
+    assert bands["#"] == "bottom"
+    assert bands["english home language grades r-#"] == "top"
+    assert facts.bookmarks == []
+    assert facts.structure is not None
+    assert facts.structure.tagged is False
+
+
 def test_structure_kids_stored_in_a_separate_array_are_counted(
     tmp_path: Path,
 ) -> None:
@@ -591,3 +568,26 @@ def test_tagged_pages_without_text_do_not_count_toward_coverage(
         facts.structure.pages_with_tagged_content,
         facts.structure.quality,
     ) == (1, "partial")
+
+
+def test_unreadable_characters_make_a_page_garbled(tmp_path: Path) -> None:
+    """A page whose text is mostly characters with no readable form is garbled."""
+
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 100), "One readable line.", fontname="helv")
+    page.insert_text((72, 140), "\x01\x02\x03\x04\x05\x06\x07", fontname="helv")
+    path = tmp_path / "garbled.pdf"
+    document.save(path)
+    document.close()
+
+    text = probe_pdf(path).pages[0].text
+
+    unreadable = (
+        text.control_chars
+        + text.private_use_chars
+        + text.replacement_chars
+        + text.unassigned_chars
+    )
+    assert text.quality == "garbled"
+    assert unreadable >= 7

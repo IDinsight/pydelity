@@ -71,29 +71,6 @@ def test_a_request_is_sent_at_most_one_plus_the_retry_setting_times(
     assert pydelity.load("out").ledger == []
 
 
-def test_fewer_temporary_failures_than_the_retries_still_complete(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """Two temporary failures with the default two retries end in a survey.
-
-    Failed attempts return no usage, so only the answered request is a ledger line.
-    The run then pauses after the new survey, as every run does by default.
-    """
-
-    mock = mock_providers(answers=[survey_answer()])
-    mock.add_fault(route="model", status=429, times=2)
-
-    result = pydelity.run(pdf_path(_SCAN), output_dir="out")
-
-    assert _model_statuses(mock) == [429, 429, 200]
-    assert result.record is not None
-    assert result.record.status == "paused"
-    assert len(result.ledger) == 1
-    assert result.record.steps[0].requests == 1
-
-
 def test_a_request_the_provider_rejects_is_sent_once_and_raises_its_message(
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
@@ -126,3 +103,26 @@ def test_a_request_the_provider_rejects_is_sent_once_and_raises_its_message(
     assert loaded.record.status == "failed"
     assert loaded.record.error is not None
     assert rejection in loaded.record.error
+
+
+def test_fewer_temporary_failures_than_the_retries_still_complete(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """Two temporary failures with the default two retries end in a survey.
+
+    Failed attempts return no usage, so only the answered request is a ledger line.
+    The run then pauses after the new survey, as every run does by default.
+    """
+
+    mock = mock_providers(answers=[survey_answer()])
+    mock.add_fault(route="model", status=429, times=2)
+
+    result = pydelity.run(pdf_path(_SCAN), output_dir="out")
+
+    assert _model_statuses(mock) == [429, 429, 200]
+    assert result.record is not None
+    assert result.record.status == "paused"
+    assert len(result.ledger) == 1
+    assert result.record.steps[0].requests == 1

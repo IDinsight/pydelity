@@ -73,65 +73,77 @@ def _sent(mock: MockProviders) -> list[str]:
     return [str(request.route) for request in mock.requests]
 
 
-def test_earlier_spend_counts_and_a_disallowed_run_stops_resumably(
+def test_a_cache_price_of_zero_is_priced_as_zero() -> None:
+    """A cache price of 0 under ``advanced.models`` makes cached tokens free.
+
+    An unset cache price still prices them at the input price.
+    """
+
+    response = ModelResponse(
+        model_name="claude-opus-5-5",
+        parts=[],
+        usage=RequestUsage(
+            cache_read_tokens=1_000_000,
+            cache_write_tokens=1_000_000,
+            input_tokens=3_000_000,
+            output_tokens=0,
+        ),
+    )
+    free = ModelPrices(
+        cache_read_usd_per_mtok=Decimal(0),
+        cache_write_usd_per_mtok=Decimal(0),
+        input_usd_per_mtok=Decimal(2),
+        output_usd_per_mtok=Decimal(10),
+    )
+    unset = ModelPrices(input_usd_per_mtok=Decimal(2), output_usd_per_mtok=Decimal(10))
+
+    priced = {
+        name: price_response(
+            model="anthropic:claude-opus-5-5",
+            overrides={"anthropic:claude-opus-5-5": prices},
+            response=response,
+        )
+        for name, prices in (("free", free), ("unset", unset))
+    }
+
+    assert priced["free"] == (Decimal(2), "config")
+    assert priced["unset"] == (Decimal(6), "config")
+
+
+def test_a_request_that_would_go_over_max_cost_stops_before_it_is_sent(
     mock_providers: Callable[..., MockProviders],
-    monkeypatch: pytest.MonkeyPatch,
     pdf_path: Callable[[str], Path],
     survey_answer: Callable[..., dict],
 ) -> None:
-    """Spend from earlier runs counts toward ``max_cost``.
+    """When real usage beats the estimate, the next request is checked and stopped.
 
-    Before the run, the spend so far plus the run's expected cost is compared with
-    ``max_cost``. Without ``allow_over_max_cost`` the run raises
-    `BudgetExceededError` before any upload or request, records ``stopped`` and
-    never reads stdin. The same call with ``allow_over_max_cost=True`` then runs
-    the survey, pauses after it as usual, and keeps the earlier spend.
+    The first answer fails a check and costs far more than estimated, so the
+    retry's check trips and raises before the retry is sent.
     """
 
-    mock = mock_providers(answers=[survey_answer()], input_tokens=1_000_000)
-    first = pydelity.run(pdf_path(_SCAN), output_dir="out")
-    assert first.record is not None
-    spent = first.record.cost.run_usd
-    estimate = pydelity.estimate(pdf_path(_SCAN), output_dir="out", overwrite=True)
-    assert estimate.expected_usd is not None
-    assert estimate.expected_usd < spent
-    max_cost = spent + estimate.expected_usd / 2
-    monkeypatch.setattr("sys.stdin", _NoStdin())
-    requests_before = len(mock.requests)
+    advanced = {"survey": {"check_retries": 1}}
+    estimate = pydelity.estimate(pdf_path(_SCAN), advanced=advanced, output_dir="out")
+    assert estimate.max_usd is not None
+    mock = mock_providers(
+        answers=[survey_answer(languages=[]), survey_answer()], input_tokens=5_000_000
+    )
 
     with (
-        pytest.raises(BudgetExceededError, match="allow_over_max_cost=True"),
+        pytest.raises(BudgetExceededError),
         pytest.warns(PydelityWarning, match="could go over max_cost"),
     ):
         pydelity.run(
-            pdf_path(_SCAN), max_cost=max_cost, output_dir="out", overwrite=True
-        )
-
-    assert len(mock.requests) == requests_before
-    stopped = pydelity.load("out").record
-    assert stopped is not None
-    assert stopped.status == "stopped"
-    (warning,) = stopped.warnings
-    assert Decimal(str(warning.details["spent_usd"])) == spent
-    assert (
-        Decimal(str(warning.details["projected_usd"])) == spent + estimate.expected_usd
-    )
-    assert warning.details["allowed"] is False
-
-    with pytest.warns(PydelityWarning, match="could go over max_cost"):
-        allowed = pydelity.run(
             pdf_path(_SCAN),
-            allow_over_max_cost=True,
-            max_cost=max_cost,
+            advanced=advanced,
+            max_cost=estimate.max_usd * 2,
             output_dir="out",
-            overwrite=True,
         )
 
-    assert allowed.record is not None
-    assert allowed.record.status == "paused"
-    assert len(allowed.ledger) == 2
-    assert allowed.record.cost.output_folder_usd == spent * 2
-    assert allowed.record.warnings[0].details["allowed"] is True
+    assert _sent(mock) == ["upload", "model"]
+    record = pydelity.load("out").record
+    assert record is not None
+    assert record.status == "stopped"
+    assert record.warnings[0].details["check"] == "request"
 
 
 def test_an_allowed_run_logs_and_records_the_max_cost_warning(
@@ -215,139 +227,6 @@ def test_an_unpriced_model_without_max_cost_runs_and_records_no_price(
     assert [w.code for w in result.record.warnings] == ["unpriced_model"]
 
 
-def test_a_request_that_would_go_over_max_cost_stops_before_it_is_sent(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """When real usage beats the estimate, the next request is checked and stopped.
-
-    The first answer fails a check and costs far more than estimated, so the
-    retry's check trips and raises before the retry is sent.
-    """
-
-    advanced = {"survey": {"check_retries": 1}}
-    estimate = pydelity.estimate(pdf_path(_SCAN), advanced=advanced, output_dir="out")
-    assert estimate.max_usd is not None
-    mock = mock_providers(
-        answers=[survey_answer(languages=[]), survey_answer()], input_tokens=5_000_000
-    )
-
-    with (
-        pytest.raises(BudgetExceededError),
-        pytest.warns(PydelityWarning, match="could go over max_cost"),
-    ):
-        pydelity.run(
-            pdf_path(_SCAN),
-            advanced=advanced,
-            max_cost=estimate.max_usd * 2,
-            output_dir="out",
-        )
-
-    assert _sent(mock) == ["upload", "model"]
-    record = pydelity.load("out").record
-    assert record is not None
-    assert record.status == "stopped"
-    assert record.warnings[0].details["check"] == "request"
-
-
-def test_prices_set_for_a_model_replace_the_looked_up_price(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """Prices under ``advanced.models`` price the model's requests instead."""
-
-    mock_providers(answers=[survey_answer()], input_tokens=3_000, output_tokens=600)
-    prices = {"input_usd_per_mtok": "1", "output_usd_per_mtok": "5"}
-
-    result = pydelity.run(
-        pdf_path(_SCAN),
-        advanced={"models": {"anthropic:claude-opus-5-5": prices}},
-        output_dir="out",
-    )
-
-    (entry,) = result.ledger
-    assert entry.cost_usd == Decimal("0.006")
-    assert entry.price_source == "config"
-
-
-def test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing(
-    canned_answers: Callable[[str], dict[str, object]],
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-) -> None:
-    """`estimate` sends nothing and writes nothing; after a full run it costs zero.
-
-    Before the first run, the survey would pause the run, so only the survey is
-    estimated. After a run through both steps, the survey and every page file are
-    reused. The estimate also reports the folder's spend so far.
-    """
-
-    mock = mock_providers(**canned_answers(_SCAN))
-
-    before = pydelity.estimate(pdf_path(_SCAN), max_cost="0.0001", output_dir="out")
-
-    assert not Path("out").exists()
-    assert mock.requests == []
-    assert before.over_max_cost is True
-    assert [step.name for step in before.steps] == ["survey"]
-    assert before.steps[0].requests_max == 3
-    assert before.expected_usd is not None
-    assert before.max_usd is not None
-    assert 0 < before.expected_usd < before.max_usd
-
-    run = pydelity.run(pdf_path(_SCAN), output_dir="out", pause=False)
-    requests_after_run = len(mock.requests)
-    after = pydelity.estimate(pdf_path(_SCAN), max_cost="0.0001", output_dir="out")
-
-    assert len(mock.requests) == requests_after_run
-    assert [(step.name, step.reused) for step in after.steps] == [
-        ("survey", True),
-        ("extraction", True),
-    ]
-    assert (after.expected_usd, after.max_usd, after.over_max_cost) == (0, 0, False)
-    assert run.record is not None
-    assert after.spent_usd == run.record.cost.output_folder_usd
-
-
-def test_a_cache_price_of_zero_is_priced_as_zero() -> None:
-    """A cache price of 0 under ``advanced.models`` makes cached tokens free.
-
-    An unset cache price still prices them at the input price.
-    """
-
-    response = ModelResponse(
-        model_name="claude-opus-5-5",
-        parts=[],
-        usage=RequestUsage(
-            cache_read_tokens=1_000_000,
-            cache_write_tokens=1_000_000,
-            input_tokens=3_000_000,
-            output_tokens=0,
-        ),
-    )
-    free = ModelPrices(
-        cache_read_usd_per_mtok=Decimal(0),
-        cache_write_usd_per_mtok=Decimal(0),
-        input_usd_per_mtok=Decimal(2),
-        output_usd_per_mtok=Decimal(10),
-    )
-    unset = ModelPrices(input_usd_per_mtok=Decimal(2), output_usd_per_mtok=Decimal(10))
-
-    priced = {
-        name: price_response(
-            model="anthropic:claude-opus-5-5",
-            overrides={"anthropic:claude-opus-5-5": prices},
-            response=response,
-        )
-        for name, prices in (("free", free), ("unset", unset))
-    }
-
-    assert priced["free"] == (Decimal(2), "config")
-    assert priced["unset"] == (Decimal(6), "config")
-
-
 def test_each_page_image_counts_toward_a_request_s_highest_cost(
     canned_answers: Callable[[str], dict[str, object]],
     mock_providers: Callable[..., MockProviders],
@@ -399,6 +278,127 @@ def test_each_page_image_counts_toward_a_request_s_highest_cost(
     assert projected is not None
     # The longest answer alone costs $3.20; the image adds at least $1.00.
     assert Decimal(projected[1].replace(",", "")) >= spent + Decimal("4.20")
+
+
+def test_earlier_spend_counts_and_a_disallowed_run_stops_resumably(
+    mock_providers: Callable[..., MockProviders],
+    monkeypatch: pytest.MonkeyPatch,
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """Spend from earlier runs counts toward ``max_cost``.
+
+    Before the run, the spend so far plus the run's expected cost is compared with
+    ``max_cost``. Without ``allow_over_max_cost`` the run raises
+    `BudgetExceededError` before any upload or request, records ``stopped`` and
+    never reads stdin. The same call with ``allow_over_max_cost=True`` then runs
+    the survey, pauses after it as usual, and keeps the earlier spend.
+    """
+
+    mock = mock_providers(answers=[survey_answer()], input_tokens=1_000_000)
+    first = pydelity.run(pdf_path(_SCAN), output_dir="out")
+    assert first.record is not None
+    spent = first.record.cost.run_usd
+    estimate = pydelity.estimate(pdf_path(_SCAN), output_dir="out", overwrite=True)
+    assert estimate.expected_usd is not None
+    assert estimate.expected_usd < spent
+    max_cost = spent + estimate.expected_usd / 2
+    monkeypatch.setattr("sys.stdin", _NoStdin())
+    requests_before = len(mock.requests)
+
+    with (
+        pytest.raises(BudgetExceededError, match="allow_over_max_cost=True"),
+        pytest.warns(PydelityWarning, match="could go over max_cost"),
+    ):
+        pydelity.run(
+            pdf_path(_SCAN), max_cost=max_cost, output_dir="out", overwrite=True
+        )
+
+    assert len(mock.requests) == requests_before
+    stopped = pydelity.load("out").record
+    assert stopped is not None
+    assert stopped.status == "stopped"
+    (warning,) = stopped.warnings
+    assert Decimal(str(warning.details["spent_usd"])) == spent
+    assert (
+        Decimal(str(warning.details["projected_usd"])) == spent + estimate.expected_usd
+    )
+    assert warning.details["allowed"] is False
+
+    with pytest.warns(PydelityWarning, match="could go over max_cost"):
+        allowed = pydelity.run(
+            pdf_path(_SCAN),
+            allow_over_max_cost=True,
+            max_cost=max_cost,
+            output_dir="out",
+            overwrite=True,
+        )
+
+    assert allowed.record is not None
+    assert allowed.record.status == "paused"
+    assert len(allowed.ledger) == 2
+    assert allowed.record.cost.output_folder_usd == spent * 2
+    assert allowed.record.warnings[0].details["allowed"] is True
+
+
+def test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing(
+    canned_answers: Callable[[str], dict[str, object]],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+) -> None:
+    """`estimate` sends nothing and writes nothing; after a full run it costs zero.
+
+    Before the first run, the survey would pause the run, so only the survey is
+    estimated. After a run through both steps, the survey and every page file are
+    reused. The estimate also reports the folder's spend so far.
+    """
+
+    mock = mock_providers(**canned_answers(_SCAN))
+
+    before = pydelity.estimate(pdf_path(_SCAN), max_cost="0.0001", output_dir="out")
+
+    assert not Path("out").exists()
+    assert mock.requests == []
+    assert before.over_max_cost is True
+    assert [step.name for step in before.steps] == ["survey"]
+    assert before.steps[0].requests_max == 3
+    assert before.expected_usd is not None
+    assert before.max_usd is not None
+    assert 0 < before.expected_usd < before.max_usd
+
+    run = pydelity.run(pdf_path(_SCAN), output_dir="out", pause=False)
+    requests_after_run = len(mock.requests)
+    after = pydelity.estimate(pdf_path(_SCAN), max_cost="0.0001", output_dir="out")
+
+    assert len(mock.requests) == requests_after_run
+    assert [(step.name, step.reused) for step in after.steps] == [
+        ("survey", True),
+        ("extraction", True),
+    ]
+    assert (after.expected_usd, after.max_usd, after.over_max_cost) == (0, 0, False)
+    assert run.record is not None
+    assert after.spent_usd == run.record.cost.output_folder_usd
+
+
+def test_prices_set_for_a_model_replace_the_looked_up_price(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """Prices under ``advanced.models`` price the model's requests instead."""
+
+    mock_providers(answers=[survey_answer()], input_tokens=3_000, output_tokens=600)
+    prices = {"input_usd_per_mtok": "1", "output_usd_per_mtok": "5"}
+
+    result = pydelity.run(
+        pdf_path(_SCAN),
+        advanced={"models": {"anthropic:claude-opus-5-5": prices}},
+        output_dir="out",
+    )
+
+    (entry,) = result.ledger
+    assert entry.cost_usd == Decimal("0.006")
+    assert entry.price_source == "config"
 
 
 def test_requests_running_at_once_are_held_to_max_cost_together(

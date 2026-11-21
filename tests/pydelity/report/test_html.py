@@ -196,88 +196,63 @@ def _parse(path: Path) -> _Links:
     return parser
 
 
-def test_report_shows_every_page_with_findings_and_needs_no_network(
-    facts_of: Callable[[str], Facts],
+def test_item_boxes_take_only_the_box_styles_and_the_item_list_keeps_its_own(
+    canned_answers: Callable[[str], dict[str, object]],
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
 ) -> None:
-    """The report shows each page with its boxes, plus the profile, cost and issues.
+    """The item list's styles stay off the boxes drawn over the page image.
 
-    It has no script and no outside address, so it opens from disk offline.
+    No rule that can apply to an item's box gives it padding, which would draw a
+    short item taller than its box, and the box a review issue links to is shaded
+    with the see-through target color. The item's entry in the list keeps its
+    padding and its own highlight.
     """
 
-    region = {
-        "bbox": {"x0": 0.05, "x1": 0.95, "y0": 0.1, "y1": 0.3},
-        "label": "Body",
-        "note": "Name and address lines.",
-        "page_index": 0,
-    }
-    answer = survey_answer(facts_of(_FORM), languages=["en", "zz"], regions=[region])
-    mock_providers(answers=[answer])
-
-    result = pydelity.run(
-        pdf_path(_FORM), advanced={"survey": {"check_retries": 0}}, output_dir="out"
-    )
-
-    report = Path("out/report.html")
-    html = report.read_text(encoding="utf-8")
-    parsed = _parse(report)
-    assert "script" not in parsed.tags
-    assert not [
-        target
-        for target in parsed.images + parsed.links
-        if target.startswith(("http:", "https:", "//"))
-    ]
-    assert parsed.images == [f"report/pages/{index:04d}.jpg" for index in range(6)]
-    for image in parsed.images:
-        assert (Path("out") / image).is_file()
-    assert '<div class="box region"' in html
-    assert '<span class="box-label">Body</span>' in html
-    assert html.count('<div class="box field"') == 23
-    assert result.record is not None
-    (issue,) = result.record.review
-    assert html_text.escape(issue.message) in html
-    assert "$0.02" in html
-    assert result.survey is not None
-    for label in result.survey.profile.labels:
-        assert html_text.escape(label.name) in html
-    assert result.facts is not None
-    for line in result.facts.summary:
-        assert html_text.escape(line) in html
-
-
-def test_report_escapes_text_from_the_pdf_the_user_and_the_model(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """Markup in instructions and in the model's labels is shown, never run."""
-
-    labels = [
-        {
-            "description": "<img src=x onerror=alert(2)>",
-            "kinds": ["text"],
-            "name": "<b>Bold</b>",
-            "role": "body",
-        }
-    ]
-    mock_providers(answers=[survey_answer(labels=labels)])
-
+    mock_providers(**canned_answers("irs_form_1040a_1965_scan.pdf"))
     pydelity.run(
         pdf_path("irs_form_1040a_1965_scan.pdf"),
-        advanced={"survey": {"instructions": "<script>alert(1)</script>"}},
         output_dir="out",
+        pages="1",
+        pause=False,
     )
-
     html = Path("out/report.html").read_text(encoding="utf-8")
-    parsed = _parse(Path("out/report.html"))
-    assert "<script>alert(1)</script>" not in html
-    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
-    assert "<b>Bold</b>" not in html
-    assert "&lt;b&gt;Bold&lt;/b&gt;" in html
-    assert "x" not in parsed.images
-    assert "script" not in parsed.tags
+    stylesheet = html[html.index("<style>") + 7 : html.index("</style>")]
+    rules = _css_rules(stylesheet)
+
+    def applied(element_id: str) -> list[tuple[str, dict[str, str]]]:
+        """List the rules with a selector that can apply to an element."""
+
+        finder = _Ancestry(element_id)
+        finder.feed(html)
+        assert finder.chain, element_id
+        return [
+            (selectors, declarations)
+            for selectors, declarations in rules
+            if any(_matches(one, finder.chain) for one in selectors.split(","))
+        ]
+
+    box = applied("box-p0000-001")
+    entry = applied("item-p0000-001")
+
+    assert any(".box.item" in selectors for selectors, _ in box)
+    assert [
+        (selectors, name)
+        for selectors, declarations in box
+        for name in declarations
+        if name.startswith("padding")
+    ] == []
+    assert [
+        declarations.get("background")
+        for selectors, declarations in box
+        if ":target" in selectors
+    ] == ["var(--target)"]
+    assert any("padding-block" in declarations for _, declarations in entry)
+    assert "var(--highlight)" in [
+        declarations.get("background")
+        for selectors, declarations in entry
+        if ":target" in selectors
+    ]
 
 
 def test_page_images_are_rendered_only_when_missing(
@@ -399,60 +374,85 @@ def test_report_draws_extracted_items_numbered_with_links_from_their_issues(
     assert "box-p0001-001" not in html
 
 
-def test_item_boxes_take_only_the_box_styles_and_the_item_list_keeps_its_own(
-    canned_answers: Callable[[str], dict[str, object]],
+def test_report_escapes_text_from_the_pdf_the_user_and_the_model(
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
 ) -> None:
-    """The item list's styles stay off the boxes drawn over the page image.
+    """Markup in instructions and in the model's labels is shown, never run."""
 
-    No rule that can apply to an item's box gives it padding, which would draw a
-    short item taller than its box, and the box a review issue links to is shaded
-    with the see-through target color. The item's entry in the list keeps its
-    padding and its own highlight.
-    """
+    labels = [
+        {
+            "description": "<img src=x onerror=alert(2)>",
+            "kinds": ["text"],
+            "name": "<b>Bold</b>",
+            "role": "body",
+        }
+    ]
+    mock_providers(answers=[survey_answer(labels=labels)])
 
-    mock_providers(**canned_answers("irs_form_1040a_1965_scan.pdf"))
     pydelity.run(
         pdf_path("irs_form_1040a_1965_scan.pdf"),
+        advanced={"survey": {"instructions": "<script>alert(1)</script>"}},
         output_dir="out",
-        pages="1",
-        pause=False,
     )
+
     html = Path("out/report.html").read_text(encoding="utf-8")
-    stylesheet = html[html.index("<style>") + 7 : html.index("</style>")]
-    rules = _css_rules(stylesheet)
+    parsed = _parse(Path("out/report.html"))
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "<b>Bold</b>" not in html
+    assert "&lt;b&gt;Bold&lt;/b&gt;" in html
+    assert "x" not in parsed.images
+    assert "script" not in parsed.tags
 
-    def applied(element_id: str) -> list[tuple[str, dict[str, str]]]:
-        """List the rules with a selector that can apply to an element."""
 
-        finder = _Ancestry(element_id)
-        finder.feed(html)
-        assert finder.chain, element_id
-        return [
-            (selectors, declarations)
-            for selectors, declarations in rules
-            if any(_matches(one, finder.chain) for one in selectors.split(","))
-        ]
+def test_report_shows_every_page_with_findings_and_needs_no_network(
+    facts_of: Callable[[str], Facts],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """The report shows each page with its boxes, plus the profile, cost and issues.
 
-    box = applied("box-p0000-001")
-    entry = applied("item-p0000-001")
+    It has no script and no outside address, so it opens from disk offline.
+    """
 
-    assert any(".box.item" in selectors for selectors, _ in box)
-    assert [
-        (selectors, name)
-        for selectors, declarations in box
-        for name in declarations
-        if name.startswith("padding")
-    ] == []
-    assert [
-        declarations.get("background")
-        for selectors, declarations in box
-        if ":target" in selectors
-    ] == ["var(--target)"]
-    assert any("padding-block" in declarations for _, declarations in entry)
-    assert "var(--highlight)" in [
-        declarations.get("background")
-        for selectors, declarations in entry
-        if ":target" in selectors
+    region = {
+        "bbox": {"x0": 0.05, "x1": 0.95, "y0": 0.1, "y1": 0.3},
+        "label": "Body",
+        "note": "Name and address lines.",
+        "page_index": 0,
+    }
+    answer = survey_answer(facts_of(_FORM), languages=["en", "zz"], regions=[region])
+    mock_providers(answers=[answer])
+
+    result = pydelity.run(
+        pdf_path(_FORM), advanced={"survey": {"check_retries": 0}}, output_dir="out"
+    )
+
+    report = Path("out/report.html")
+    html = report.read_text(encoding="utf-8")
+    parsed = _parse(report)
+    assert "script" not in parsed.tags
+    assert not [
+        target
+        for target in parsed.images + parsed.links
+        if target.startswith(("http:", "https:", "//"))
     ]
+    assert parsed.images == [f"report/pages/{index:04d}.jpg" for index in range(6)]
+    for image in parsed.images:
+        assert (Path("out") / image).is_file()
+    assert '<div class="box region"' in html
+    assert '<span class="box-label">Body</span>' in html
+    assert html.count('<div class="box field"') == 23
+    assert result.record is not None
+    (issue,) = result.record.review
+    assert html_text.escape(issue.message) in html
+    assert "$0.02" in html
+    assert result.survey is not None
+    for label in result.survey.profile.labels:
+        assert html_text.escape(label.name) in html
+    assert result.facts is not None
+    for line in result.facts.summary:
+        assert html_text.escape(line) in html

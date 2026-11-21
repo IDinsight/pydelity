@@ -45,6 +45,23 @@ from pydelity.extracting.validators import (
 from pydelity.review import CheckFailure, ExtractionCheckName
 from pydelity.surveying.schemas import Direction, FormField
 
+# Item boxes on the upright image's grid. Horizontal text in two columns, each with a
+# top and a bottom item, and vertical text in two bands, each with a left and a right
+# column.
+_BOXES = {
+    "left_bottom": [50, 400, 450, 900],
+    "left_top": [50, 100, 450, 300],
+    "lower_left": [600, 550, 750, 950],
+    "lower_right": [800, 550, 950, 950],
+    "right_bottom": [550, 600, 950, 900],
+    "right_top": [550, 100, 950, 500],
+    "upper_left": [600, 50, 750, 450],
+    "upper_right": [800, 50, 950, 450],
+}
+
+# Words that tell the model to keep its own reading when a text check sent it back.
+_KEEP_IMAGE_READING = "keep what the image shows"
+
 
 class _ReadingOrder(NamedTuple):
     """Items in and out of reading order on a page with one writing direction."""
@@ -85,24 +102,6 @@ class _ScriptLine(NamedTuple):
 
     name: str
     """The PDF's file name."""
-
-
-# Item boxes on the upright image's grid. Horizontal text in two columns, each with a
-# top and a bottom item, and vertical text in two bands, each with a left and a right
-# column.
-_BOXES = {
-    "left_bottom": [50, 400, 450, 900],
-    "left_top": [50, 100, 450, 300],
-    "lower_left": [600, 550, 750, 950],
-    "lower_right": [800, 550, 950, 950],
-    "right_bottom": [550, 600, 950, 900],
-    "right_top": [550, 100, 950, 500],
-    "upper_left": [600, 50, 750, 450],
-    "upper_right": [800, 50, 950, 450],
-}
-
-# Words that tell the model to keep its own reading when a text check sent it back.
-_KEEP_IMAGE_READING = "keep what the image shows"
 
 
 def _answer(

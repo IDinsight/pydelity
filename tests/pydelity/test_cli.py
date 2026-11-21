@@ -69,6 +69,25 @@ def _sent(mock: MockProviders) -> list[str]:
     return [str(request.route) for request in mock.requests]
 
 
+def test_a_missing_api_key_stops_after_saving_the_facts(
+    monkeypatch: pytest.MonkeyPatch,
+    pdf_path: Callable[[str], Path],
+    run_cli: Callable[..., Result],
+) -> None:
+    """Without the provider's key the run ends with exit code 2; the facts stay."""
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+
+    result = run_cli([str(pdf_path(_SCAN)), "-d", "out", "-y"])
+
+    assert result.exit_code == ExitCode.INVALID_INPUT, result.output
+    assert "ANTHROPIC_API_KEY is not set" in result.stderr
+    loaded = pydelity.load("out")
+    assert loaded.facts is not None
+    assert loaded.record is not None
+    assert loaded.record.status == "failed"
+
+
 def test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment(
     canned_answers: Callable[[str], dict[str, object]],
     mock_providers: Callable[..., MockProviders],
@@ -120,174 +139,26 @@ def test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment(
     assert "Paused" not in resumed.stderr
 
 
-def test_the_pdf_argument_wins_over_the_config_file(
+def test_a_pdf_the_provider_rejects_ends_with_its_message(
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
     run_cli: Callable[..., Result],
     survey_answer: Callable[..., dict],
-    tmp_path: Path,
 ) -> None:
-    """A PDF given on the command line replaces the config file's ``pdf``."""
+    """A provider rejecting the PDF ends the run with exit code 1 and its message."""
 
-    mock_providers(answers=[survey_answer()])
-    config_file = tmp_path / "settings.json"
-    config_file.write_text(
-        json.dumps({"output_dir": "from-file", "pdf": str(pdf_path("irs_form_w9.pdf"))})
+    mock = mock_providers(answers=[survey_answer()])
+    rejection = "The PDF has more pages than this model accepts."
+    mock.add_fault(message=rejection, route="model", status=400, times=None)
+
+    result = run_cli([str(pdf_path(_SCAN)), "-d", "out", "-y"])
+
+    assert result.exit_code == ExitCode.FAILED, result.output
+    assert (
+        f"anthropic:claude-opus-5-5: {rejection} The request carried {_SCAN} "
+        "(2 pages, 85,909 bytes)." in result.stderr
     )
-
-    result = run_cli([str(pdf_path(_SCAN)), "-c", str(config_file), "-y"])
-
-    assert result.exit_code == ExitCode.COMPLETED, result.output
-    record = _record(str(tmp_path / "from-file"))
-    assert Path(record.pdf.path) == pdf_path(_SCAN)
-
-
-def test_without_a_terminal_or_yes_it_stops_before_spending(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    run_cli: Callable[..., Result],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """Without a terminal or ``--yes`` the command stops with exit code 3.
-
-    Nothing is sent and the run is recorded as stopped. The facts were saved and
-    their summary logged before the estimate and the attempt to ask.
-    """
-
-    mock = mock_providers(answers=[survey_answer()])
-
-    result = run_cli([str(pdf_path(_SCAN)), "-d", "out", "--verbose"])
-
-    assert result.exit_code == ExitCode.STOPPED, result.output
-    log = result.stderr
-    saved = log.index("Facts measured and saved to ")
-    summary = log.index("No text layer on pages 0-1.")
-    assert saved < summary < log.index("Survey cost estimate") < log.index("pass --yes")
-    assert mock.requests == []
-    assert pydelity.load("out").facts is not None
-    assert _record().status == "stopped"
-
-
-def test_answering_no_at_the_terminal_stops_before_spending(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    run_cli: Callable[..., Result],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """After the estimate, answering no stops the run with exit code 3."""
-
-    mock = mock_providers(answers=[survey_answer()])
-
-    result = run_cli([str(pdf_path(_SCAN)), "-d", "out"], input="n\n", terminal=True)
-
-    assert result.exit_code == ExitCode.STOPPED, result.output
-    assert _CONFIRM in result.output
-    assert mock.requests == []
-    assert _record().status == "stopped"
-
-
-def test_answering_yes_at_the_terminal_runs_the_survey(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    run_cli: Callable[..., Result],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """After the estimate, answering yes runs the survey."""
-
-    mock = mock_providers(answers=[survey_answer()])
-
-    result = run_cli([str(pdf_path(_SCAN)), "-d", "out"], input="y\n", terminal=True)
-
-    assert result.exit_code == ExitCode.COMPLETED, result.output
-    assert result.output.count(_CONFIRM) == 1
-    assert _sent(mock) == ["upload", "model"]
-
-
-def test_over_max_cost_warns_then_a_yes_completes_with_one_question(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    run_cli: Callable[..., Result],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """A run that could go over ``max_cost`` warns, asks once, and a yes completes."""
-
-    mock = mock_providers(answers=[survey_answer()])
-
-    result = run_cli(
-        [str(pdf_path(_SCAN)), "-d", "out", "--max-cost", "0.0001"],
-        input="y\n",
-        terminal=True,
-    )
-
-    assert result.exit_code == ExitCode.COMPLETED, result.output
-    assert "over max_cost $0.0001" in result.stderr
-    assert "plus what this run may still spend makes $" in result.stderr
-    assert result.output.count(_OVER) == 1
-    assert _CONFIRM not in result.output
-    assert _sent(mock) == ["upload", "model"]
-    (warning,) = _record().warnings
-    assert warning.code == "max_cost_exceeded"
-    assert (warning.details["check"], warning.details["allowed"]) == ("plan", True)
-
-
-def test_over_max_cost_and_a_no_stops_with_nothing_sent(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    run_cli: Callable[..., Result],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """Answering no to the ``max_cost`` question stops before any upload or request."""
-
-    mock = mock_providers(answers=[survey_answer()])
-
-    result = run_cli(
-        [str(pdf_path(_SCAN)), "-d", "out", "-mc", "0.0001"], input="n\n", terminal=True
-    )
-
-    assert result.exit_code == ExitCode.STOPPED, result.output
-    assert mock.requests == []
-    record = _record()
-    assert record.status == "stopped"
-    assert record.warnings[0].details["allowed"] is False
-
-
-def test_over_max_cost_with_yes_completes_without_asking(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    run_cli: Callable[..., Result],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """``--yes`` goes over ``max_cost`` after the warning, with no question."""
-
-    mock = mock_providers(answers=[survey_answer()])
-
-    result = run_cli(
-        [str(pdf_path(_SCAN)), "-d", "out", "--max-cost", "0.0001", "--yes"],
-        terminal=True,
-    )
-
-    assert result.exit_code == ExitCode.COMPLETED, result.output
-    assert "could go over max_cost" in result.stderr
-    assert _OVER not in result.output
-    assert _sent(mock) == ["upload", "model"]
-
-
-def test_over_max_cost_without_a_terminal_or_yes_stops(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    run_cli: Callable[..., Result],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """Over ``max_cost`` with no terminal and no ``--yes``, the run stops resumably."""
-
-    mock = mock_providers(answers=[survey_answer()])
-
-    result = run_cli([str(pdf_path(_SCAN)), "-d", "out", "--max-cost", "0.0001"])
-
-    assert result.exit_code == ExitCode.STOPPED, result.output
-    assert mock.requests == []
-    assert _record().status == "stopped"
-    assert "Run pydelity again to continue" in result.stderr
+    assert _record().status == "failed"
 
 
 def test_a_request_that_would_go_over_max_cost_asks_before_it_is_sent(
@@ -338,50 +209,67 @@ def test_a_request_that_would_go_over_max_cost_asks_before_it_is_sent(
     assert (warning.details["check"], warning.details["allowed"]) == ("request", False)
 
 
-def test_a_pdf_the_provider_rejects_ends_with_its_message(
+def test_answering_no_at_the_terminal_stops_before_spending(
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
     run_cli: Callable[..., Result],
     survey_answer: Callable[..., dict],
 ) -> None:
-    """A provider rejecting the PDF ends the run with exit code 1 and its message."""
+    """After the estimate, answering no stops the run with exit code 3."""
 
     mock = mock_providers(answers=[survey_answer()])
-    rejection = "The PDF has more pages than this model accepts."
-    mock.add_fault(message=rejection, route="model", status=400, times=None)
 
-    result = run_cli([str(pdf_path(_SCAN)), "-d", "out", "-y"])
+    result = run_cli([str(pdf_path(_SCAN)), "-d", "out"], input="n\n", terminal=True)
 
-    assert result.exit_code == ExitCode.FAILED, result.output
-    assert (
-        f"anthropic:claude-opus-5-5: {rejection} The request carried {_SCAN} "
-        "(2 pages, 85,909 bytes)." in result.stderr
-    )
-    assert _record().status == "failed"
+    assert result.exit_code == ExitCode.STOPPED, result.output
+    assert _CONFIRM in result.output
+    assert mock.requests == []
+    assert _record().status == "stopped"
 
 
-def test_temporary_failures_past_the_retries_end_with_the_providers_message(
+def test_answering_yes_at_the_terminal_runs_the_survey(
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
     run_cli: Callable[..., Result],
     survey_answer: Callable[..., dict],
-    tmp_path: Path,
 ) -> None:
-    """A request failing more times than the retry setting ends with exit code 1."""
+    """After the estimate, answering yes runs the survey."""
 
     mock = mock_providers(answers=[survey_answer()])
-    mock.add_fault(
-        message="Overloaded right now.", route="model", status=529, times=None
-    )
-    config_file = tmp_path / "settings.yaml"
-    config_file.write_text("advanced:\n  provider_retries: 1\n")
 
-    result = run_cli([str(pdf_path(_SCAN)), "-c", str(config_file), "-d", "out", "-y"])
+    result = run_cli([str(pdf_path(_SCAN)), "-d", "out"], input="y\n", terminal=True)
 
-    assert result.exit_code == ExitCode.FAILED, result.output
-    assert _sent(mock) == ["upload", "model", "model"]
-    assert "Overloaded right now." in result.stderr
-    assert "It still failed after 1 retry (advanced.provider_retries)." in result.stderr
+    assert result.exit_code == ExitCode.COMPLETED, result.output
+    assert result.output.count(_CONFIRM) == 1
+    assert _sent(mock) == ["upload", "model"]
+
+
+def test_ctrl_c_at_the_question_records_an_interrupted_run(
+    mock_providers: Callable[..., MockProviders],
+    monkeypatch: pytest.MonkeyPatch,
+    pdf_path: Callable[[str], Path],
+    run_cli: Callable[..., Result],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """Ctrl+C while the command waits for an answer exits with 130.
+
+    ``run.json`` says the run was interrupted, and every file in the folder loads.
+    """
+
+    def interrupted(*args: object, **kwargs: object) -> bool:
+        """Stand in for a question that the user answers with Ctrl+C."""
+
+        raise KeyboardInterrupt
+
+    mock = mock_providers(answers=[survey_answer()])
+    monkeypatch.setattr(typer, "confirm", interrupted)
+
+    result = run_cli([str(pdf_path(_SCAN)), "-d", "out"], terminal=True)
+
+    assert result.exit_code == ExitCode.INTERRUPTED, result.output
+    assert mock.requests == []
+    assert _record().status == "interrupted"
+    assert not list(Path("out").glob("*.tmp-*"))
 
 
 def test_invalid_options_are_all_named_and_nothing_runs(
@@ -420,51 +308,91 @@ def test_invalid_options_are_all_named_and_nothing_runs(
     assert not Path("out").exists()
 
 
-def test_a_missing_api_key_stops_after_saving_the_facts(
-    monkeypatch: pytest.MonkeyPatch,
-    pdf_path: Callable[[str], Path],
-    run_cli: Callable[..., Result],
-) -> None:
-    """Without the provider's key the run ends with exit code 2; the facts stay."""
-
-    monkeypatch.delenv("ANTHROPIC_API_KEY")
-
-    result = run_cli([str(pdf_path(_SCAN)), "-d", "out", "-y"])
-
-    assert result.exit_code == ExitCode.INVALID_INPUT, result.output
-    assert "ANTHROPIC_API_KEY is not set" in result.stderr
-    loaded = pydelity.load("out")
-    assert loaded.facts is not None
-    assert loaded.record is not None
-    assert loaded.record.status == "failed"
-
-
-def test_ctrl_c_at_the_question_records_an_interrupted_run(
+def test_over_max_cost_and_a_no_stops_with_nothing_sent(
     mock_providers: Callable[..., MockProviders],
-    monkeypatch: pytest.MonkeyPatch,
     pdf_path: Callable[[str], Path],
     run_cli: Callable[..., Result],
     survey_answer: Callable[..., dict],
 ) -> None:
-    """Ctrl+C while the command waits for an answer exits with 130.
-
-    ``run.json`` says the run was interrupted, and every file in the folder loads.
-    """
-
-    def interrupted(*args: object, **kwargs: object) -> bool:
-        """Stand in for a question that the user answers with Ctrl+C."""
-
-        raise KeyboardInterrupt
+    """Answering no to the ``max_cost`` question stops before any upload or request."""
 
     mock = mock_providers(answers=[survey_answer()])
-    monkeypatch.setattr(typer, "confirm", interrupted)
 
-    result = run_cli([str(pdf_path(_SCAN)), "-d", "out"], terminal=True)
+    result = run_cli(
+        [str(pdf_path(_SCAN)), "-d", "out", "-mc", "0.0001"], input="n\n", terminal=True
+    )
 
-    assert result.exit_code == ExitCode.INTERRUPTED, result.output
+    assert result.exit_code == ExitCode.STOPPED, result.output
     assert mock.requests == []
-    assert _record().status == "interrupted"
-    assert not list(Path("out").glob("*.tmp-*"))
+    record = _record()
+    assert record.status == "stopped"
+    assert record.warnings[0].details["allowed"] is False
+
+
+def test_over_max_cost_warns_then_a_yes_completes_with_one_question(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    run_cli: Callable[..., Result],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """A run that could go over ``max_cost`` warns, asks once, and a yes completes."""
+
+    mock = mock_providers(answers=[survey_answer()])
+
+    result = run_cli(
+        [str(pdf_path(_SCAN)), "-d", "out", "--max-cost", "0.0001"],
+        input="y\n",
+        terminal=True,
+    )
+
+    assert result.exit_code == ExitCode.COMPLETED, result.output
+    assert "over max_cost $0.0001" in result.stderr
+    assert "plus what this run may still spend makes $" in result.stderr
+    assert result.output.count(_OVER) == 1
+    assert _CONFIRM not in result.output
+    assert _sent(mock) == ["upload", "model"]
+    (warning,) = _record().warnings
+    assert warning.code == "max_cost_exceeded"
+    assert (warning.details["check"], warning.details["allowed"]) == ("plan", True)
+
+
+def test_over_max_cost_with_yes_completes_without_asking(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    run_cli: Callable[..., Result],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """``--yes`` goes over ``max_cost`` after the warning, with no question."""
+
+    mock = mock_providers(answers=[survey_answer()])
+
+    result = run_cli(
+        [str(pdf_path(_SCAN)), "-d", "out", "--max-cost", "0.0001", "--yes"],
+        terminal=True,
+    )
+
+    assert result.exit_code == ExitCode.COMPLETED, result.output
+    assert "could go over max_cost" in result.stderr
+    assert _OVER not in result.output
+    assert _sent(mock) == ["upload", "model"]
+
+
+def test_over_max_cost_without_a_terminal_or_yes_stops(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    run_cli: Callable[..., Result],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """Over ``max_cost`` with no terminal and no ``--yes``, the run stops resumably."""
+
+    mock = mock_providers(answers=[survey_answer()])
+
+    result = run_cli([str(pdf_path(_SCAN)), "-d", "out", "--max-cost", "0.0001"])
+
+    assert result.exit_code == ExitCode.STOPPED, result.output
+    assert mock.requests == []
+    assert _record().status == "stopped"
+    assert "Run pydelity again to continue" in result.stderr
 
 
 def test_pages_and_no_pause_extract_only_those_pages_in_one_run(
@@ -517,6 +445,52 @@ def test_pages_and_no_pause_extract_only_those_pages_in_one_run(
     assert [path.name for path in Path("out/pages").iterdir()] == ["0001.json"]
 
 
+def test_temporary_failures_past_the_retries_end_with_the_providers_message(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    run_cli: Callable[..., Result],
+    survey_answer: Callable[..., dict],
+    tmp_path: Path,
+) -> None:
+    """A request failing more times than the retry setting ends with exit code 1."""
+
+    mock = mock_providers(answers=[survey_answer()])
+    mock.add_fault(
+        message="Overloaded right now.", route="model", status=529, times=None
+    )
+    config_file = tmp_path / "settings.yaml"
+    config_file.write_text("advanced:\n  provider_retries: 1\n")
+
+    result = run_cli([str(pdf_path(_SCAN)), "-c", str(config_file), "-d", "out", "-y"])
+
+    assert result.exit_code == ExitCode.FAILED, result.output
+    assert _sent(mock) == ["upload", "model", "model"]
+    assert "Overloaded right now." in result.stderr
+    assert "It still failed after 1 retry (advanced.provider_retries)." in result.stderr
+
+
+def test_the_pdf_argument_wins_over_the_config_file(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    run_cli: Callable[..., Result],
+    survey_answer: Callable[..., dict],
+    tmp_path: Path,
+) -> None:
+    """A PDF given on the command line replaces the config file's ``pdf``."""
+
+    mock_providers(answers=[survey_answer()])
+    config_file = tmp_path / "settings.json"
+    config_file.write_text(
+        json.dumps({"output_dir": "from-file", "pdf": str(pdf_path("irs_form_w9.pdf"))})
+    )
+
+    result = run_cli([str(pdf_path(_SCAN)), "-c", str(config_file), "-y"])
+
+    assert result.exit_code == ExitCode.COMPLETED, result.output
+    record = _record(str(tmp_path / "from-file"))
+    assert Path(record.pdf.path) == pdf_path(_SCAN)
+
+
 @pytest.mark.parametrize("option", ["-i", "--instructions"])
 def test_the_removed_instructions_option_is_an_unknown_option(
     mock_providers: Callable[..., MockProviders],
@@ -540,3 +514,29 @@ def test_the_removed_instructions_option_is_an_unknown_option(
     assert f"No such option: {option}" in output
     assert mock.requests == []
     assert not Path("out").exists()
+
+
+def test_without_a_terminal_or_yes_it_stops_before_spending(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    run_cli: Callable[..., Result],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """Without a terminal or ``--yes`` the command stops with exit code 3.
+
+    Nothing is sent and the run is recorded as stopped. The facts were saved and
+    their summary logged before the estimate and the attempt to ask.
+    """
+
+    mock = mock_providers(answers=[survey_answer()])
+
+    result = run_cli([str(pdf_path(_SCAN)), "-d", "out", "--verbose"])
+
+    assert result.exit_code == ExitCode.STOPPED, result.output
+    log = result.stderr
+    saved = log.index("Facts measured and saved to ")
+    summary = log.index("No text layer on pages 0-1.")
+    assert saved < summary < log.index("Survey cost estimate") < log.index("pass --yes")
+    assert mock.requests == []
+    assert pydelity.load("out").facts is not None
+    assert _record().status == "stopped"

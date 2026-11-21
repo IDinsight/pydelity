@@ -64,24 +64,6 @@ def _closed_port() -> int:
         return probe.getsockname()[1]
 
 
-@cache
-def _probed(name: str) -> Facts:
-    """Measure a committed test PDF once per test session.
-
-    Parameters
-    ----------
-    name
-        The PDF's file name in ``tests/fixtures/pdfs``.
-
-    Returns
-    -------
-    Facts
-        The probe's facts.
-    """
-
-    return probe_pdf(_PDF_DIR / name)
-
-
 @pytest.fixture(autouse=True)
 def _no_provider_access(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -105,6 +87,24 @@ def _no_provider_access(
     monkeypatch.chdir(tmp_path)
     yield
     logger.disable("pydelity")
+
+
+@cache
+def _probed(name: str) -> Facts:
+    """Measure a committed test PDF once per test session.
+
+    Parameters
+    ----------
+    name
+        The PDF's file name in ``tests/fixtures/pdfs``.
+
+    Returns
+    -------
+    Facts
+        The probe's facts.
+    """
+
+    return probe_pdf(_PDF_DIR / name)
 
 
 @pytest.fixture

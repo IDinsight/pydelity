@@ -151,110 +151,6 @@ def _model_requests(mock: MockProviders) -> list[str]:
     ]
 
 
-def test_profile_owns_other_dedupes_kinds_and_converts_region_boxes(
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-    tmp_path: Path,
-) -> None:
-    """The stored profile has Python's ``other`` last and region boxes in points.
-
-    A model-made ``other`` is replaced, kinds are listed once, a label without
-    kinds may be given to every kind, and each label keeps exactly one role.
-    """
-
-    config = resolve_config(pdf=pdf_path(_SCAN), settings={"output_dir": tmp_path})
-    facts: PdfFacts = pydelity.measure(config=config)
-    labels = [
-        {
-            "description": "",
-            "kinds": ["text", "text"],
-            "name": "Heading",
-            "role": "heading",
-        },
-        {"description": "", "kinds": ["code"], "name": "Other", "role": "aside"},
-        {"description": "", "kinds": [], "name": "Box", "role": "aside"},
-    ]
-    regions = [
-        {
-            "bbox": {"x0": 0.25, "x1": 0.75, "y0": 0.5, "y1": 1.0},
-            "label": "HEADING",
-            "note": "Title block.",
-            "page_index": 1,
-        }
-    ]
-    answer = SurveyAnswer.model_validate(survey_answer(labels=labels, regions=regions))
-
-    survey = build_survey(answer=answer, attempts=1, config=config, facts=facts)
-
-    profile = survey.profile
-    assert [label.name for label in profile.labels] == ["Heading", "Box", "other"]
-    assert profile.labels[0].kinds == [ItemKind.TEXT]
-    assert profile.labels[1].kinds == list(ItemKind)
-    other = profile.labels[-1]
-    assert (other.role, other.kinds) == (ItemRole.BODY, list(ItemKind))
-    for label in profile.labels:
-        assert isinstance(label.role, ItemRole)
-        assert label.kinds
-    page = facts.facts.pages[1]
-    (region,) = survey.proposal.regions
-    assert region.label == "Heading"
-    assert region.bbox == (
-        round(0.25 * page.width_pt, 2),
-        round(0.5 * page.height_pt, 2),
-        round(0.75 * page.width_pt, 2),
-        round(page.height_pt, 2),
-    )
-    assert survey.facts == facts.facts
-    assert survey.inputs.facts_fingerprint == facts.fingerprint
-
-
-def test_user_languages_lead_and_rejected_model_tags_become_review_issues(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """User tags come first in standard form; a tag C7 rejects is left out.
-
-    With no check retries the first answer is accepted, and its rejected tag is a
-    review issue. Pages with nothing measured never differ from the facts, so the
-    answer's rotation and page numbering give no issue.
-    """
-
-    answer = survey_answer(
-        languages=["en", "eng", "zz", "ar"],
-        page_numbering=[
-            {
-                "first_page_index": 0,
-                "last_page_index": 1,
-                "offset": 5,
-                "style": "arabic",
-            }
-        ],
-        rotation=[{"degrees": 90, "first_page_index": 0, "last_page_index": 1}],
-    )
-    mock = mock_providers(answers=[answer])
-
-    survey = pydelity.survey(
-        pdf_path(_SCAN),
-        advanced={
-            "survey": {"check_retries": 0, "instructions": "Treat stamps as content."}
-        },
-        languages=["EN_us"],
-        output_dir="out",
-    )
-
-    assert survey.profile.languages == ["en-US", "en", "ar"]
-    assert survey.inputs.instructions == "Treat stamps as content."
-    assert "Treat stamps as content." not in survey.profile.model_dump_json()
-    assert [(issue.check, issue.details) for issue in survey.issues] == [
-        ("languages", {"proposed": "zz"})
-    ]
-    assert survey.issues[0].step == "survey"
-    languages = next(check for check in survey.checks if check.name == "languages")
-    assert (languages.passed, languages.attempts) == (False, 1)
-    assert len(_model_requests(mock)) == 1
-
-
 def test_an_answer_that_fails_a_check_is_sent_back_with_each_failure(
     facts_of: Callable[[str], Facts],
     mock_providers: Callable[..., MockProviders],
@@ -286,56 +182,31 @@ def test_an_answer_that_fails_a_check_is_sent_back_with_each_failure(
     assert [entry.request for entry in result.ledger] == [1, 2]
 
 
-def test_checks_still_failing_after_the_retries_are_listed_for_review(  # noqa: PLR0913, PLR0917 - fixtures
-    facts_of: Callable[[str], Facts],
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    run_cli: Callable[..., Result],
-    survey_answer: Callable[..., dict],
-    tmp_path: Path,
+def test_an_answer_that_never_parses_fails_the_survey(
+    mock_providers: Callable[..., MockProviders], pdf_path: Callable[[str], Path]
 ) -> None:
-    """After the last allowed answer, each failure is a review issue in both files.
+    """An answer that is not the answer format raises `SurveyError` after the retries.
 
-    The command summary counts the issues by check and lists each with its step and
-    its page numbered from 1, as a PDF viewer shows it.
+    The run is recorded as failed, with the way the PDF reached the model, no
+    survey is saved, and the report is written.
     """
 
-    facts = facts_of(_CAPS)
-    complete = _caps_answer(facts, survey_answer)
-    flawed = dict(
-        complete,
-        non_artifact_lines=complete["non_artifact_lines"][:-1],
-        regions=[
-            {
-                "bbox": {"x0": 0.1, "x1": 0.9, "y0": 0.1, "y1": 0.2},
-                "label": "Sidebar",
-                "note": "",
-                "page_index": 2,
-            }
-        ],
-    )
-    mock = mock_providers(answers=[flawed])
-    config_file = tmp_path / "pydelity.yaml"
-    config_file.write_text("advanced:\n  survey:\n    check_retries: 1\n")
+    mock = mock_providers(answers=["I cannot answer in that format."])
 
-    result = run_cli(
-        [str(pdf_path(_CAPS)), "--config", str(config_file), "-d", "out", "--yes"]
-    )
+    with pytest.raises(SurveyError, match="no usable survey answer"):
+        pydelity.run(
+            pdf_path(_SCAN), advanced={"survey": {"check_retries": 1}}, output_dir="out"
+        )
 
-    assert result.exit_code == 0, result.output
     assert len(_model_requests(mock)) == 2
-    survey = pydelity.load("out").survey
     record = pydelity.load("out").record
-    assert survey is not None
     assert record is not None
-    assert [(i.step, i.check, i.page_index) for i in survey.issues] == [
-        ("survey", "labels", 2),
-        ("survey", "artifacts", None),
-    ]
-    assert record.review == survey.issues
-    assert "Review issues by check: labels 1, artifacts 1" in result.stderr
-    assert "survey, page 3: labels: a region on page index 2" in result.stderr
-    assert "survey: artifacts: repeated line R8" in result.stderr
+    assert (record.status, record.steps[0].status) == ("failed", "failed")
+    assert record.steps[0].pdf_transport == "upload"
+    assert record.error is not None
+    assert record.error.startswith("SurveyError: ")
+    assert not Path("out/pdf_survey.json").exists()
+    assert Path("out/report.html").is_file()
 
 
 def test_answers_that_differ_from_the_facts_are_kept_and_listed_by_page(
@@ -393,6 +264,150 @@ def test_answers_that_differ_from_the_facts_are_kept_and_listed_by_page(
     assert "27" in numbers[0].message
 
 
+def test_checks_still_failing_after_the_retries_are_listed_for_review(  # noqa: PLR0913, PLR0917 - fixtures
+    facts_of: Callable[[str], Facts],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    run_cli: Callable[..., Result],
+    survey_answer: Callable[..., dict],
+    tmp_path: Path,
+) -> None:
+    """After the last allowed answer, each failure is a review issue in both files.
+
+    The command summary counts the issues by check and lists each with its step and
+    its page numbered from 1, as a PDF viewer shows it.
+    """
+
+    facts = facts_of(_CAPS)
+    complete = _caps_answer(facts, survey_answer)
+    flawed = dict(
+        complete,
+        non_artifact_lines=complete["non_artifact_lines"][:-1],
+        regions=[
+            {
+                "bbox": {"x0": 0.1, "x1": 0.9, "y0": 0.1, "y1": 0.2},
+                "label": "Sidebar",
+                "note": "",
+                "page_index": 2,
+            }
+        ],
+    )
+    mock = mock_providers(answers=[flawed])
+    config_file = tmp_path / "pydelity.yaml"
+    config_file.write_text("advanced:\n  survey:\n    check_retries: 1\n")
+
+    result = run_cli(
+        [str(pdf_path(_CAPS)), "--config", str(config_file), "-d", "out", "--yes"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(_model_requests(mock)) == 2
+    survey = pydelity.load("out").survey
+    record = pydelity.load("out").record
+    assert survey is not None
+    assert record is not None
+    assert [(i.step, i.check, i.page_index) for i in survey.issues] == [
+        ("survey", "labels", 2),
+        ("survey", "artifacts", None),
+    ]
+    assert record.review == survey.issues
+    assert "Review issues by check: labels 1, artifacts 1" in result.stderr
+    assert "survey, page 3: labels: a region on page index 2" in result.stderr
+    assert "survey: artifacts: repeated line R8" in result.stderr
+
+
+def test_profile_owns_other_dedupes_kinds_and_converts_region_boxes(
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+    tmp_path: Path,
+) -> None:
+    """The stored profile has Python's ``other`` last and region boxes in points.
+
+    A model-made ``other`` is replaced, kinds are listed once, a label without
+    kinds may be given to every kind, and each label keeps exactly one role.
+    """
+
+    config = resolve_config(pdf=pdf_path(_SCAN), settings={"output_dir": tmp_path})
+    facts: PdfFacts = pydelity.measure(config=config)
+    labels = [
+        {
+            "description": "",
+            "kinds": ["text", "text"],
+            "name": "Heading",
+            "role": "heading",
+        },
+        {"description": "", "kinds": ["code"], "name": "Other", "role": "aside"},
+        {"description": "", "kinds": [], "name": "Box", "role": "aside"},
+    ]
+    regions = [
+        {
+            "bbox": {"x0": 0.25, "x1": 0.75, "y0": 0.5, "y1": 1.0},
+            "label": "HEADING",
+            "note": "Title block.",
+            "page_index": 1,
+        }
+    ]
+    answer = SurveyAnswer.model_validate(survey_answer(labels=labels, regions=regions))
+
+    survey = build_survey(answer=answer, attempts=1, config=config, facts=facts)
+
+    profile = survey.profile
+    assert [label.name for label in profile.labels] == ["Heading", "Box", "other"]
+    assert profile.labels[0].kinds == [ItemKind.TEXT]
+    assert profile.labels[1].kinds == list(ItemKind)
+    other = profile.labels[-1]
+    assert (other.role, other.kinds) == (ItemRole.BODY, list(ItemKind))
+    for label in profile.labels:
+        assert isinstance(label.role, ItemRole)
+        assert label.kinds
+    page = facts.facts.pages[1]
+    (region,) = survey.proposal.regions
+    assert region.label == "Heading"
+    assert region.bbox == (
+        round(0.25 * page.width_pt, 2),
+        round(0.5 * page.height_pt, 2),
+        round(0.75 * page.width_pt, 2),
+        round(page.height_pt, 2),
+    )
+    assert survey.facts == facts.facts
+    assert survey.inputs.facts_fingerprint == facts.fingerprint
+
+
+def test_prompt_schema_and_vocabulary_name_no_document_type() -> None:
+    """The prompt, the answer and output field names and the item enums are neutral.
+
+    None of them uses a word that names a document type or a domain.
+    """
+
+    prompts = survey_pdf(
+        facts_summary=["2 pages (indexes 0-1); page indexes start at 0."],
+        instructions=None,
+        languages=[],
+        page_count=2,
+        repeated_lines=[],
+    )
+    names = (
+        _field_names(SurveyAnswer.model_json_schema())
+        | _field_names(PdfSurvey.model_json_schema())
+        | _field_names(PdfFacts.model_json_schema())
+    )
+    vocabulary = [kind.value for kind in ItemKind] + [role.value for role in ItemRole]
+    texts = {
+        "prompt": f"{prompts.system_message}\n{prompts.user_message}",
+        "field names": " ".join(name.replace("_", " ") for name in sorted(names)),
+        "vocabulary": " ".join(vocabulary),
+    }
+
+    found = {
+        where: word
+        for where, text in texts.items()
+        for word in _DOMAIN_WORDS
+        if re.search(rf"\b{word}s?\b", text, flags=re.IGNORECASE)
+    }
+
+    assert found == {}
+
+
 def test_request_sends_the_facts_as_hints_with_every_repeated_line(
     facts_of: Callable[[str], Facts],
     mock_providers: Callable[..., MockProviders],
@@ -435,63 +450,48 @@ def test_request_sends_the_facts_as_hints_with_every_repeated_line(
     assert "answer with what you read" in system
 
 
-def test_prompt_schema_and_vocabulary_name_no_document_type() -> None:
-    """The prompt, the answer and output field names and the item enums are neutral.
-
-    None of them uses a word that names a document type or a domain.
-    """
-
-    prompts = survey_pdf(
-        facts_summary=["2 pages (indexes 0-1); page indexes start at 0."],
-        instructions=None,
-        languages=[],
-        page_count=2,
-        repeated_lines=[],
-    )
-    names = (
-        _field_names(SurveyAnswer.model_json_schema())
-        | _field_names(PdfSurvey.model_json_schema())
-        | _field_names(PdfFacts.model_json_schema())
-    )
-    vocabulary = [kind.value for kind in ItemKind] + [role.value for role in ItemRole]
-    texts = {
-        "prompt": f"{prompts.system_message}\n{prompts.user_message}",
-        "field names": " ".join(name.replace("_", " ") for name in sorted(names)),
-        "vocabulary": " ".join(vocabulary),
-    }
-
-    found = {
-        where: word
-        for where, text in texts.items()
-        for word in _DOMAIN_WORDS
-        if re.search(rf"\b{word}s?\b", text, flags=re.IGNORECASE)
-    }
-
-    assert found == {}
-
-
-def test_an_answer_that_never_parses_fails_the_survey(
-    mock_providers: Callable[..., MockProviders], pdf_path: Callable[[str], Path]
+def test_user_languages_lead_and_rejected_model_tags_become_review_issues(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
 ) -> None:
-    """An answer that is not the answer format raises `SurveyError` after the retries.
+    """User tags come first in standard form; a tag C7 rejects is left out.
 
-    The run is recorded as failed, with the way the PDF reached the model, no
-    survey is saved, and the report is written.
+    With no check retries the first answer is accepted, and its rejected tag is a
+    review issue. Pages with nothing measured never differ from the facts, so the
+    answer's rotation and page numbering give no issue.
     """
 
-    mock = mock_providers(answers=["I cannot answer in that format."])
+    answer = survey_answer(
+        languages=["en", "eng", "zz", "ar"],
+        page_numbering=[
+            {
+                "first_page_index": 0,
+                "last_page_index": 1,
+                "offset": 5,
+                "style": "arabic",
+            }
+        ],
+        rotation=[{"degrees": 90, "first_page_index": 0, "last_page_index": 1}],
+    )
+    mock = mock_providers(answers=[answer])
 
-    with pytest.raises(SurveyError, match="no usable survey answer"):
-        pydelity.run(
-            pdf_path(_SCAN), advanced={"survey": {"check_retries": 1}}, output_dir="out"
-        )
+    survey = pydelity.survey(
+        pdf_path(_SCAN),
+        advanced={
+            "survey": {"check_retries": 0, "instructions": "Treat stamps as content."}
+        },
+        languages=["EN_us"],
+        output_dir="out",
+    )
 
-    assert len(_model_requests(mock)) == 2
-    record = pydelity.load("out").record
-    assert record is not None
-    assert (record.status, record.steps[0].status) == ("failed", "failed")
-    assert record.steps[0].pdf_transport == "upload"
-    assert record.error is not None
-    assert record.error.startswith("SurveyError: ")
-    assert not Path("out/pdf_survey.json").exists()
-    assert Path("out/report.html").is_file()
+    assert survey.profile.languages == ["en-US", "en", "ar"]
+    assert survey.inputs.instructions == "Treat stamps as content."
+    assert "Treat stamps as content." not in survey.profile.model_dump_json()
+    assert [(issue.check, issue.details) for issue in survey.issues] == [
+        ("languages", {"proposed": "zz"})
+    ]
+    assert survey.issues[0].step == "survey"
+    languages = next(check for check in survey.checks if check.name == "languages")
+    assert (languages.passed, languages.attempts) == (False, 1)
+    assert len(_model_requests(mock)) == 1

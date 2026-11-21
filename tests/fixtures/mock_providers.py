@@ -63,18 +63,6 @@ from types import TracebackType
 from typing import Literal, Self, cast
 from urllib.parse import urlsplit
 
-# An answer to a model request: JSON data, sent as JSON, or text, sent as it is.
-type Answer = Mapping[str, object] | str
-
-# Which of page extraction's agents a page request comes from.
-type PageAgent = Literal["extractor", "verifier"]
-
-# Which provider's API a request is for.
-type Provider = Literal["anthropic", "openai"]
-
-# What a request does: ask the model, or upload a file.
-type Route = Literal["model", "upload"]
-
 # Anthropic's error type for each HTTP status that has its own type in the SDK. Other
 # statuses get ``invalid_request_error`` below 500 and ``api_error`` from 500.
 _ANTHROPIC_ERROR_TYPES = {
@@ -100,14 +88,6 @@ _PAGE_LINE = re.compile(r"Page index (\d+) \(")
 # this long.
 _POLL_INTERVAL_SECONDS = 0.05
 
-# The provider and route of each path the server answers, after the base URL.
-_ROUTES: dict[str, tuple[Provider, Route]] = {
-    "/anthropic/v1/files": ("anthropic", "upload"),
-    "/anthropic/v1/messages": ("anthropic", "model"),
-    "/openai/v1/files": ("openai", "upload"),
-    "/openai/v1/responses": ("openai", "model"),
-}
-
 # HTTP status codes below 500 that the SDKs treat as temporary and retry.
 _TEMPORARY_STATUS_CODES = frozenset({408, 409, 429})
 
@@ -124,6 +104,26 @@ DEFAULT_OUTPUT_TOKENS = 600
 # The value `MockProviders.environment` gives both API keys. pydelity refuses to start
 # a run without a key, and the server never looks at it.
 PLACEHOLDER_KEY = "mock-provider-placeholder"
+
+# An answer to a model request: JSON data, sent as JSON, or text, sent as it is.
+type Answer = Mapping[str, object] | str
+
+# Which of page extraction's agents a page request comes from.
+type PageAgent = Literal["extractor", "verifier"]
+
+# Which provider's API a request is for.
+type Provider = Literal["anthropic", "openai"]
+
+# What a request does: ask the model, or upload a file.
+type Route = Literal["model", "upload"]
+
+# The provider and route of each path the server answers, after the base URL.
+_ROUTES: dict[str, tuple[Provider, Route]] = {
+    "/anthropic/v1/files": ("anthropic", "upload"),
+    "/anthropic/v1/messages": ("anthropic", "model"),
+    "/openai/v1/files": ("openai", "upload"),
+    "/openai/v1/responses": ("openai", "model"),
+}
 
 
 @dataclass
@@ -143,6 +143,47 @@ class _Fault:
     """The HTTP status of the failure."""
 
 
+class _Handler(BaseHTTPRequestHandler):
+    """Answers one HTTP connection's requests from the `MockProviders` state."""
+
+    protocol_version = "HTTP/1.1"
+
+    def do_POST(self) -> None:
+        """Read a POST request, get the stand-in's reply and send it."""
+
+        length = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(length)
+        mock = cast("_Server", self.server).mock
+        reply = mock._answer(
+            body=body,
+            content_type=self.headers.get("Content-Type", ""),
+            path=self.path,
+        )
+
+        data = json.dumps(reply.payload).encode()
+        self.send_response(reply.status)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Type", "application/json")
+        for name, value in reply.headers.items():
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, format: str, *args: object) -> None:
+        """Print the request line to stderr only when the stand-in is verbose.
+
+        Parameters
+        ----------
+        format
+            The message's format string.
+        *args
+            The values to put into it.
+        """
+
+        if cast("_Server", self.server).mock.verbose:
+            super().log_message(format, *args)
+
+
 @dataclass(frozen=True)
 class _Reply:
     """What the server sends back for one request."""
@@ -155,6 +196,44 @@ class _Reply:
 
     headers: dict[str, str] = field(default_factory=dict)
     """Headers besides ``Content-Type`` and ``Content-Length``."""
+
+
+class _Server(ThreadingHTTPServer):
+    """The HTTP server, which holds the `MockProviders` its handler answers for."""
+
+    daemon_threads = True
+
+    def __init__(self, *, mock: "MockProviders", port: int) -> None:
+        """Bind the server to the loopback interface.
+
+        Parameters
+        ----------
+        mock
+            The stand-in whose state the handler uses.
+        port
+            The port, or 0 for any free port.
+        """
+
+        super().__init__(RequestHandlerClass=_Handler, server_address=(_HOST, port))
+        self.mock = mock
+
+    def handle_error(self, request: object, client_address: object) -> None:
+        """Ignore a client that went away mid-request; report any other error.
+
+        A test that cancels a run closes its connection while the server still waits
+        to answer, so writing the reply then fails. That is expected, not a failure.
+
+        Parameters
+        ----------
+        request
+            The request's socket.
+        client_address
+            The client's address.
+        """
+
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)  # ty: ignore[invalid-argument-type]
 
 
 def _answer_list(given: Answer | Sequence[Answer]) -> list[str]:
@@ -515,85 +594,6 @@ def _parse_upload(*, body: bytes, content_type: str) -> dict[str, object]:
     return {"fields": fields, **summary}
 
 
-class _Handler(BaseHTTPRequestHandler):
-    """Answers one HTTP connection's requests from the `MockProviders` state."""
-
-    protocol_version = "HTTP/1.1"
-
-    def do_POST(self) -> None:
-        """Read a POST request, get the stand-in's reply and send it."""
-
-        length = int(self.headers.get("Content-Length", "0"))
-        body = self.rfile.read(length)
-        mock = cast("_Server", self.server).mock
-        reply = mock._answer(
-            body=body,
-            content_type=self.headers.get("Content-Type", ""),
-            path=self.path,
-        )
-
-        data = json.dumps(reply.payload).encode()
-        self.send_response(reply.status)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Content-Type", "application/json")
-        for name, value in reply.headers.items():
-            self.send_header(name, value)
-        self.end_headers()
-        self.wfile.write(data)
-
-    def log_message(self, format: str, *args: object) -> None:
-        """Print the request line to stderr only when the stand-in is verbose.
-
-        Parameters
-        ----------
-        format
-            The message's format string.
-        *args
-            The values to put into it.
-        """
-
-        if cast("_Server", self.server).mock.verbose:
-            super().log_message(format, *args)
-
-
-class _Server(ThreadingHTTPServer):
-    """The HTTP server, which holds the `MockProviders` its handler answers for."""
-
-    daemon_threads = True
-
-    def __init__(self, *, mock: "MockProviders", port: int) -> None:
-        """Bind the server to the loopback interface.
-
-        Parameters
-        ----------
-        mock
-            The stand-in whose state the handler uses.
-        port
-            The port, or 0 for any free port.
-        """
-
-        super().__init__(RequestHandlerClass=_Handler, server_address=(_HOST, port))
-        self.mock = mock
-
-    def handle_error(self, request: object, client_address: object) -> None:
-        """Ignore a client that went away mid-request; report any other error.
-
-        A test that cancels a run closes its connection while the server still waits
-        to answer, so writing the reply then fails. That is expected, not a failure.
-
-        Parameters
-        ----------
-        request
-            The request's socket.
-        client_address
-            The client's address.
-        """
-
-        if isinstance(sys.exc_info()[1], ConnectionError):
-            return
-        super().handle_error(request, client_address)  # ty: ignore[invalid-argument-type]
-
-
 @dataclass(frozen=True)
 class RecordedRequest:
     """One request the server received, without its headers."""
@@ -929,45 +929,6 @@ class MockProviders:
         self._files[provider].add(str(reply.payload["id"]))
         return reply
 
-    @property
-    def anthropic_base_url(self) -> str:
-        """The value for ``ANTHROPIC_BASE_URL``."""
-
-        return f"{self.url}/anthropic"
-
-    @property
-    def max_in_flight(self) -> int:
-        """The most model requests the server has been answering at the same time."""
-
-        return self._max_in_flight
-
-    @property
-    def openai_base_url(self) -> str:
-        """The value for ``OPENAI_BASE_URL``."""
-
-        return f"{self.url}/openai/v1"
-
-    @property
-    def requests(self) -> list[RecordedRequest]:
-        """Every request received so far, oldest first."""
-
-        with self._lock:
-            return list(self._requests)
-
-    @property
-    def url(self) -> str:
-        """The server's address, such as ``http://127.0.0.1:50123``.
-
-        Raises
-        ------
-        RuntimeError
-            If the server is not running.
-        """
-
-        if self._server is None:
-            raise RuntimeError("The mock provider server is not running")
-        return f"http://{_HOST}:{self._server.server_address[1]}"
-
     def add_fault(
         self,
         *,
@@ -1012,6 +973,12 @@ class MockProviders:
         with self._lock:
             self._faults.append(fault)
 
+    @property
+    def anthropic_base_url(self) -> str:
+        """The value for ``ANTHROPIC_BASE_URL``."""
+
+        return f"{self.url}/anthropic"
+
     def environment(self) -> dict[str, str]:
         """Environment variables that send both SDKs to this server.
 
@@ -1037,6 +1004,25 @@ class MockProviders:
         with self._lock:
             for file_ids in self._files.values():
                 file_ids.clear()
+
+    @property
+    def max_in_flight(self) -> int:
+        """The most model requests the server has been answering at the same time."""
+
+        return self._max_in_flight
+
+    @property
+    def openai_base_url(self) -> str:
+        """The value for ``OPENAI_BASE_URL``."""
+
+        return f"{self.url}/openai/v1"
+
+    @property
+    def requests(self) -> list[RecordedRequest]:
+        """Every request received so far, oldest first."""
+
+        with self._lock:
+            return list(self._requests)
 
     def start(self) -> None:
         """Start listening, in a background thread.
@@ -1070,6 +1056,20 @@ class MockProviders:
         self._server = None
         self._thread = None
 
+    @property
+    def url(self) -> str:
+        """The server's address, such as ``http://127.0.0.1:50123``.
+
+        Raises
+        ------
+        RuntimeError
+            If the server is not running.
+        """
+
+        if self._server is None:
+            raise RuntimeError("The mock provider server is not running")
+        return f"http://{_HOST}:{self._server.server_address[1]}"
+
     def wait_for_model_request(self, timeout: float) -> bool:
         """Wait until the first model request arrives, or the timeout passes.
 
@@ -1085,28 +1085,6 @@ class MockProviders:
         """
 
         return self._model_request_seen.wait(timeout)
-
-
-def read_page_answers(path: Path) -> dict[int, dict[str, Answer | list[Answer]]]:
-    """Read a page answers file: answers by page index, then agent.
-
-    Parameters
-    ----------
-    path
-        A JSON file whose keys are page indexes and whose values map ``extractor``
-        and ``verifier`` to an answer or a list of answers.
-
-    Returns
-    -------
-    dict[int, dict[str, Answer | list[Answer]]]
-        The answers, for `MockProviders`' ``page_answers``.
-    """
-
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return {
-        int(page): cast("dict[str, Answer | list[Answer]]", by_agent)
-        for page, by_agent in data.items()
-    }
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -1158,6 +1136,28 @@ def main(argv: Sequence[str] | None = None) -> None:
                 time.sleep(1)
         except KeyboardInterrupt:
             pass
+
+
+def read_page_answers(path: Path) -> dict[int, dict[str, Answer | list[Answer]]]:
+    """Read a page answers file: answers by page index, then agent.
+
+    Parameters
+    ----------
+    path
+        A JSON file whose keys are page indexes and whose values map ``extractor``
+        and ``verifier`` to an answer or a list of answers.
+
+    Returns
+    -------
+    dict[int, dict[str, Answer | list[Answer]]]
+        The answers, for `MockProviders`' ``page_answers``.
+    """
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        int(page): cast("dict[str, Answer | list[Answer]]", by_agent)
+        for page, by_agent in data.items()
+    }
 
 
 if __name__ == "__main__":

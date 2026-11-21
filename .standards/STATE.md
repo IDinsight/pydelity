@@ -17,7 +17,8 @@
 `.standards/docs/specs/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
 `Development`:
 `.standards/docs/development/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
+`Tester, Increment 1: the AC-041 and AC-042 criteria need the suite on Python 3.14, which is not installed here. Should the user commit the tests reorder and push so CI's Python 3.14 job runs it, or approve installing Python 3.14 locally with uv for a local run?`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

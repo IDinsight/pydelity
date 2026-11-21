@@ -145,6 +145,40 @@ def test_config_file_paths_resolve_against_its_folder_and_keywords_win(
     assert overridden.output_folder == folder / "results"
 
 
+@pytest.mark.parametrize(
+    ("settings", "survey_model", "extraction_model"),
+    [
+        (
+            {"model": "openai:gpt-6.2-astra"},
+            "openai:gpt-6.2-astra",
+            "openai:gpt-6.2-astra",
+        ),
+        (
+            {"advanced": {"extraction": {"model": "openai:gpt-6.2-astra"}}},
+            "anthropic:claude-opus-5-5",
+            "openai:gpt-6.2-astra",
+        ),
+    ],
+    ids=["model", "extraction-model"],
+)
+def test_each_step_resolves_its_own_model(
+    extraction_model: str,
+    pdf_path: Callable[[str], Path],
+    settings: dict[str, object],
+    survey_model: str,
+) -> None:
+    """Page extraction uses its own model, else ``model``; the survey uses ``model``.
+
+    Page extraction's effort stays ``high`` unless set.
+    """
+
+    config = resolve_config(pdf=pdf_path("irs_form_w9.pdf"), settings=settings)
+
+    assert config.survey_model.setting == survey_model
+    assert config.extraction_model.setting == extraction_model
+    assert config.advanced.extraction.effort == "high"
+
+
 def test_every_invalid_setting_is_named_in_one_error_before_any_request(
     mock_providers: Callable[..., MockProviders], survey_answer: Callable[..., dict]
 ) -> None:
@@ -185,38 +219,35 @@ def test_every_invalid_setting_is_named_in_one_error_before_any_request(
     assert not Path("out").exists()
 
 
-@pytest.mark.parametrize("source", ["file", "keyword"])
-def test_the_removed_instructions_setting_is_unknown_before_any_request(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    source: str,
-    survey_answer: Callable[..., dict],
-    tmp_path: Path,
+@pytest.mark.parametrize("example", _EXAMPLES, ids=lambda path: path.name)
+def test_example_config_holds_every_setting_at_its_default(
+    example: Path, pdf_path: Callable[[str], Path]
 ) -> None:
-    """A top-level ``instructions`` setting gets the unknown-setting error at once.
+    """An example file holds exactly the settings `Config` accepts, at every level.
 
-    It does so in a config file and as a keyword; instructions are set per step
-    under ``advanced`` instead.
+    It matches the other example's values, and resolving it with a PDF given as an
+    argument gives the defaults apart from the PDF and its placeholder price entry.
     """
 
-    mock = mock_providers(answers=[survey_answer()])
-    config_file = tmp_path / "run.yml"
-    config_file.write_text("instructions: Read it.", encoding="utf-8")
-
+    data = _read_example(example)
+    other = _read_example(next(path for path in _EXAMPLES if path != example))
+    advanced = data["advanced"]
+    (price_entry,) = advanced["models"].values()
     pdf = pdf_path("irs_form_w9.pdf")
-    start = {
-        "file": lambda: pydelity.run(pdf, config=config_file),
-        "keyword": lambda: pydelity.run(pdf, instructions="Read it."),
-    }[source]
 
-    with pytest.raises(ConfigError) as raised:
-        start()
+    resolved = resolve_config(config=example, pdf=pdf)
 
-    assert str(raised.value).splitlines() == [
-        "1 invalid setting:",
-        "- instructions: not a setting pydelity knows",
-    ]
-    assert mock.requests == []
+    assert set(data) == _field_names(Config)
+    assert set(advanced) == _field_names(AdvancedConfig)
+    assert set(advanced["extraction"]) == _field_names(ExtractionConfig)
+    assert set(advanced["survey"]) == _field_names(SurveyConfig)
+    assert set(advanced["uploads"]) == _field_names(UploadsConfig)
+    assert set(price_entry) == _field_names(ModelPrices)
+    assert data == other
+    expected = Config(advanced={"models": advanced["models"]}, pdf=pdf)
+    assert resolved.model_dump() == expected.model_dump()
+    assert resolved.output_dir is None
+    assert data["pdf"] == "document.pdf"
 
 
 def test_spellings_of_one_language_tag_resolve_to_one_standard_form(
@@ -249,66 +280,35 @@ def test_spellings_of_one_language_tag_resolve_to_one_standard_form(
     assert len(fingerprints) == 1
 
 
-@pytest.mark.parametrize(
-    ("settings", "survey_model", "extraction_model"),
-    [
-        (
-            {"model": "openai:gpt-6.2-astra"},
-            "openai:gpt-6.2-astra",
-            "openai:gpt-6.2-astra",
-        ),
-        (
-            {"advanced": {"extraction": {"model": "openai:gpt-6.2-astra"}}},
-            "anthropic:claude-opus-5-5",
-            "openai:gpt-6.2-astra",
-        ),
-    ],
-    ids=["model", "extraction-model"],
-)
-def test_each_step_resolves_its_own_model(
-    extraction_model: str,
+@pytest.mark.parametrize("source", ["file", "keyword"])
+def test_the_removed_instructions_setting_is_unknown_before_any_request(
+    mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
-    settings: dict[str, object],
-    survey_model: str,
+    source: str,
+    survey_answer: Callable[..., dict],
+    tmp_path: Path,
 ) -> None:
-    """Page extraction uses its own model, else ``model``; the survey uses ``model``.
+    """A top-level ``instructions`` setting gets the unknown-setting error at once.
 
-    Page extraction's effort stays ``high`` unless set.
+    It does so in a config file and as a keyword; instructions are set per step
+    under ``advanced`` instead.
     """
 
-    config = resolve_config(pdf=pdf_path("irs_form_w9.pdf"), settings=settings)
+    mock = mock_providers(answers=[survey_answer()])
+    config_file = tmp_path / "run.yml"
+    config_file.write_text("instructions: Read it.", encoding="utf-8")
 
-    assert config.survey_model.setting == survey_model
-    assert config.extraction_model.setting == extraction_model
-    assert config.advanced.extraction.effort == "high"
-
-
-@pytest.mark.parametrize("example", _EXAMPLES, ids=lambda path: path.name)
-def test_example_config_holds_every_setting_at_its_default(
-    example: Path, pdf_path: Callable[[str], Path]
-) -> None:
-    """An example file holds exactly the settings `Config` accepts, at every level.
-
-    It matches the other example's values, and resolving it with a PDF given as an
-    argument gives the defaults apart from the PDF and its placeholder price entry.
-    """
-
-    data = _read_example(example)
-    other = _read_example(next(path for path in _EXAMPLES if path != example))
-    advanced = data["advanced"]
-    (price_entry,) = advanced["models"].values()
     pdf = pdf_path("irs_form_w9.pdf")
+    start = {
+        "file": lambda: pydelity.run(pdf, config=config_file),
+        "keyword": lambda: pydelity.run(pdf, instructions="Read it."),
+    }[source]
 
-    resolved = resolve_config(config=example, pdf=pdf)
+    with pytest.raises(ConfigError) as raised:
+        start()
 
-    assert set(data) == _field_names(Config)
-    assert set(advanced) == _field_names(AdvancedConfig)
-    assert set(advanced["extraction"]) == _field_names(ExtractionConfig)
-    assert set(advanced["survey"]) == _field_names(SurveyConfig)
-    assert set(advanced["uploads"]) == _field_names(UploadsConfig)
-    assert set(price_entry) == _field_names(ModelPrices)
-    assert data == other
-    expected = Config(advanced={"models": advanced["models"]}, pdf=pdf)
-    assert resolved.model_dump() == expected.model_dump()
-    assert resolved.output_dir is None
-    assert data["pdf"] == "document.pdf"
+    assert str(raised.value).splitlines() == [
+        "1 invalid setting:",
+        "- instructions: not a setting pydelity knows",
+    ]
+    assert mock.requests == []
