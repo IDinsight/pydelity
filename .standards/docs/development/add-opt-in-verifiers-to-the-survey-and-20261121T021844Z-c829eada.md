@@ -425,6 +425,32 @@ the generated `docs/src/content/docs/reference/page-json.md`.
   (module docstring) still say "verifier model", as do the generator's check
   texts.
 
+**Correction for recovery frame 1**
+
+Tester found that the smoke script's request check was still named "one upload
+and 5 model requests" after `EXPECTED_REQUESTS` became one upload and 3 model
+requests (verification report, **Open Findings and Dependencies**). DEV-003 was
+reopened for it. `_check_requests` in `scripts/smoke_installed_wheel.py` now
+counts the model requests in `EXPECTED_REQUESTS` for the name, so the name
+cannot drift from the list again. No other file changed.
+
+Evidence, 2026-11-21, repo root, on `384204a` plus this one change
+(`git diff HEAD -- scripts`, 2 insertions and 1 deletion, SHA-256 starting
+`e1141021307f15d3`):
+
+- Scratch script `dev003/check_smoke_name.py` loads the script and calls
+  `_check_requests` with a stub stand-in: with `EXPECTED_REQUESTS` it prints
+  `PASS CLI, anthropic: one upload and 3 model requests, all to the stand-in`;
+  with one extra model request it prints the same name as `FAIL`, with the
+  requests in the detail. `grep -n "5 model requests"` finds nothing.
+- `.venv/bin/ruff check scripts src tests` "All checks passed!";
+  `ruff format --check` "89 files already formatted";
+  `ty check scripts src tests` "All checks passed!"; `interrogate` 100.0%.
+- Tests: 188 passed (with Tester's updated tests in `384204a`); doctests 27
+  passed, 1 skipped. `python scripts/smoke_installed_wheel.py --help` exits 0.
+- Not run: the full wheel smoke test (it needs `uv build` and PyPI downloads;
+  CI's wheel jobs run it).
+
 ---
 
 ### DEV-004 — Every survey request names its agent
@@ -847,3 +873,12 @@ unchanged since `0f4c949`; `tests/` changed only by Tester's reorder (`ac9e4cb`,
 - Limitations: the wheel smoke test (its `EXPECTED_REQUESTS` now has the upload
   and 3 model requests) and Python 3.14 were not run locally.
 - Next after the return: DEV-004 to DEV-007 (Increment 3).
+
+### Recovery frame 1 return
+
+The frame's correction (the smoke script's check name) is done and verified
+under DEV-003. Scoped return under **Implementation and Verification Recovery
+Gates**: the plan stays `IN_PROGRESS` with `Current Increment: 2`, because
+DEV-004 to DEV-011 are approved future work, not part of this correction. No
+rerun is needed, so the frame is popped and Tester resumes its suspended
+Increment 2 assessment (verification report, **Suspended Assignment 1**).

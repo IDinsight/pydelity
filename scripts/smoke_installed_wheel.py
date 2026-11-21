@@ -297,9 +297,10 @@ def _check_requests(*, name: str, smoke: _Smoke, start: int) -> None:
     """
 
     seen = [(request.route, request.status) for request in smoke.mock.requests[start:]]
+    models = sum(route == "model" for route, _ in EXPECTED_REQUESTS)
     smoke.checks.add(
         detail=f"requests (route, status): {seen}",
-        name=f"{name}: one upload and 5 model requests, all to the stand-in",
+        name=f"{name}: one upload and {models} model requests, all to the stand-in",
         ok=seen == EXPECTED_REQUESTS,
     )
 

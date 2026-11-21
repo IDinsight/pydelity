@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
-`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
+`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -30,19 +30,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FAILURE` `From`: `TESTING` `FailureType`: `IMPLEMENTATION` `Reason`:
-`The wheel smoke script names its request check "one upload and 5 model requests" but now expects one upload and 3 model requests (scripts/smoke_installed_wheel.py line 302).`
+`Kind`: `RESUME` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
+`The smoke script's request check is now named from EXPECTED_REQUESTS (one upload and 3 model requests); frame 1 closes and Tester resumes the Increment 2 assessment.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `TESTING` `Owner`: `DEVELOPING` `FailureType`: `IMPLEMENTATION`
-`Reason`:
-`The wheel smoke script names its request check "one upload and 5 model requests" but now expects one upload and 3 model requests (scripts/smoke_installed_wheel.py line 302).`
-`ResumeAt`: `TESTING` `RerunThrough`: `NONE`
+`Active`: `false`
 
 ## Outstanding Obligations
 
