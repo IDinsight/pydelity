@@ -87,8 +87,14 @@ from pydelity.schema_versions import (
     SURVEY_SCHEMA_VERSION,
 )
 from pydelity.surveying.facts import FACTS_FILE_NAME, measure_facts
-from pydelity.surveying.prompts import PROMPT_VERSION, survey_pdf
-from pydelity.surveying.schemas import PdfFacts, PdfSurvey, SurveyAnswer
+from pydelity.surveying.prompts import PROMPT_VERSION, survey_pdf, verify_survey
+from pydelity.surveying.schemas import (
+    PdfFacts,
+    PdfSurvey,
+    SurveyAnswer,
+    SurveyVerdict,
+    WritingDirection,
+)
 from pydelity.surveying.survey import (
     SURVEY_FILE_NAME,
     run_survey,
@@ -800,21 +806,24 @@ def _prepare_folder(folder: Path) -> None:
             logger.debug("Removed {path}, left by an interrupted write", path=leftover)
 
 
-def _prompt_chars(*, config: Config, facts: PdfFacts) -> int:
-    """Measure the survey prompt, logging it in detail, for the cost estimate.
+def _prompt_chars(*, config: Config, facts: PdfFacts) -> tuple[int, int]:
+    """Measure the survey's prompt and its verifier's, for the cost estimate.
+
+    The survey's prompt is logged in detail.
 
     Parameters
     ----------
     config
         The run's settings, for the user's instructions and languages.
     facts
-        The facts, whose summary goes into the prompt.
+        The facts, whose summary goes into the prompts.
 
     Returns
     -------
-    int
-        The prompt's length in characters: both messages and the answer's JSON
-        schema, without the PDF.
+    tuple[int, int]
+        Each prompt's length in characters: its messages and its answer's JSON
+        schema, without the PDF. The verifier's leaves out the answer it reviews,
+        which the estimate counts as the survey's answer.
     """
 
     prompts = survey_pdf(
@@ -830,8 +839,37 @@ def _prompt_chars(*, config: Config, facts: PdfFacts) -> int:
         version=PROMPT_VERSION,
     )
     logger.debug("Survey text sent with the PDF:\n{text}", text=prompts.user_message)
-    schema = json.dumps(SurveyAnswer.model_json_schema())
-    return len(prompts.system_message) + len(prompts.user_message) + len(schema)
+    empty = SurveyAnswer(
+        artifacts=[],
+        continuation_notes=[],
+        labels=[],
+        languages=[],
+        non_artifact_lines=[],
+        notes=[],
+        page_numbering=[],
+        regions=[],
+        rotation=[],
+        start_markers=[],
+        writing_direction=WritingDirection(default="ltr", ranges=[]),
+    )
+    verifier = verify_survey(
+        answer=empty,
+        differences=[],
+        failures={},
+        instructions=config.advanced.survey.instructions,
+        survey_message=prompts.user_message,
+    )
+    survey_chars = (
+        len(prompts.system_message)
+        + len(prompts.user_message)
+        + len(json.dumps(SurveyAnswer.model_json_schema()))
+    )
+    verifier_chars = (
+        len(verifier.system_message)
+        + len(verifier.user_message)
+        + len(json.dumps(SurveyVerdict.model_json_schema()))
+    )
+    return survey_chars, verifier_chars
 
 
 def _record(run: _Run, *, error: BaseException | None, status: RunStatus) -> RunRecord:
@@ -1199,11 +1237,15 @@ def _survey_estimate(*, config: Config, facts: PdfFacts, reused: bool) -> StepEs
         The survey's estimate.
     """
 
+    survey_chars, verifier_chars = (
+        (0, 0) if reused else _prompt_chars(config=config, facts=facts)
+    )
     return estimate_survey(
         config=config,
         page_count=facts.pdf.page_count,
-        prompt_chars=0 if reused else _prompt_chars(config=config, facts=facts),
+        prompt_chars=survey_chars,
         reused=reused,
+        verifier_chars=verifier_chars,
     )
 
 

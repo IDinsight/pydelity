@@ -52,6 +52,10 @@ TYPICAL_OUTPUT_TOKENS = 8_000
 # page's text is counted, for the estimate.
 TYPICAL_PAGE_OUTPUT_TOKENS = 4_000
 
+# The output tokens of a typical verdict on the survey, thinking included, for the
+# estimate: three quarters of a typical survey answer, as for a page.
+TYPICAL_SURVEY_VERDICT_OUTPUT_TOKENS = 6_000
+
 # The output tokens of a typical verdict on a page, thinking included, for the
 # estimate.
 TYPICAL_VERDICT_OUTPUT_TOKENS = 3_000
@@ -539,14 +543,21 @@ def estimate_run(
 
 
 def estimate_survey(
-    *, config: Config, page_count: int, prompt_chars: int, reused: bool
+    *,
+    config: Config,
+    page_count: int,
+    prompt_chars: int,
+    reused: bool,
+    verifier_chars: int,
 ) -> StepEstimate:
     """Estimate what the survey will cost, before anything is spent.
 
-    Input tokens per request are the page count times the provider's tokens per PDF
-    page, plus the prompt's characters divided by `PROMPT_CHARS_PER_TOKEN`. The
-    expected cost is one request with `TYPICAL_OUTPUT_TOKENS` of output. The maximum
-    is the first request and every check retry, each with ``max_output_tokens`` of
+    Each request's input tokens are the page count times the provider's tokens per
+    PDF page, plus its prompt's characters divided by `PROMPT_CHARS_PER_TOKEN`. The
+    expected cost is one survey request with `TYPICAL_OUTPUT_TOKENS` of output and,
+    when the survey's verifier is on, one verifier request, which reads that answer
+    and gives `TYPICAL_SURVEY_VERDICT_OUTPUT_TOKENS`. The maximum is the first request
+    and every check retry of each agent that runs, each with ``max_output_tokens`` of
     output and the earlier answers added to its input. Both ignore prompt caching, so
     they overestimate.
 
@@ -557,9 +568,12 @@ def estimate_survey(
     page_count
         The PDF's page count.
     prompt_chars
-        The prompt's length in characters, without the PDF.
+        The survey prompt's length in characters, without the PDF.
     reused
         Whether the saved survey will be reused, so nothing is sent.
+    verifier_chars
+        The verifier prompt's length in characters, without the PDF and the answer it
+        reviews.
 
     Returns
     -------
@@ -568,8 +582,6 @@ def estimate_survey(
     """
 
     model = config.survey_model.setting
-    survey = config.advanced.survey
-    requests_max = 0 if reused else survey.check_retries + 1
     if reused:
         return StepEstimate(
             expected_usd=Decimal(0),
@@ -582,35 +594,62 @@ def estimate_survey(
             verifier=False,
         )
 
-    input_tokens = page_count * config.survey_model.profile.pdf_tokens_per_page
-    input_tokens += math.ceil(prompt_chars / PROMPT_CHARS_PER_TOKEN)
-    expected = _price(
-        config=config,
-        input_tokens=input_tokens,
-        model=model,
-        output_tokens=TYPICAL_OUTPUT_TOKENS,
-    )
-    maximum = _sum_or_none(
-        [
+    settings = config.advanced.survey
+    longest = settings.max_output_tokens
+    attempts = settings.check_retries + 1
+    verify = config.verify_survey
+    pdf_tokens = page_count * config.survey_model.profile.pdf_tokens_per_page
+    survey_input = pdf_tokens + math.ceil(prompt_chars / PROMPT_CHARS_PER_TOKEN)
+    expected = [
+        _price(
+            config=config,
+            input_tokens=survey_input,
+            model=model,
+            output_tokens=TYPICAL_OUTPUT_TOKENS,
+        )
+    ]
+    maximum = [
+        _price(
+            config=config,
+            input_tokens=survey_input + attempt * longest,
+            model=model,
+            output_tokens=longest,
+        )
+        for attempt in range(attempts)
+    ]
+    if verify:
+        verifier_input = pdf_tokens + math.ceil(verifier_chars / PROMPT_CHARS_PER_TOKEN)
+        expected.append(
             _price(
                 config=config,
-                input_tokens=input_tokens + attempt * survey.max_output_tokens,
+                input_tokens=verifier_input + min(longest, TYPICAL_OUTPUT_TOKENS),
                 model=model,
-                output_tokens=survey.max_output_tokens,
+                output_tokens=min(longest, TYPICAL_SURVEY_VERDICT_OUTPUT_TOKENS),
             )
-            for attempt in range(requests_max)
+        )
+        # The verifier also reads the survey's answer, at most one longest answer.
+        maximum += [
+            _price(
+                config=config,
+                input_tokens=verifier_input + (attempt + 1) * longest,
+                model=model,
+                output_tokens=longest,
+            )
+            for attempt in range(attempts)
         ]
-    )
-    priced = expected is not None and maximum is not None
+
+    expected_usd, max_usd = _sum_or_none(expected), _sum_or_none(maximum)
+    priced = expected_usd is not None and max_usd is not None
+    agents = 2 if verify else 1
     return StepEstimate(
-        expected_usd=expected if priced else None,
-        max_usd=maximum if priced else None,
+        expected_usd=expected_usd if priced else None,
+        max_usd=max_usd if priced else None,
         model=model,
         name="survey",
         pages=None,
-        requests_max=requests_max,
+        requests_max=agents * attempts,
         reused=False,
-        verifier=False,
+        verifier=verify,
     )
 
 

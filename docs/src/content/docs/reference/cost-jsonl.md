@@ -56,6 +56,9 @@ The figures the cost estimate and the `max_cost` checks use.
 - `TYPICAL_PAGE_OUTPUT_TOKENS` = `4000`: The output tokens of a typical page
   extraction, thinking included, before the page's text is counted, for the
   estimate.
+- `TYPICAL_SURVEY_VERDICT_OUTPUT_TOKENS` = `6000`: The output tokens of a
+  typical verdict on the survey, thinking included, for the estimate: three
+  quarters of a typical survey answer, as for a page.
 - `TYPICAL_VERDICT_OUTPUT_TOKENS` = `3000`: The output tokens of a typical
   verdict on a page, thinking included, for the estimate.
 
