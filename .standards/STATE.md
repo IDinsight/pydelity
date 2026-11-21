@@ -1,7 +1,8 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
-`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `REVIEWING_IMPLEMENTATION` `CycleMode`: `STANDARD`
+`PendingCycleMode`: `UNSET` `PendingCycleRequest`: `UNSET`
+`PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -17,8 +18,7 @@
 `.standards/docs/specs/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
 `Development`:
 `.standards/docs/development/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`Tester waits for CI on the final commit for AC-027, AC-028 and AC-029: the user commits the test change and records, pushes the branch and opens a pull request to main, then invokes Tester (verification report, Open Findings and Dependencies).`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
@@ -31,8 +31,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
-`Development is complete (DEV-001 to DEV-011, with plan revision 1); Tester runs full verification.`
+`Kind`: `FORWARD` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
+`Full verification is complete on 1b311bc, with CI passing on pull request 12; Reviewer runs the implementation review.`
 
 ## Recovery
 
