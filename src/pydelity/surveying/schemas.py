@@ -16,10 +16,10 @@ the displayed page, which Python converts to points.
 # Standard Library
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, Self
 
 # Third Party Library
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 # Package Library
 from pydelity.providers.profiles import Effort
@@ -54,6 +54,20 @@ type ProbeFact = Literal["bookmarks", "form", "structure"]
 
 # How well the structure tags cover the PDF.
 type StructureQuality = Literal["none", "poor", "partial", "good"]
+
+# What a problem the survey's verifier found is about.
+type SurveyProblemCategory = Literal[
+    "labels",
+    "languages",
+    "writing_direction",
+    "rotation",
+    "page_numbering",
+    "artifacts",
+    "regions",
+    "continuation",
+    "start_markers",
+    "other",
+]
 
 # Whether a page's text layer is readable.
 type TextQuality = Literal["none", "good", "garbled"]
@@ -740,3 +754,74 @@ class SurveyAnswer(_Output):
 
     writing_direction: WritingDirection
     """The writing direction of the pages."""
+
+
+class SurveyProblem(_Output):
+    """A problem the verifier found in the survey."""
+
+    category: SurveyProblemCategory
+    """What part of the survey the problem is about."""
+
+    description: str
+    """What is wrong and where, quoting the text concerned, so that a person can find
+    it."""
+
+    page_index: int | None
+    """The page the problem is about (0-based); null when it is about the whole PDF
+    or several pages."""
+
+
+class SurveyVerdict(_Output):
+    """The verifier's verdict on the survey."""
+
+    corrected: SurveyAnswer | None
+    """The whole survey answer again with the problems fixed; null when the survey
+    passed or cannot be corrected."""
+
+    passed: bool
+    """Whether the survey is faithful to the PDF, with nothing to fix."""
+
+    problems: list[SurveyProblem]
+    """The problems found; empty when the survey passed."""
+
+    @model_validator(mode="after")
+    def _agree(self) -> Self:
+        """Check that ``passed`` agrees with the problems and the correction.
+
+        Returns
+        -------
+        Self
+            The verdict.
+
+        Raises
+        ------
+        ValueError
+            If a passed verdict lists problems or a correction, or a failed verdict
+            lists no problem.
+        """
+
+        if self.passed and (self.problems or self.corrected is not None):
+            raise ValueError(
+                "a verdict that passed has no problems and no corrected survey answer"
+            )
+        if not self.passed and not self.problems:
+            raise ValueError("a verdict that did not pass names at least one problem")
+        return self
+
+
+class SurveyVerification(_Output):
+    """The verifier's review of the survey."""
+
+    attempts: int
+    """How many verdicts the verifier gave: 1 plus the retries its correction used."""
+
+    correction_applied: bool
+    """Whether the verifier's corrected answer replaced the survey's answer. A
+    correction replaces it when it passes every check."""
+
+    correction_failures: list[CheckResult]
+    """The checks a correction that was not applied still failed; empty when it was
+    applied or there was none."""
+
+    verdict: SurveyVerdict
+    """The verdict as the verifier gave it."""

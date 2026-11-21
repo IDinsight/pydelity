@@ -539,7 +539,7 @@ needed no change.
 
 ### DEV-005 — The survey verifier's verdict, prompt, agent and request
 
-`Status`: `PENDING` `Depends On`: `DEV-004` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-004` `Acceptance`:
 `AC-007, AC-008, AC-009, AC-012, AC-017`
 
 **Goal**
@@ -581,6 +581,83 @@ Ruff, ty and interrogate; a scratchpad script with PydanticAI's `FunctionModel`
 that checks the request's content and instructions, a correction sent back for a
 failed check, the last-attempt acceptance, and the error mapping; the existing
 tests.
+
+**Evidence**
+
+Evidence, 2026-11-21, repo root, on `dbc6aed` plus the uncommitted DEV-005
+changes to `src/pydelity/surveying/schemas.py`, `prompts.py`, `agents.py`,
+`llm.py` and `survey.py` (macOS arm64, Python 3.13.9, `.venv`). `survey.py`
+changes only to call `ask_model` with the new `SurveyStep`; the survey step does
+not yet run the verifier.
+
+- `survey_pdf`'s messages before and after the change, for three inputs (with
+  and without instructions, languages and repeated lines; 1, 2 and 40 pages),
+  compare byte for byte equal (scratch `dev005/survey_prompt_snapshot.py`).
+- Scratch script `dev005/check_verifier.py` in the session scratchpad, run with
+  `.venv/bin/python -I check_verifier.py <repo>`, with PydanticAI's
+  `FunctionModel` inside the real `LedgerModel`, the measured facts of
+  `irs_form_1040a_1965_scan.pdf` and its canned survey answer: 42 of 42 checks
+  passed.
+  - `SurveyVerdict` accepts passed with nothing else and failed with problems,
+    with or without a correction; it rejects passed with a problem or a
+    correction, failed without a problem, and an unknown category. Its JSON
+    schema has no pattern, bound or format.
+  - After `ask_model`, `ask_verifier` sends
+    `[UploadedFile(file-abc), user message, CachePoint()]` with the survey's
+    attachment; `attach_pdf` runs once, for the survey, and no replacement
+    upload is made. The ledger has one `surveyor` line, then one `verifier`
+    line, both `step: "survey"`, `page_index: null`.
+  - The user message is `verify_survey`'s: the survey's own user message, then
+    the line `The survey answer to review:` and the answer as JSON, then
+    `Checks it still fails:` (`none`) and `Differences from the measured facts:`
+    (the `compare_with_facts` messages, or `none`). The instructions run from
+    the audit task through the review list, the verdict rules, the page index
+    conventions and the survey's rules from labels to notes, and end with
+    `advanced.survey.instructions` under the survey's heading. They name no
+    document type or language.
+  - A correction failing C1–C7 is sent back once with "Your corrected survey
+    does not pass every check. Give the whole verdict again, with the correction
+    fixed." and the survey's `retry_message`, naming the failure; the fixed
+    correction is accepted with `attempts` 2 and no correction failures. With
+    `check_retries` 1 the second bad correction is accepted with its failures;
+    with 0 the first is.
+  - Errors: a refusal gives `SurveyError` "The verifier refused to review the
+    survey. ..."; running out of output tokens "The verifier used all 32,000
+    output tokens before finishing its answer. Raise
+    advanced.survey.max_output_tokens, or lower advanced.survey.effort."; no
+    matching verdict, or one breaking the invariants, "The verifier gave no
+    usable verdict on the survey: ...". A 400 after an inline fallback gives
+    `ProviderError` with "The upload had failed before: ...", and no replacement
+    upload.
+  - A 404 naming the file makes one replacement upload, calls `on_attached` with
+    its transport and repeats the review on the new file; a second 404 raises
+    `ProviderError` with no second replacement.
+- `ruff check` "All checks passed!"; `ruff format --check scripts src tests` "89
+  files already formatted"; `ty check scripts src tests` "All checks passed!";
+  `interrogate` 100.0%; the module order check finds no new departure in the
+  four survey modules.
+- Tests: 188 passed; doctests 28 passed, 1 skipped (the new one is
+  `verify_survey`'s).
+- `generate_reference_docs.py` and `format_markdown.mjs` change no reference
+  page: `PdfSurvey` gains `verification` in DEV-006.
+
+**Implementation Notes**
+
+- `surveying/schemas.py` adds the alias `SurveyProblemCategory` and the three
+  classes after `SurveyAnswer`, which `SurveyVerdict.corrected` needs above it.
+  Fields are in alphabetical order, as in `VerifierVerdict`.
+- `surveying/prompts.py` moves the text both prompts share into `_CONVENTIONS`
+  (page indexes, ranges and positions) and `_RULES` (labels through notes), and
+  the user instructions into `_with_user_instructions`. The verifier gets
+  `_CONVENTIONS` too, since a correction gives page ranges. `verify_survey`
+  takes the survey request's own user message rather than rebuilding it.
+- `surveying/llm.py`: `SurveyStep` (config, facts, model, `on_attached`, PDF)
+  carries what every survey request needs, as `StepModel` and `PageInput` do for
+  page extraction, so `ask_model(step)` and `ask_verifier(step, surveyed=...)`
+  stay within the argument limit. `_run_with_upload` holds the one replacement
+  upload both requests use. `ModelSurvey` gains `prompts`; the survey's own
+  `ModelVerdict` also carries the attachment, so the step can report how the
+  last request carried the PDF. The survey's error messages are unchanged.
 
 ---
 

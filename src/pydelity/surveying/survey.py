@@ -21,7 +21,7 @@ from pydelity.costs.ledger import LEDGER_FILE_NAME, read_ledger
 from pydelity.providers.ledger_model import LedgerModel
 from pydelity.providers.profiles import PdfTransport
 from pydelity.schema_versions import SURVEY_SCHEMA_VERSION
-from pydelity.surveying.llm import ask_model
+from pydelity.surveying.llm import SurveyStep, ask_model
 from pydelity.surveying.prompts import PROMPT_VERSION
 from pydelity.surveying.schemas import (
     Facts,
@@ -319,7 +319,9 @@ async def run_survey(
     ledger_path = config.output_folder / LEDGER_FILE_NAME
     entries_before = len(read_ledger(ledger_path).entries)
     surveyed = await ask_model(
-        config=config, facts=facts, model=model, on_attached=on_attached, pdf=pdf
+        SurveyStep(
+            config=config, facts=facts, model=model, on_attached=on_attached, pdf=pdf
+        )
     )
     survey = build_survey(
         answer=surveyed.answer,
