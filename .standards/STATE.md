@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
-`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -17,8 +17,7 @@
 `.standards/docs/specs/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
 `Development`:
 `.standards/docs/development/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`Tester, Increment 1: the AC-041 and AC-042 criteria need the suite on Python 3.14, which is not installed here. Should the user commit the tests reorder and push so CI's Python 3.14 job runs it, or approve installing Python 3.14 locally with uv for a local run?`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
@@ -31,8 +30,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `CHECKPOINT` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
-`Increment 1 ready: DEV-001 reordered src/pydelity and scripts (AC-041); Tester reorders tests (AC-042) and assesses both reorders.`
+`Kind`: `CHECKPOINT` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
+`Increment 1 verified: package, scripts and tests reordered (AC-041, AC-042) on Python 3.13 and 3.14; Developer selects the next increment.`
 
 ## Recovery
 

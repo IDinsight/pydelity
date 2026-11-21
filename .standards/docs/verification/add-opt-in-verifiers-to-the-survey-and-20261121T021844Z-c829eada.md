@@ -6,8 +6,8 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 # Verification Report
 
 `Cycle`: `add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada`
-`Mode`: `VERIFY` `Status`: `BLOCKED` `User Style`: `tony` `Assessment Purpose`:
-`INCREMENT` `Assessment Target`: `Increment 1`
+`Mode`: `VERIFY` `Status`: `IN_PROGRESS` `User Style`: `tony`
+`Assessment Purpose`: `INCREMENT` `Assessment Target`: `Increment 1`
 
 ## Assessed Inputs
 
@@ -32,13 +32,17 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
   deletions) has SHA-256 `0f21ce5c770d636c…`, the same content as the plan's
   checkpoint claim. `docs/` and `tests/` are unchanged from `126f52f` in that
   commit.
-- Tests assessed: `0f4c949` plus this assessment's uncommitted reorder of 16
-  test modules (`git diff -- tests`, 1705 insertions, 1706 deletions, SHA-256
-  `60f9212d56eab4d4…`). The other working-tree change is this report.
+- Tests assessed: this assessment's reorder of 16 test modules, which the user
+  committed as `ac9e4cb` (with this report and `STATE.md`; `7bd7f90` changes
+  only this report). `git diff 0f4c949 7bd7f90 -- tests` (1705 insertions, 1706
+  deletions) has SHA-256 `60f9212d56eab4d4…`, the content assessed in E8 and E9.
+  `7bd7f90` is the head of draft pull request 11
+  (`https://github.com/IDinsight/pydelity/pull/11`), 0 commits behind `main`.
 - Environment: macOS 26.6.2 arm64, Python 3.13.9 (`.venv`, strict editable
   install), PyMuPDF 2.1, Pydantic 2.14.3, pytest 9.2.0 with pytest-randomly and
   pytest-xdist, ruff 0.17.5, ty 0.0.105, interrogate 1.7.0. Python 3.14 is not
-  installed (`/opt/homebrew/bin` has 3.11–3.13; uv has no managed Pythons).
+  installed (`/opt/homebrew/bin` has 3.11–3.13; uv has no managed Pythons), so
+  the 3.14 evidence is CI's: ubuntu-latest, CPython 3.14.4 (E10).
 - Session: started as a Tester invocation with no Developer conversation in it.
   The client cannot certify session freshness; this assessment is built from the
   persisted records and the repository.
@@ -52,12 +56,12 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 | `AC-041` / move only: same non-blank lines, top-level statements, class members, field and member order                                                                                                                                                                                          | `ordercheck.py compare 126f52f` on the 56 modules of `src/pydelity/` and `scripts/`; `comments.py 126f52f` | Verified: 56 files, 0 problems; no class had its methods reordered; every definition keeps the comment lines directly above it. See E2, E3.                                  |
 | `AC-041` / every module follows **Module order** except the listed departures                                                                                                                                                                                                                    | `ordercheck.py order`; `expected.py` (both constructions); `strict.py`                                     | Verified: departures in exactly the 14 modules the plan lists, each needed (strict order raises `NameError`) and no wider than needed. See E4, E5.                           |
 | `AC-041` / pytest, doctests, ruff check, ruff format --check, ty, interrogate as before, on Python 3.13                                                                                                                                                                                          | Existing suite and linters on `0f4c949` with `tests/` unchanged                                            | Verified on 3.13: 177 passed (random-order parallel and serial), same 177 test IDs; 27 doctests passed, 1 skipped, same 28 IDs; every linter as on `126f52f`. See E1, E6.    |
-| `AC-041` / the same on Python 3.14                                                                                                                                                                                                                                                               | Same suite on 3.14                                                                                         | Blocked: not run, Python 3.14 is not installed here. See Open Findings.                                                                                                      |
+| `AC-041` / the same on Python 3.14                                                                                                                                                                                                                                                               | CI "Test (Python 3.14)" on pull request 11; `ty` and `ruff` targeting 3.14                                 | Verified: CPython 3.14.4, 177 passed; doctests 27 passed, 1 skipped; the 3.14-target static results equal `126f52f`'s. See E10, E11.                                         |
 | `AC-041` / reference pages change only by constants order                                                                                                                                                                                                                                        | `generate_reference_docs.py` in a copy of `0f4c949`, then Prettier 3.10.1                                  | Verified: the 11 generated pages are identical to the committed ones. See E7.                                                                                                |
 | `AC-042` / move only, as for `AC-041`                                                                                                                                                                                                                                                            | `ordercheck.py compare 126f52f` and `comments.py` on the 32 modules of `tests/`                            | Verified: 32 files, 0 problems; only `MockProviders` had methods reordered; comments stay with their definitions; blank lines differ only where Ruff's import rule asks. E8. |
 | `AC-042` / every module follows **Module order** except the listed departures                                                                                                                                                                                                                    | `ordercheck.py order`; `expected.py`; `strict.py`                                                          | Verified: departures in 2 modules, listed below, each needed. See E8.                                                                                                        |
 | `AC-042` / the suite runs the same tests with the same results; linters as before, on Python 3.13                                                                                                                                                                                                | Existing suite and linters after the test reorder                                                          | Verified on 3.13: 177 passed (random-order parallel and serial), same 177 IDs; doctests unchanged; ruff, format, ty, interrogate as before. See E9.                          |
-| `AC-042` / the same on Python 3.14                                                                                                                                                                                                                                                               | Same suite on 3.14                                                                                         | Blocked: not run, as for `AC-041`.                                                                                                                                           |
+| `AC-042` / the same on Python 3.14                                                                                                                                                                                                                                                               | As for `AC-041`, with the tests reorder in `7bd7f90`                                                       | Verified: the same CI run tested `7bd7f90`'s content. See E10, E11.                                                                                                          |
 | `AC-001`, `AC-002`, `AC-003`, `AC-004`, `AC-005`, `AC-006`, `AC-007`, `AC-008`, `AC-009`, `AC-010`, `AC-011`, `AC-012`, `AC-013`, `AC-014`, `AC-015`, `AC-016`, `AC-017`, `AC-018`, `AC-019`, `AC-020`, `AC-021`, `AC-022`, `AC-023`, `AC-024`, `AC-025`, `AC-028`, `AC-030`, `AC-033`, `AC-034` | Increments 2–4 and `DEV-011`                                                                               | `AWAITING_IMPLEMENTATION`: `DEV-002`–`DEV-011` are `PENDING`.                                                                                                                |
 | `AC-026`, `AC-027`, `AC-029`, `AC-031`                                                                                                                                                                                                                                                           | Tests written at Increments 2–4; CI, build and release checks at full verification                         | `AWAITING_IMPLEMENTATION`: they depend on `DEV-002`–`DEV-011`; Tester assesses them at the later increments and full verification.                                           |
 | `AC-032`, `AC-035`, `AC-036`, `AC-037`, `AC-038`                                                                                                                                                                                                                                                 | Documentation evidence                                                                                     | Pending a later role: Documenter, with documentation-record evidence for each AC.                                                                                            |
@@ -79,9 +83,9 @@ above the definition that reads it, as in the package's departures.
 
 ## Increment Assessments
 
-| Increment | Outcome and acceptance scope                                                                                     | Assessed inputs / evidence                                                                       | Disposition |
-| --------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ----------- |
-| 1         | `src/pydelity/`, `scripts/` and `tests/` follow **Module order** with the listed departures (`AC-041`, `AC-042`) | `0f4c949` plus test diff `60f9212d56eab4d4…`; E1–E9 pass on 3.13; the Python 3.14 run is missing | BLOCKED     |
+| Increment | Outcome and acceptance scope                                                                                     | Assessed inputs / evidence                                                                         | Disposition |
+| --------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------- |
+| 1         | `src/pydelity/`, `scripts/` and `tests/` follow **Module order** with the listed departures (`AC-041`, `AC-042`) | `0f4c949`; tests diff `60f9212d56eab4d4…` (committed in `ac9e4cb`); E1–E9 on 3.13, E10–E11 on 3.14 | VERIFIED    |
 
 ## Scenario Budget
 
@@ -180,35 +184,51 @@ logs live in this session's scratchpad (`tools/ordercheck.py`,
   177 passed; collected 177 IDs equal to E1's; doctests 27 passed, 1 skipped,
   IDs equal; `ruff check` "All checks passed!", `ruff format --check` "89 files
   already formatted", `ty check` "All checks passed!", `interrogate` 100.0%.
-- **Not run.** Python 3.14 (not installed; see Open Findings). The `just`
-  recipes through `uv` (uv cannot write its cache in the sandbox; the
-  `.venv/bin` tools are the pinned versions the recipes run). The wheel smoke
-  test (needs `uv build` and package downloads); the reorder changes no
-  packaging, and CI's wheel-install jobs run it on push.
+- **E10 — CI on pull request 11.** `gh pr checks 11 --repo IDinsight/pydelity`
+  and `gh run view --job <id> --log` (read-only `gh` calls run outside the
+  sandbox, whose proxy fails `gh`'s certificate check). Run `44907613193`, event
+  `pull_request`, head `7bd7f90`, checked out as merge commit `0b17fdd` of
+  `7bd7f90` into `c7582e7`; the branch is 0 commits behind `main`
+  (`gh api .../compare/main...7bd7f90`: ahead 57, behind 0), so the merge holds
+  `7bd7f90`'s content. All checks pass: "Test (Python 3.14)" job `136856437295`
+  ("Using CPython 3.14.4"; tests "177 passed"; doctests "27 passed, 1 skipped");
+  "Lint and test (Python 3.13)" job `136856437680` (CPython 3.13.18; every lint
+  recipe, including "STANDARDS check passed.", ruff "All checks passed!", ty
+  "All checks passed!", interrogate 100.0%; tests "177 passed"; doctests "27
+  passed, 1 skipped"); "Wheel install" on macos-latest, ubuntu-latest and
+  windows-latest; "Build the docs"; "TruffleHog secret scan"; "Lint and test".
+  "Publish to GitHub Pages" is skipped, as for pull requests.
+- **E11 — Static checks targeting 3.14.** Ruff and ty do not run on the
+  interpreter, so the project's configured runs (target `py313`) already give
+  E9's results under 3.14. As an extra check, on `7bd7f90` and on the `126f52f`
+  copy: `ty check --python-version 3.14 scripts src tests` "All checks passed!"
+  on both; `ruff check --target-version py314` reports the same 11 `UP037`
+  (quoted annotations that 3.13 needs) on both;
+  `ruff format --check --target-version py314` "2 files would be reformatted" on
+  both. The reorder changes none of these results. Interrogate counts
+  docstrings, which the reorder does not change (E2).
+- **Not run locally.** Python 3.14 (CI ran it, E10). The `just` recipes through
+  `uv` (uv cannot write its cache in the sandbox; the `.venv/bin` tools are the
+  pinned versions the recipes run, and CI ran the recipes, E10). The wheel smoke
+  test (CI's wheel-install jobs ran it, E10).
 - **Developer evidence.** The plan's `DEV-001` self-checks agree with E1–E7;
   they were not used as evidence.
 
 ## Open Findings and Dependencies
 
-- Required unrun check: the `AC-041` and `AC-042` technical criteria ask for the
-  same results on Python 3.14, and 3.14 is not installed here. Every other part
-  of both criteria is verified on 3.13 (E1–E9). Getting the evidence needs a
-  user action: either the user commits the tests reorder and pushes the branch,
-  so CI's "Test (Python 3.14)" job runs the suite, which Tester then reads with
-  `gh`; or the user approves installing Python 3.14 here with uv (a download,
-  run outside the sandbox) and a 3.14 environment for a local run.
-- Blocking user question, as in `Active Work.BlockedOn`: how to get the Python
-  3.14 run for Increment 1.
+- None for Increment 1. No defect, unrun check or blocking question remains.
+- Later-role dependencies, unchanged: `AC-032`, `AC-035`, `AC-036`, `AC-037` and
+  `AC-038` (Documenter, documentation-record evidence); `AC-039` and `AC-040`
+  (the user's accepted real runs).
 
 ## Resume or Handoff
 
-Next action: on the user's answer, get the Python 3.14 results for `0f4c949`
-plus the tests reorder (or the commit holding it, if its tests diff matches
-`60f9212d56eab4d4…`), record them as E10, set Increment 1 `VERIFIED` and the
-report `IN_PROGRESS`, clear `Active Work.BlockedOn`, run `check`, and return a
-`CHECKPOINT` to Developer for Increment 2 (`DEV-002`, `DEV-003`). If 3.14 shows
-a failure, diagnose it and route it under **Defects and Routing**.
+Increment 1 is `VERIFIED` (E1–E11) and returned to Developer with a
+`CHECKPOINT`. The report stays `IN_PROGRESS` until full verification.
 
-Remaining acceptance work after Increment 1: `AC-001`–`AC-040` with Increments
-2–4, `DEV-011` and full verification. The tests reorder is ready for the user to
-commit on its own, apart from the package reorder.
+Next Tester action: assess Increment 2 (`DEV-002`, `DEV-003`; `AC-001` to
+`AC-006`, `AC-018` to `AC-020`) when Developer hands it over, with `REVERIFY` if
+the inputs above change. Tests of replaced contracts are expected to fail at
+that checkpoint until Tester updates them, as the plan notes. Remaining
+acceptance work: `AC-001` to `AC-040` with Increments 2–4, `DEV-011` and full
+verification.
