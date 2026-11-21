@@ -6,7 +6,7 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 # Verification Report
 
 `Cycle`: `add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada`
-`Mode`: `VERIFY` `Status`: `IN_PROGRESS` `User Style`: `tony`
+`Mode`: `REVERIFY` `Status`: `IN_PROGRESS` `User Style`: `tony`
 `Assessment Purpose`: `INCREMENT` `Assessment Target`: `Increment 2`
 
 ## Assessed Inputs
@@ -20,26 +20,33 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
   file**, **Cost estimate**, **HTML report**, and the technical criteria of
   `AC-001` to `AC-006` and `AC-018` to `AC-020`), development plan
   `.standards/docs/development/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
-  (staged on `4a6bec7`; `DEV-002`, `DEV-003`, **Checkpoint: Increment 2**),
+  (`45bfa10`; `DEV-002`, `DEV-003` with its correction for recovery frame 1,
+  **Checkpoint: Increment 2**, **Recovery frame 1 return**),
   `.standards/CONTEXT.md` (`0573e11`, `09045f457b2df4c1…`), user style
   `.standards/user-styles/tester/tony.md` (`797def3`, `e64ef290173c7c32…`).
-  Scope, design, context and style are unchanged since Increment 1, so this is
-  an initial assessment of new outcomes (`VERIFY`). Current acceptance set:
-  `AC-001` to `AC-042`, none retired.
+  Scope, design, context and style are unchanged since Increment 1. The
+  assessment began as `VERIFY`; after Developer's correction for recovery frame
+  1 it resumed as `REVERIFY`, reconciling the evidence the changed script
+  touches (E20, E21). Current acceptance set: `AC-001` to `AC-042`, none
+  retired.
 - Assignment: Increment 2 (`DEV-002`, `DEV-003`; `AC-001` to `AC-006`, `AC-018`
   to `AC-020`) from the plan's **Verification Increments** and **Checkpoint:
   Increment 2**: the settings `verify`, `advanced.survey.verify`,
   `advanced.extraction.verify` and `--verify`/`-vf` resolve as decision 1 says,
   and page extraction runs with or without its verifier as decisions 2–4 and 9
   say. The survey parts of `AC-001`, `AC-005` and `AC-006` are Increment 3's.
-- Source assessed: `4a6bec7` plus the staged, uncommitted changes to 15 files
-  under `src/`, `scripts/`, `examples/` and `docs/`
-  (`git diff --cached -- src scripts examples docs`, 263 insertions, 108
-  deletions, SHA-256 `f710dcdbc349c854…`), the content the plan's checkpoint
-  claims.
-- Tests assessed: this assessment's changes to 7 test modules, uncommitted
-  (`git diff -- tests`, 394 insertions, 87 deletions, SHA-256
-  `e3a5c176d5dd1e4b…`). Increment 1's tests reorder is in `4a6bec7`.
+- Source assessed: `45bfa10`. The user committed the checkpoint's changes to 15
+  files under `src/`, `scripts/`, `examples/` and `docs/` in `384204a`
+  (`git diff 4a6bec7 384204a -- src scripts examples docs`, 263 insertions, 108
+  deletions, SHA-256 `f710dcdbc349c854…`, the content the plan's checkpoint
+  claims and E12–E19 assess). `45bfa10` adds Developer's correction, which
+  changes only `scripts/smoke_installed_wheel.py`
+  (`git diff 384204a 45bfa10 -- src scripts examples docs tests`, 2 insertions,
+  1 deletion, SHA-256 `e1141021307f15d3…`).
+- Tests assessed: this assessment's changes to 7 test modules, committed in
+  `384204a` (`git diff 4a6bec7 384204a -- tests`, 394 insertions, 87 deletions,
+  SHA-256 `e3a5c176d5dd1e4b…`) and unchanged in `45bfa10`. Increment 1's tests
+  reorder is in `4a6bec7`.
 - Environment: macOS 26.6.2 arm64, Python 3.13.9 (`.venv`, strict editable
   install), PyMuPDF 2.1, Pydantic 2.14.3, pytest 9.2.0 with pytest-randomly and
   pytest-xdist, ruff 0.17.5, ty 0.0.105, interrogate 1.7.0, Prettier 3.10.1 with
@@ -90,10 +97,10 @@ above the definition that reads it, as in the package's departures.
 
 ## Increment Assessments
 
-| Increment | Outcome and acceptance scope                                                                                                                             | Assessed inputs / evidence                                                                                      | Disposition |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------- |
-| 1         | `src/pydelity/`, `scripts/` and `tests/` follow **Module order** with the listed departures (`AC-041`, `AC-042`)                                         | `0f4c949`; tests diff `60f9212d56eab4d4…` (committed in `ac9e4cb`); E1–E9 on 3.13, E10–E11 on 3.14              | VERIFIED    |
-| 2         | Verifier settings and `--verify`/`-vf`; page extraction with or without its verifier (`AC-001` to `AC-006` and `AC-018` to `AC-020` for page extraction) | `4a6bec7` + staged diff `f710dcdbc349c854…`; tests diff `e3a5c176d5dd1e4b…`; E12–E19; smoke script defect below | BLOCKED     |
+| Increment | Outcome and acceptance scope                                                                                                                             | Assessed inputs / evidence                                                                          | Disposition |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------- |
+| 1         | `src/pydelity/`, `scripts/` and `tests/` follow **Module order** with the listed departures (`AC-041`, `AC-042`)                                         | `0f4c949`; tests diff `60f9212d56eab4d4…` (committed in `ac9e4cb`); E1–E9 on 3.13, E10–E11 on 3.14  | VERIFIED    |
+| 2         | Verifier settings and `--verify`/`-vf`; page extraction with or without its verifier (`AC-001` to `AC-006` and `AC-018` to `AC-020` for page extraction) | `384204a` (source `f710dcdbc349c854…`, tests `e3a5c176d5dd1e4b…`) and the fix in `45bfa10`; E12–E21 | VERIFIED    |
 
 ## Scenario Budget
 
@@ -109,7 +116,7 @@ above the definition that reads it, as in the package's departures.
 | `src/pydelity/extracting/schemas.py`                                                        | As for `extraction.py`                                                                                                                                                                                                                                                                                                                           | 2: the same no-verifier test (`verification: null` written); the reuse test (read back and reused)                                                                                                                                                                                                                                                    | NONE           |
 | `src/pydelity/extracting/llm.py`                                                            | As for `extraction.py`                                                                                                                                                                                                                                                                                                                           | 2: the no-verifier test; the reuse test's turned-on run                                                                                                                                                                                                                                                                                               | NONE           |
 | `src/pydelity/report/html.py`                                                               | `test_report_draws_extracted_items_numbered_with_links_from_their_issues` (verifier on)                                                                                                                                                                                                                                                          | 1: `test_a_page_no_verifier_reviewed_says_so_in_the_report`                                                                                                                                                                                                                                                                                           | NONE           |
-| `scripts/smoke_installed_wheel.py`, `examples/config.json`, `examples/config.yaml`, `docs/` | Example-file completeness test; smoke replay and page regeneration in the scratchpad (E16, E17)                                                                                                                                                                                                                                                  | 0                                                                                                                                                                                                                                                                                                                                                     | NONE           |
+| `scripts/smoke_installed_wheel.py`, `examples/config.json`, `examples/config.yaml`, `docs/` | Example-file completeness test; smoke replays and page regeneration in the scratchpad (E16, E17, E21)                                                                                                                                                                                                                                            | 0                                                                                                                                                                                                                                                                                                                                                     | NONE           |
 
 A test updated only to the new default, or run with the verifier on to keep its
 existing scenario, uses that scenario's existing allocation. An update that
@@ -182,8 +189,9 @@ logs live in this session's scratchpad (`tools/`, `logs/`), not in the repo.
   editable install, for both providers, against the stand-in with the script's
   answer files: each run completes and sends exactly `EXPECTED_REQUESTS` (one
   upload, then the survey and one extractor request per page). The check's name
-  at line 302 still says "one upload and 5 model requests" (see **Open Findings
-  and Dependencies**). The installed-wheel run itself is not replayed.
+  at line 302 still said "one upload and 5 model requests", the defect routed to
+  Developer and fixed in `45bfa10` (E21). The installed-wheel run itself is not
+  replayed.
 - **E17 — Reference pages.** `git checkout-index -a` into the scratchpad (the
   staged content), `python scripts/generate_reference_docs.py` there with
   `PYTHONPATH` set to the copy (11 pages), Prettier 3.10.1 on the pages, then
@@ -199,34 +207,53 @@ logs live in this session's scratchpad (`tools/`, `logs/`), not in the repo.
   comments), `_log_estimate`'s `with its verifier`, `_verifier_outcome` and
   `_verifier_text` match **Settings**, **Example config files**, **CLI**, **Page
   extraction without a verifier** and **HTML report**.
+- **E20 — Commits hold the assessed content.** `git diff 4a6bec7 384204a` gives
+  SHA-256 `f710dcdbc349c854…` for `src scripts examples docs` and
+  `e3a5c176d5dd1e4b…` for `tests`, so E12–E19 assess what `384204a` holds.
+  `git diff --stat 384204a 45bfa10 -- src scripts examples docs tests pyproject.toml`
+  lists only `scripts/smoke_installed_wheel.py` (2 insertions, 1 deletion), with
+  SHA-256 `e1141021307f15d3…`, the plan's claim. Only E16 depends on that file;
+  E12–E15 and E17–E19 stay valid, and E14 is rerun below.
+- **E21 — The correction and checks on `45bfa10`.** `_check_requests` now names
+  the check from the model requests in `EXPECTED_REQUESTS`;
+  `grep -n "5 model requests" scripts/smoke_installed_wheel.py` finds nothing.
+  `tools/smoke_check_name.py` (`python -I`) runs the script's API run in-process
+  for both providers against the stand-in and passes the stand-in's requests to
+  the script's own `_check_requests`: each run gives
+  `PASS API, <provider>: one upload and 3 model requests, all to the stand-in`;
+  a rerun on the same folder, which sends no request, gives `FAIL` with that
+  name and `requests (route, status): []` (`logs/inc2_smoke_check_name.log`,
+  exit 0). On the clean `45bfa10` tree:
+  `pytest -q --numprocesses auto -p no:cacheprovider` exit 0, 188 passed;
+  `pytest -q -p no:cacheprovider -p no:randomly` exit 0, 188 passed
+  (`logs/inc2r_pytest_parallel.log`, `logs/inc2r_pytest_serial.log`); the 188
+  collected IDs equal E14's; doctests 27 passed, 1 skipped; `ruff check`,
+  `ruff format --check` (89 files), `ty check` and `interrogate` (100.0%) as in
+  E14; `scripts/smoke_installed_wheel.py --help` exit 0; `ordercheck.py order`
+  on the script reports only its listed departures.
 - **Not run locally.** The wheel smoke test (it needs `uv build` and PyPI
   downloads; CI's wheel-install jobs run it, and `AC-028` is assessed at full
   verification). Python 3.14 (CI). The `just` recipes through `uv` (uv cannot
   write its cache in the sandbox; the `.venv/bin` tools are the versions they
   run).
-- **Developer evidence.** The plan's `DEV-002` and `DEV-003` self-checks agree
-  with E12–E19; they were not used as evidence.
+- **Developer evidence.** The plan's `DEV-002` and `DEV-003` self-checks,
+  including the correction's, agree with E12–E21; they were not used as
+  evidence.
 
 ## Open Findings and Dependencies
 
-- **Smoke script check name.** `scripts/smoke_installed_wheel.py` line 302 names
-  the request check "one upload and 5 model requests, all to the stand-in",
-  while `EXPECTED_REQUESTS` (line 96), changed by `DEV-003`, is one upload and 3
-  model requests. The check itself is right (E16); its printed name, which CI's
-  wheel jobs show, is wrong. Reproducer:
-  `grep -n "5 model requests" scripts/smoke_installed_wheel.py`. Owner:
-  Developer (`IMPLEMENTATION`). Required correction: the check's name says what
-  it checks. It blocks the Increment 2 checkpoint, not its acceptance evidence.
+- No open defect. The smoke script's check name, found in this assessment and
+  routed to Developer with recovery frame 1, is fixed in `45bfa10` and verified
+  (E21).
 - Later-role dependencies, unchanged: `AC-032`, `AC-035`, `AC-036`, `AC-037` and
   `AC-038` (Documenter, documentation-record evidence); `AC-039` and `AC-040`
   (the user's accepted real runs).
 
 ## Resume or Handoff
 
-Increment 1 is `VERIFIED`. Increment 2's acceptance evidence is complete for
-page extraction (E12–E19), and the increment is `BLOCKED` on the smoke script
-defect above, routed to Developer with a `FAILURE` handoff (recovery frame 1).
-The report stays `IN_PROGRESS`.
+Increments 1 and 2 are `VERIFIED`. Increment 2 (E12–E21) is returned to
+Developer with a `CHECKPOINT`. The report stays `IN_PROGRESS` until full
+verification.
 
 ### Suspended Assignment 1
 
@@ -236,6 +263,14 @@ The report stays `IN_PROGRESS`.
 `4a6bec7 plus staged diff f710dcdbc349c854; tests diff e3a5c176d5dd1e4b`
 `Next Action`:
 `Check that the source diff changed only the smoke script's check name, replay E16 with the corrected script, rerun the suite and linters, then mark Increment 2 VERIFIED and return it to Developer with a CHECKPOINT.`
+
+Restored on Developer's `RESUME` after frame 1 closed, and completed: E20 and
+E21 carry out its next action.
+
+Next Tester action: assess Increment 3 (`DEV-004` to `DEV-007`; the survey parts
+of `AC-001`, `AC-005`, `AC-006`, and `AC-007` to `AC-017`) when Developer hands
+it over. `config/schemas.py` and `costs/budget.py` have no scenario allowance
+left (see **Scenario Budget**).
 
 Remaining acceptance work after Increment 2: the survey parts of `AC-001`,
 `AC-005` and `AC-006`, and `AC-007` to `AC-017` (Increment 3); `AC-021` to

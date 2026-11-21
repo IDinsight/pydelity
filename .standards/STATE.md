@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
-`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -30,8 +30,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `RESUME` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
-`The smoke script's request check is now named from EXPECTED_REQUESTS (one upload and 3 model requests); frame 1 closes and Tester resumes the Increment 2 assessment.`
+`Kind`: `CHECKPOINT` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
+`Increment 2 verified: the verify settings, --verify/-vf and page extraction with or without its verifier (AC-001 to AC-006 and AC-018 to AC-020 for pages), with the smoke script fix; Developer selects the next increment.`
 
 ## Recovery
 
