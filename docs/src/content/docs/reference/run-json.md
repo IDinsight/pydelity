@@ -69,7 +69,12 @@ A problem a person should review.
   the problem: a check, a comparison or another source. `step` says whose, since
   two steps can have checks of the same name.
 - `details` (map of string to any value; required): The values the problem is
-  about, such as `{"measured": 90, "profile": 0}`.
+  about. A survey comparison gives values such as
+  `{"measured": 90, "profile": 0}`, and a check gives its failure's `details`,
+  such as `{"item_ref": "t3"}` on a page. A `no_matching_label` issue gives the
+  `kind` and `role` that no label fits, with the items' refs and IDs
+  (`item_refs`, `item_ids`). A `verifier` issue gives the problem's `category`,
+  and on a page its `item_ref`.
 - `item_id` (string or null; required): The item the problem is about, or `None`
   when no single item applies.
 - `message` (string; required): What is wrong.
@@ -92,7 +97,8 @@ What one step of a run did.
   name.
 - `pages` (object ([`steps[].pages`](#stepspages)) or null; required): How many
   pages the step selected, extracted and reused; `None` for a step that reads
-  the whole PDF at once, such as the survey.
+  the whole PDF at once, such as the survey, and for a page extraction step that
+  was skipped.
 - `pdf_transport` (one of `upload`, `request` or null; required): How the PDF
   went to the model: `upload` or `request`; `None` when no request carried it.
 - `requests` (integer; required): How many model requests the step made in this

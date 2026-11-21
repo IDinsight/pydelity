@@ -8,9 +8,10 @@ description:
 Page extraction is the step after the survey. For each page you select, a model
 reads an image of the page and lists everything on it as items in reading order:
 headings, paragraphs, lists, tables, formulas, code, figures and form fields,
-each with its position on the page. pydelity checks the answer, a second model
-reviews it against the same image, and the result is saved as one page file per
-page in `pages/`.
+each with its position on the page. pydelity checks the answer in code, and the
+result is saved as one page file per page in `pages/`. If you turn on page
+extraction's verifier, a second request to the same model also reviews each
+answer against the page image.
 
 ## What you get
 
@@ -123,15 +124,15 @@ advanced:
     model: openai:gpt-6.2-astra
 ```
 
-The same model reads each page and reviews it. It must read images. See
-[Choose a model](../models-and-providers/#choose-a-model) for model IDs and API
-keys.
+The same model reads each page and, with the verifier on, reviews it. It must
+read images. See [Choose a model](../models-and-providers/#choose-a-model) for
+model IDs and API keys.
 
 ## Tell the models about your PDF
 
 If something about your PDF is unusual, describe it in your own words in
 `advanced.extraction.instructions`. pydelity adds your text to what it sends the
-page extraction model and the verifier with every page:
+page extraction model, and the verifier when it is on, with every page:
 
 ```yaml
 advanced:
@@ -167,15 +168,16 @@ For each page, pydelity:
    shrinking it, and never more than 300 DPI: about 2,200 pixels on the long
    edge for a Letter or A4 page.
 2. Sends that one image to the model, with the survey's labels, the page's
-   writing direction, the repeated lines that are page furniture and any
-   fillable form fields on the page. The model reads all of the page's text from
-   the image. pydelity doesn't send the text stored in the PDF, because that
-   text can be wrong, for example with letters out of order in Arabic or broken
-   ligatures.
+   writing direction, the page's repeated lines with what the survey found each
+   one to be, and any fillable form fields on the page with their values. The
+   model reads all of the page's text from the image. pydelity doesn't send the
+   rest of the text stored in the PDF, because that text can be wrong, for
+   example with letters out of order in Arabic or broken ligatures.
 3. Checks the answer in code, and sends it back to the model with the problems
-   listed, up to `advanced.extraction.check_retries` times (2 by default).
-4. Sends the image and the answer to the verifier, a second request to the same
-   model, which reviews the page against the image.
+   listed, up to `advanced.extraction.check_retries` times (2 by default). A
+   problem with the page's text can quote lines of the stored text.
+4. With the verifier on, sends the image and the answer to the verifier, a
+   second request to the same model, which reviews the page against the image.
 5. Turns each box back into points on the page as displayed, cuts out each
    figure as an image and writes the page file.
 
@@ -196,14 +198,17 @@ them all.
 When retries run out, pydelity keeps the last answer and puts each check it
 still fails on the review list.
 
-The verifier then looks for what code can't judge, such as a missed or merged
-item, a misread word, a wrong reading order on a complex page or a box on the
-wrong content. It either passes the page or lists the problems, usually with a
-corrected answer. The correction goes through the same code checks and retries.
-pydelity keeps it when it passes them, leaving aside the text comparison below.
-Otherwise pydelity keeps the first answer and puts each problem the verifier
-found on the review list. Every page file keeps the verifier's verdict, whether
-or not its correction was used.
+Page extraction's verifier is off by default. When you turn it on, it looks for
+what code can't judge, such as a missed or merged item, a misread word, a wrong
+reading order on a complex page or a box on the wrong content. It either passes
+the page or lists the problems, usually with a corrected answer. The correction
+goes through the same code checks and retries. pydelity keeps it when it passes
+them, leaving aside the text comparison below. Otherwise pydelity keeps the
+first answer and puts each problem the verifier found on the review list. The
+page file keeps the verifier's verdict, whether or not its correction was used,
+and says when no verifier reviewed the page.
+[Review answers with a verifier](../verifiers/) shows how to turn it on and what
+it costs.
 
 ## Text compared with the PDF's stored text
 
@@ -213,11 +218,13 @@ script, to find lines the model dropped or added. Differences go back to the
 model that gave the answer, with a note that it may keep its reading when the
 stored text is wrong or the text came from an image.
 
-Stored text can be wrong while the page looks right, so differences left after
-the retries go on the review list only when the verifier didn't pass the page
-and its correction wasn't used. They stay in the page file's `checks` either
-way. Pages whose stored text is missing, garbled or mostly unlike the answer
-skip the comparison, and the page file's `text_comparison` says why.
+Differences left after the retries go on the review list when no verifier
+reviewed the page. With the verifier on, they go on the list only when the
+verifier didn't pass the page and its correction wasn't used, because stored
+text can be wrong while the page looks right. They stay in the page file's
+`checks` either way. Pages whose stored text is missing, garbled or mostly
+unlike the answer skip the comparison, and the page file's `text_comparison`
+says why.
 
 ## Pages run at the same time
 

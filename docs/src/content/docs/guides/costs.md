@@ -22,13 +22,16 @@ Spent so far in this output folder: $0.00; max_cost: not set
 and, on the next run, page extraction's:
 
 ```text
-Extraction cost estimate: about $0.45, at most $10.41 (2 pages, up to 12 requests to anthropic:claude-opus-5-5)
+Extraction cost estimate: about $0.23, at most $4.81 (2 pages, up to 6 requests to anthropic:claude-opus-5-5)
 ```
 
 - **About** is the likely cost. For the survey, that is one request with an
   answer of typical length. For page extraction, it is one request to read each
-  page and one to review it, with answers that grow with how much text the page
-  holds.
+  page, with an answer that grows with how much text the page holds. A step
+  whose verifier is on adds the verifier's requests, and its line names it, such
+  as `Extraction with its verifier cost estimate`. For the same form, that about
+  doubled each step's likely cost. See
+  [Review answers with a verifier](../verifiers/#what-a-verifier-costs).
 - **At most** is the worst case: every check retry used, each answer as long as
   allowed. Most runs cost far less.
 
@@ -106,9 +109,11 @@ When the run could go over the limit, pydelity warns you and then:
 Because the first check uses the likely cost, a run can pass it and still reach
 the question partway through, before the request that could go over. Once you
 allow it, the rest of the run goes ahead without asking again. If you say no,
-the run stops with nothing more spent. Pages already extracted stay saved. Run
-it again to continue: the saved files are reused, and the spend so far still
-counts toward `max_cost`.
+the run stops and sends no more requests. Page requests already in progress when
+you answer are canceled, and the provider may still bill them, as
+[What a run spent](#what-a-run-spent) explains. Pages already extracted stay
+saved. Run it again to continue: the saved files are reused, and the spend so
+far still counts toward `max_cost`.
 
 ```python
 import pydelity
@@ -125,15 +130,17 @@ except pydelity.BudgetExceededError:
 ## What a run spent
 
 pydelity writes one line to `cost.jsonl` in the output folder for each model
-response, with its tokens and cost. Page extraction's lines also name the page
-and whether the request read the page (`extractor`) or reviewed it (`verifier`).
-Lines from every run in the folder stay in the file, so it is the folder's full
-spending record.
+response, with its tokens and cost. Each line names its step and the `agent`
+that made the request: `surveyor` for the survey's own requests, `extractor` for
+the requests that read a page, and `verifier` for a verifier's requests in
+either step. Page extraction's lines also name the page. Lines from every run in
+the folder stay in the file, so it is the folder's full spending record.
 
 `run.json` sums it up under `cost`:
 
 - `run_usd`: what this run spent
-- `by_step`: this run's spend by step, `survey` and `extraction`
+- `by_step`: this run's spend by step, `survey` and `extraction`, each with its
+  verifier's requests included
 - `output_folder_usd`: what every run in the folder has spent
 - `unpriced_requests`: this run's requests with no known price
 
@@ -189,6 +196,9 @@ uses it. A cache price of `0` counts as free.
   reliable.
 - Lower `check_retries` to send fewer answers back to the model. Problems left
   in the last answer go on the review list instead.
+- Leave the verifiers off, which is the default, or turn on only the one you
+  need with `advanced.survey.verify` or `advanced.extraction.verify`. The
+  survey's verifier sends the whole PDF again.
 - Try a cheaper model, for page extraction only if you like, with
   `advanced.extraction.model`. Compare the estimates first with
   `pydelity.aestimate`.

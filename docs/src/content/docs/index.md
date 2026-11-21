@@ -13,10 +13,13 @@ works in steps:
   on many pages, such as headers and footers.
 - **Page extraction** reads each page you select and lists everything on it in
   reading order: headings, paragraphs, lists, tables, figures, form fields and
-  more, each with its position on the page. A second model reviews every page.
+  more, each with its position on the page.
 
-Both steps keep a list of things for a person to review. Later releases add the
-steps that join the pages into one document.
+Each step has an optional verifier, a second request to the same model that
+reviews the step's answer against the PDF and may correct it. Verifiers are off
+unless you turn them on, because each one adds cost. Both steps keep a list of
+things for a person to review. Later releases add the steps that join the pages
+into one document.
 
 ## Quickstart
 
@@ -65,10 +68,10 @@ a walkthrough.
   through the survey and page extraction to the report.
 - Guides: keep [settings](guides/configuration/) in a file, use the
   [command line](guides/command-line/) or [Python](guides/python/),
-  [extract pages](guides/page-extraction/), choose
-  [models](guides/models-and-providers/), control [costs](guides/costs/), rerun
-  and resume [runs](guides/reruns/), and read the
-  [output files](guides/outputs/).
+  [extract pages](guides/page-extraction/), turn on
+  [verifiers](guides/verifiers/), choose [models](guides/models-and-providers/),
+  control [costs](guides/costs/), rerun and resume [runs](guides/reruns/), and
+  read the [output files](guides/outputs/).
 - [Reference](reference/configuration/): look up exact setting names, files and
   fields.
 - [FAQ](faq/): get short answers to common questions, including what each step

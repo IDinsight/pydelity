@@ -35,7 +35,8 @@ Open `report.html` in any browser. It shows:
 - how the run went, what it cost and its warnings
 - the review list, by step, with links to each issue's page and item
 - the survey's results: page numbering, rotation, writing direction, languages,
-  labels and page furniture
+  labels and page furniture, and what the survey's verifier found, or that no
+  verifier ran
 - the measured facts
 - each page as an image
 
@@ -45,8 +46,9 @@ reading order, and every container as a dotted box. A box marked `!` has review
 issues. Beside the image is the list of items, with each item's ID, kind, role,
 label and content, a table drawn with its spans, a field's value, and a figure's
 description and image. Select a box to go to its item, and select an item's ID
-in the review list to go to its box. The page's details also say whether the
-verifier passed it and whether its text was compared with the PDF's stored text.
+in the review list to go to its box. The page's details also say what the
+verifier found, or that no verifier ran, and whether its text was compared with
+the PDF's stored text.
 
 The report is a single page with no scripts, and it loads nothing from the
 internet. It shows images from the `report/` and `figures/` folders next to it,
@@ -106,6 +108,10 @@ judge. Where it differs from what pydelity measured, the page goes on the list:
 - `page_number_differs`: the page shows a page number, in its text or in the
   PDF's page labels, that the model's page numbering doesn't give.
 
+When the survey's verifier ran and passed the answer, or its correction was
+kept, these differences are left off the list, because the verifier checked the
+answer against the PDF. Otherwise each one is listed.
+
 Read these two kinds of issue. Either side can be wrong. The measurements can
 take numbers in a table for page numbers, or report page labels that number a
 cover page that prints no number. `details.source` says whether the number came
@@ -117,12 +123,14 @@ the only place that shows it.
 [page extraction checks](../../reference/extraction-checks/), with retries.
 Whatever the kept answer still gets wrong goes on the list, usually naming the
 item. Lines dropped or added compared with the PDF's stored text (`text_dropped`
-and `text_added`) are listed only when the verifier didn't pass the page and its
+and `text_added`) are listed on every page no verifier reviewed. On a page the
+verifier reviewed, they are listed only when it didn't pass the page and its
 correction wasn't used.
 
-**Problems the verifier found.** When the verifier finds problems on a page and
-its correction can't be used, each problem goes on the list as a `verifier`
-issue.
+**Problems a verifier found.** When the survey's or a page's verifier finds
+problems and its correction isn't kept, each problem goes on the list as a
+`verifier` issue. See
+[Review answers with a verifier](../verifiers/#the-review-list-with-and-without-a-verifier).
 
 **Content no label fits.** When the survey gave no label for an item's role and
 kind, the item gets the label `other`, and the page gets one `no_matching_label`
@@ -142,9 +150,10 @@ Each page file in `pages/` holds one extracted page:
   `container`.
 - `checks`: each check's result on the kept answer, failures included
 - `issues`: the page's review issues, the same ones `run.json` lists
-- `verification`: the verifier's verdict as it gave it (`passed`, the `problems`
-  it found and any `corrected` answer), whether the correction was used
-  (`correction_applied`) and, if it wasn't, the checks it failed
+- `verification`: `null` when no verifier reviewed the page. Otherwise the
+  verifier's verdict as it gave it (`passed`, the `problems` it found and any
+  `corrected` answer), whether the correction was used (`correction_applied`)
+  and, if it wasn't, the checks it failed
 - `text_comparison`: whether the items' text was compared with the PDF's stored
   text (`compared`), and if not, why
 - `writing_direction`, `rotation` and `column_order`: how the page was read
@@ -154,8 +163,8 @@ Each page file in `pages/` holds one extracted page:
 A figure item's `figure.crop` names its image in `figures/`, cut from the page
 and turned upright.
 
-Every page file keeps its verdict, so you can count how often the verifier
-passed pages, found problems and had its correction used.
+Every page file a verifier reviewed keeps its verdict, so you can count how
+often the verifier passed pages, found problems and had its correction used.
 
 ## pdf_facts.json
 
@@ -178,8 +187,15 @@ later.
 - `proposal`: the rest of the model's answer: the regions it labeled on single
   pages, which repeated lines are page furniture such as running headers and
   which are content, and any notes
-- `checks`: whether the answer passed each check, and how many answers it took
-- `issues`: the survey's review issues, both the checks the accepted answer
-  failed and the places it differs from the measured facts
+- `checks`: whether the kept answer passed each check, and how many answers it
+  took. The kept answer is the survey's own, or the verifier's correction when
+  it was kept.
+- `issues`: the survey's review issues: the checks the kept answer still fails,
+  the places it differs from the measured facts unless the verifier passed it or
+  its correction was kept, and the verifier's problems when its correction
+  wasn't kept
+- `verification`: `null` when no verifier reviewed the survey. Otherwise the
+  verifier's verdict, whether its correction was kept and how many verdicts it
+  took, as for a page file
 - `inputs`: what the survey was made from, which decides when it is reused
 - `facts`: a copy of the measured facts the survey used

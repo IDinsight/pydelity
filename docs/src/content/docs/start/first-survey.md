@@ -85,15 +85,19 @@ pydelity reuses the survey, estimates page extraction and asks again. For the
 same form:
 
 ```text
-16:04:48 | INFO     | Extraction cost estimate: about $0.45, at most $10.41 (2 pages, up to 12 requests to anthropic:claude-opus-5-5)
+16:04:48 | INFO     | Extraction cost estimate: about $0.23, at most $4.81 (2 pages, up to 6 requests to anthropic:claude-opus-5-5)
 ```
 
 It also shows what the folder has spent so far, then asks the same question.
 
-Each page takes two requests: one to read it and one to review it. The maximum
-counts every retry of both. To extract only some pages, add `--pages`, such as
-`--pages 1-5,8`. To run the survey and page extraction in one go next time, add
-`--no-pause`. [Extract pages](../../guides/page-extraction/) covers both.
+Each page takes one request to read it, and the maximum counts every retry. To
+extract only some pages, add `--pages`, such as `--pages 1-5,8`. To run the
+survey and page extraction in one go next time, add `--no-pause`.
+[Extract pages](../../guides/page-extraction/) covers both.
+
+To have a verifier, a second request to the same model, review the survey and
+each page against the PDF, add `--verify`. It adds about as much again to each
+step's cost. See [Review answers with a verifier](../../guides/verifiers/).
 
 pydelity extracts up to 8 pages at the same time. When the run ends, it prints a
 summary: how the run ended, what each step did and cost, how many review issues

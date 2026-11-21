@@ -62,8 +62,8 @@ The result of one check on the page's kept answer.
 - `attempts` (integer; required): How many answers were checked: 1 plus the
   retries used.
 - `failures` (list of objects ([`checks[].failures[]`](#checksfailures));
-  required): The problems the check found in the kept answer. A failure about
-  one item names it in `details`.
+  required): The problems the check found in the kept answer. A review issue
+  made from a failure names its item by ID in `item_id`.
 - `name` (one of `labels`, `content`, `languages`, `boxes`, `containers`,
   `captions`, `reading_order`, `artifacts`, `form_fields`, `text_dropped`,
   `text_added`; required): The check.
@@ -116,7 +116,12 @@ A problem a person should review.
   the problem: a check, a comparison or another source. `step` says whose, since
   two steps can have checks of the same name.
 - `details` (map of string to any value; required): The values the problem is
-  about, such as `{"measured": 90, "profile": 0}`.
+  about. A survey comparison gives values such as
+  `{"measured": 90, "profile": 0}`, and a check gives its failure's `details`,
+  such as `{"item_ref": "t3"}` on a page. A `no_matching_label` issue gives the
+  `kind` and `role` that no label fits, with the items' refs and IDs
+  (`item_refs`, `item_ids`). A `verifier` issue gives the problem's `category`,
+  and on a page its `item_ref`.
 - `item_id` (string or null; required): The item the problem is about, or `None`
   when no single item applies.
 - `message` (string; required): What is wrong.
@@ -177,9 +182,12 @@ The verifier's review of the page's extraction.
 
 One problem a check found in a model's answer.
 
-- `details` (map of string to any value; required): The proposed value and,
-  where it applies, what it was checked against, such as
-  `{"proposed": 9, "page_count": 6}`.
+- `details` (map of string to any value; required): The values the problem is
+  about. A survey check gives the proposed value and, where it applies, what it
+  was checked against, such as `{"proposed": 9, "page_count": 6}`. A page
+  extraction check gives the ref that the model's answer gave the item or
+  container, or `None` when no single one applies, such as `{"item_ref": "t3"}`.
+  That ref comes from the answer, and the page file's items have IDs instead.
 - `message` (string; required): What is wrong, starting with the check's name.
 - `page_index` (integer or null; required): The page the problem is on, or
   `None` when no single page applies.

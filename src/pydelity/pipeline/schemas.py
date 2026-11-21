@@ -101,7 +101,8 @@ class StepRecord(_Output):
 
     pages: PageCounts | None
     """How many pages the step selected, extracted and reused; ``None`` for a step
-    that reads the whole PDF at once, such as the survey."""
+    that reads the whole PDF at once, such as the survey, and for a page extraction
+    step that was skipped."""
 
     pdf_transport: PdfTransport | None
     """How the PDF went to the model: ``upload`` or ``request``; ``None`` when no

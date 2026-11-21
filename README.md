@@ -10,7 +10,11 @@ structured JSON in two steps:
   pages, such as headers and footers.
 - **Page extraction** lists everything on each page you select in reading order:
   headings, paragraphs, lists, tables, formulas, figures and form fields, each
-  with its position on the page. A second model reviews every page.
+  with its position on the page.
+
+Each step has an optional verifier, a second request to the same model that
+reviews the step's answer against the PDF and may correct it. Verifiers are off
+unless you turn them on, because each one adds cost.
 
 pydelity saves the results as JSON, with a list of things a person should check,
 and an HTML report you can open in a browser. These are the first steps of a
@@ -83,7 +87,8 @@ pydelity document.pdf
 ```
 
 To extract only some pages, add `--pages 1-5,8`. To run both steps without
-stopping, add `--no-pause`. Run `pydelity --help` for the options.
+stopping, add `--no-pause`. To have a verifier review each step's answer, at
+extra cost, add `--verify`. Run `pydelity --help` for the options.
 
 From Python:
 
@@ -128,8 +133,8 @@ change what you need.
 - [Your first run](https://idinsight.github.io/pydelity/start/first-survey/)
   walks through the survey, page extraction and the output files.
 - The [guides](https://idinsight.github.io/pydelity/guides/configuration/) cover
-  settings, the command line, Python, page extraction, models, costs, reruns and
-  outputs.
+  settings, the command line, Python, page extraction, verifiers, models, costs,
+  reruns and outputs.
 - The [reference](https://idinsight.github.io/pydelity/reference/configuration/)
   lists every setting, option, function and output field.
 - [Contributing](https://idinsight.github.io/pydelity/contributing/development/)

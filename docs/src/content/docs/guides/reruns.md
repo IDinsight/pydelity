@@ -20,7 +20,8 @@ differently measures them again.
 **The survey** (`pdf_survey.json`) is reused as long as everything it was made
 from is unchanged:
 
-- the PDF's content and its file name
+- the PDF's content, by its SHA-256 hash, so renaming or moving the PDF doesn't
+  matter here
 - the measured facts
 - the survey's model: `model`, or the default when it isn't set
 - `languages` and `advanced.survey.instructions`
@@ -54,6 +55,12 @@ and is extracted again.
 By default the output folder is named after the PDF, so a renamed PDF also gets
 a new, empty output folder unless you set `output_dir`.
 
+The verifier settings are not among these inputs. With a step's verifier on, a
+saved survey or page file that no verifier reviewed is made again with the
+verifier. With it off, saved outputs are reused whether or not a verifier
+reviewed them. See
+[Turn a verifier on or off later](../verifiers/#turn-a-verifier-on-or-off-later).
+
 **The upload** of the PDF to the provider (`uploads.json`) is reused while at
 least an hour is left before the provider deletes it. See
 [How long the provider keeps your PDF](../models-and-providers/#how-long-the-provider-keeps-your-pdf).
@@ -71,7 +78,8 @@ Run completed: survey reused, extraction reused (2 pages selected: 0 extracted, 
 Selecting more pages extracts only the pages without a page file that still
 fits. Selecting fewer leaves the other pages' files in `pages/`, so selecting
 them again later reuses them. `run.json` and the report cover the pages selected
-in the latest run; `pydelity.load` returns every page file in the folder.
+in the latest run. `pydelity.load` returns every page file in the folder that
+was made from the folder's PDF.
 
 ## Redo everything
 
@@ -132,14 +140,17 @@ run.
 
 If a saved file is damaged anyway, for example after being edited by hand,
 pydelity warns you and redoes the step or page that writes it. A damaged last
-line in `cost.jsonl` is skipped with a warning.
+line in `cost.jsonl` is skipped with a warning. A damaged line anywhere else in
+`cost.jsonl` stops every run on the folder with an `OutputError` that names the
+line. Fix that line, or use a new output folder.
 
 ## One PDF per folder, one run at a time
 
 An output folder holds the results for one PDF. If you point a run at a folder
 that holds results for a different PDF, pydelity warns you and replaces them.
-The folder's earlier spending still counts toward `max_cost`, because it stays
-in `cost.jsonl`.
+Page files of the other PDF that the run doesn't replace stay in `pages/`, but
+`run.json`, the report and `pydelity.load` leave them out. The folder's earlier
+spending still counts toward `max_cost`, because it stays in `cost.jsonl`.
 
 Run only one pydelity run on an output folder at a time. pydelity doesn't detect
 two runs on the same folder, and they can overwrite each other's files. Runs on

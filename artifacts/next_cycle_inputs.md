@@ -1,6 +1,6 @@
-# pydelity: inputs for the verifier cycle, then page-break verification (step 3)
+# pydelity: inputs for page-break verification (step 3)
 
-Two steps of the pipeline are built, each in its own STANDARDS cycle:
+Two steps of the pipeline are built, in three STANDARDS cycles:
 
 - The survey (step 1), in the cycle
   `build-the-pydelity-pipeline-and-its-20261117T153947Z-a967fe4c`, released as
@@ -8,9 +8,11 @@ Two steps of the pipeline are built, each in its own STANDARDS cycle:
   fix.
 - Page extraction (step 2), in the cycle
   `build-step-2-page-extraction-of-the-20261119T174118Z-0419318a` on branch
-  `tz6/pipeline-step-2` (pull request 10), signed off on 2026-11-20. It is not
-  merged yet: the verifier cycle under **Next cycle, before step 3** runs on the
-  same branch first, and the combined work then merges and ships as 0.2.0 (see
+  `tz6/pipeline-step-2` (pull request 10), signed off on 2026-11-20.
+- The verifier cycle,
+  `add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada`, on the
+  same branch after page extraction (see **The verifier cycle, before step 3**).
+  Page extraction and the verifier cycle merge together and ship as 0.2.0 (see
   **Loose ends**).
 
 STANDARDS is uninstalled before each merge to `main`, which removes the cycles'
@@ -45,10 +47,40 @@ extraction cycles, are in git history.
 Nothing here is an acceptance condition. Each cycle numbers its own AC IDs, and
 old numbers mentioned here are retired.
 
-## Next cycle, before step 3: verifiers and remaining issues
+## The verifier cycle, before step 3
 
-The user's request (2026-11-20), for a standard cycle on `tz6/pipeline-step-2`
-after page extraction's sign-off and before step 3:
+What the verifier cycle settled for 0.2.0, in short. Its scope, design and
+documentation records hold the details and are newer than this file where they
+differ.
+
+- Every step's verifier is optional and off by default. `verify` (config file,
+  `--verify`/`-vf`, Python `verify=True`) turns on every step's verifier, and
+  `advanced.survey.verify` and `advanced.extraction.verify` (`true`, `false`, or
+  `null` to follow `verify`) override it for one step, in a config file or from
+  Python only. `Config.verify_survey` and `Config.verify_extraction` resolve
+  them, and each step reads only its own.
+- The survey has a verifier like page extraction's: after the survey's answer is
+  accepted, a second request to the survey's model with the survey's
+  instructions reviews it against the PDF (on the same upload) and may return a
+  full corrected `SurveyAnswer`, kept only when it passes every survey check.
+- With a step's verifier off, every difference goes on the review list: every
+  failing check, page extraction's `text_dropped` and `text_added`, and the
+  survey's `rotation_differs` and `page_number_differs`. With it on, a
+  difference is left off when the verdict passed or its correction was kept.
+- `PdfSurvey.verification` and `PageFile.verification` are `null` when no
+  verifier ran. No fingerprint holds a verifier switch. A saved output with
+  `verification: null` is not reused while its step's verifier is on, and one a
+  verifier reviewed is reused after the verifier is turned off.
+- Every request names its agent in `cost.jsonl`: `surveyor` or `verifier` for
+  the survey, `extractor` or `verifier` for page extraction. `LedgerEntry.agent`
+  is required. Estimates price a verifier only when it will run
+  (`StepEstimate.verifier`).
+- The cycle also fixed `load()` for another PDF's page files, report tables with
+  spanning header cells, outline links to missing objects, inline form widgets,
+  the `TEXT_FLAGS` comment and the docs wording page extraction's final review
+  found, and reordered every module to the user styles' ordering rule.
+
+The user's request (2026-11-20), kept for reference:
 
 1. The survey gets the producer and verifier approach page extraction has: after
    the survey's answer is accepted, a verifier request reviews it against the
@@ -63,7 +95,7 @@ after page extraction's sign-off and before step 3:
    items under **Review findings and observations left for later**; and any risk
    under **Risks and follow-up** the user wants closed.
 
-Points for the Scoper and Architect:
+The request's points for its Scoper and Architect:
 
 - Opt-in turns off by default what 0.2.0's page extraction does on every page
   (its scope's `AC-064`, design decision 10). Without a verifier, a page keeps
@@ -85,8 +117,7 @@ Points for the Scoper and Architect:
 - The user decisions below apply, including acceptance by real runs on both
   providers and one structured-output mode per provider.
 - The cycle's work merges with page extraction and ships with it as 0.2.0. Step
-  3 follows, as the rest of this file describes; where this cycle changes what
-  0.2.0 provides, its records are newer than this file.
+  3 follows, as the rest of this file describes.
 
 ## User decisions that apply to later steps
 
@@ -117,15 +148,20 @@ bullet says so, and a later Architect may revisit it.
   extraction applies this strictly. Its design (decision 21, after real runs)
   sends no text-layer lines as hints, so the models read the text from the page
   image. A text difference goes back with a note that the model may keep its
-  reading, and text differences are listed for review only when the verifier did
-  not pass the page and the page keeps the extraction. A PDF's stored text can
-  be wrong (broken Arabic letter forms, ligatures, private-use characters), so
-  stored text is evidence, never the answer.
+  reading. On a page no verifier reviewed, every text difference is listed for
+  review. With the verifier on, text differences are listed only when the
+  verifier did not pass the page and the page keeps the extraction. The verifier
+  cycle applied the same rule to the survey's comparisons with the facts. A
+  PDF's stored text can be wrong (broken Arabic letter forms, ligatures,
+  private-use characters), so stored text is evidence, never the answer.
 - Each check sits where it can be enforced: Pydantic classes for shape,
   `<step>/validators.py` for what code can decide, and a verifying model for
-  what code cannot judge. Page extraction sends every page to a verifier, a
-  second request to the same model with the page image, the answer and its
-  remaining check failures, which may return a full correction. The brief's
+  what code cannot judge. Each step's verifier is a second request to that
+  step's own model with that step's instructions only, and it is opt-in (see
+  **Pushed to later steps**). With its verifier on, page extraction sends every
+  page to it with the page image, the answer and its remaining check failures,
+  and the survey sends the PDF with the answer, its failing checks and its
+  differences from the facts. Either may return a full correction. The brief's
   terms differ: there the "verifier" is the model that makes step 3's main
   judgment on each break, and a "validator" is a second model that reviews it,
   which is the role page extraction's verifier plays. Whether step 3 has a
@@ -278,8 +314,8 @@ These decisions replace earlier plans in the brief:
     failures sent back to the extractor or the verifier do quote stored lines.
     The `artifacts` check finds page furniture by position.
   - A validator only on pages that failed checks or are hard, plus a random
-    sample. Page extraction sends every page to its verifier. Step 3's option D
-    proposes the same conditional pattern for breaks.
+    sample. A step's verifier runs on all of that step's work or on none of it.
+    Step 3's option D proposes the conditional pattern for breaks.
   - A DPI chosen from the page size. Page images are sized from the providers'
     image limits instead.
 - Containers carry no open-top or open-bottom hints, and step 2 judges no
@@ -385,7 +421,7 @@ The numbers follow **Open questions for Scoper to settle with the user** in
     `garbled_text_layer` or `text_layer_mismatch`), `checks` (each check's
     `name`, `passed`, `failures` and `attempts` for the kept answer), `issues`
     and `verification` (`verdict`, `correction_applied`, `correction_failures`
-    and `attempts`).
+    and `attempts`, or `null` when no verifier reviewed the page).
   - `inputs` (`context`, `model`, `pdf_sha256`, `prompt_version`, `rendering`,
     `settings`), `fingerprint`, `extracted_at` and `pydelity_version`.
 - **Page context.** `page_context` in `extracting/extraction.py` resolves each
@@ -400,17 +436,18 @@ The numbers follow **Open questions for Scoper to settle with the user** in
   `max_output_tokens`), `PROMPT_VERSION`, the rendering constants and the page
   file's schema version. So a survey change reruns only the pages it touches, a
   wider selection extracts only the new pages, `overwrite` reruns every selected
-  page, and no page extraction setting reruns the survey. Step 3 continues the
-  rule that a changed input reruns its own outputs and everything downstream,
-  and nothing else.
+  page, and no page extraction setting reruns the survey. A verifier switch is
+  not an input. While a step's verifier is on, a saved output with no
+  verification is redone. Step 3 continues the rule that a changed input reruns
+  its own outputs and everything downstream, and nothing else.
 - **Reading page files.** `load(output_dir)` returns a `RunResult` whose `pages`
-  holds every page file in `pages/`, in page order. A damaged page file raises
-  `OutputError`. In a run, a damaged page file, or one naming a missing crop, is
-  extracted again with a `damaged_output` warning, and a selected page whose
-  file came from another PDF fails its fingerprint and is extracted again.
-  `load()` does not check which PDF a page file came from, and a run leaves
-  unselected page files of another PDF in `pages/` (see **Pushed to later
-  steps**).
+  holds the page files in `pages/` whose `inputs.pdf_sha256` matches
+  `pdf_facts.json`, in page order, and none without `pdf_facts.json`. A damaged
+  page file raises `OutputError`. In a run, a damaged page file, or one naming a
+  missing crop, is extracted again with a `damaged_output` warning, and a
+  selected page whose file came from another PDF fails its fingerprint and is
+  extracted again. A run leaves unselected page files of another PDF in `pages/`
+  (see **Pushed to later steps**).
 - **Runner and `run.json`.** `pipeline/runner.py` runs the steps in order and
   writes one `StepRecord` per step: `name`, `status` (`completed`, `reused`,
   `failed`, `stopped` or `skipped`), `started_at`, `ended_at`, `cost_usd`,
@@ -460,19 +497,21 @@ The numbers follow **Open questions for Scoper to settle with the user** in
   that ignore spaces, so scripts written without spaces work the same). A step 3
   check that uses stored text can reuse it, keeping in mind that stored text can
   be wrong.
-- **Costs.** `cost.jsonl` lines carry `step`, `page_index` and `agent`
-  (`extractor` or `verifier`). `SpendGuard` holds a reservation for each request
-  in flight, and each image counts at its provider profile's per-image token
-  figure. `estimate_survey` and `estimate_extraction` in `costs/budget.py` price
-  their steps, and the run's estimate covers the steps the run will perform.
-  Step 3 adds its own estimate. In the user's real runs (2026-11-20, 7 PDFs, 22
-  pages extracted), page extraction cost $5.38 on the Anthropic default (about
-  $0.24 a page) and $9.02 on `openai:gpt-6.2-astra` (about $0.41 a page); the
-  surveys cost $0.98 and $2.09.
+- **Costs.** `cost.jsonl` lines carry `step`, `page_index` and a required
+  `agent` (`surveyor`, `extractor` or `verifier`). Step 3 names its own agents
+  the same way. `SpendGuard` holds a reservation for each request in flight, and
+  each image counts at its provider profile's per-image token figure.
+  `estimate_survey` and `estimate_extraction` in `costs/budget.py` price their
+  steps, each with its verifier only when it will run, and the run's estimate
+  covers the steps the run will perform. Step 3 adds its own estimate. In the
+  user's real runs (2026-11-20, 7 PDFs, 22 pages extracted), page extraction
+  cost $5.38 on the Anthropic default (about $0.24 a page) and $9.02 on
+  `openai:gpt-6.2-astra` (about $0.41 a page); the surveys cost $0.98 and $2.09.
 - **Report.** `report.html` shows each extracted page's image with every item's
   box numbered in reading order and every container drawn, beside the item list
-  with figure crops and the verifier's outcome. A review issue about an item
-  links to its box.
+  with figure crops and the verifier's outcome, or "no verifier ran". The
+  survey's section shows its verifier's outcome the same way. A review issue
+  about an item links to its box.
 - **The profile and facts step 3 builds on.** `pdf_survey.json` `profile` holds
   `labels[]`, `languages[]`, `writing_direction`, `rotation[]`,
   `page_numbering[]`, `continuation_notes[]` and `start_markers[]`, the last two
@@ -498,8 +537,9 @@ The numbers follow **Open questions for Scoper to settle with the user** in
   request content, so concurrent requests get the right answer in any order:
   each page request's first text line is `Page index <i> (page <i+1> of <n>)`,
   and a verifier request is told apart by the heading
-  `The extraction to review:` in its text. It answers Anthropic as JSON text
-  (prompted output) and OpenAI in its native format. Canned answers are in
+  `The extraction to review:` in its text. A survey verifier request has
+  `The survey answer to review:`. It answers Anthropic as JSON text (prompted
+  output) and OpenAI in its native format. Canned answers are in
   `tests/fixtures/survey_answers/` and `tests/fixtures/extraction_answers/`. An
   autouse fixture sets dummy keys and a closed port, so no test reaches a
   provider. Ten public test PDFs are in `tests/fixtures/pdfs/` with their
@@ -714,7 +754,20 @@ From the survey's and page extraction's designs and reviews, still open:
 - The model can be wrong where the facts were right, and the review list is the
   only signal. A verifier that wrongly passes a page, or whose correction drops
   or adds a line, keeps that line off the review list; the failure stays in the
-  page file's `checks`.
+  page file's `checks`. A survey verifier that wrongly passes the survey keeps
+  its differences from the facts off the list, visible only by comparing the
+  profile with the facts in `pdf_survey.json`.
+- With the verifiers off, which is the default, pages whose stored text is
+  wrong, such as the Arabic and Japanese test pages, put their text differences
+  on the review list, and nothing beyond the code checks catches missed or
+  merged items, a wrong reading order or boxes on the wrong content.
+- A verified survey sends the PDF twice, so it costs about twice as much. The
+  estimate's typical survey verdict (6,000 output tokens) is a guess that real
+  runs have not measured yet. A survey verifier request that fails after a paid
+  survey answer makes the next run pay for the survey request again.
+- `SurveyVerdict` nests a whole `SurveyAnswer`. Neither OpenAI's native output
+  nor Anthropic's prompted output had run it at the end of the verifier cycle's
+  build; its real runs check it.
 - Every repeated line (up to 1,000) goes with the survey request and must be
   accounted for.
 - Claude Opus 5.5 can stop with `refusal`, which is reported as a failure.
@@ -731,9 +784,10 @@ From the survey's and page extraction's designs and reviews, still open:
   visual order, or legacy encodings rated `good`, can mislead it.
 - One run per output folder at a time. Concurrent runs in the same folder are
   unsupported and not detected.
-- A 0.1.x output folder whose `cost.jsonl` has more than one line stops a run
-  with `OutputError`; with one line, the run spends one request before it stops.
-  Use a new folder.
+- Output folders from earlier builds do not carry over. A `pdf_survey.json`
+  without `verification` is surveyed again, and a `cost.jsonl` with survey lines
+  whose `agent` is `null` (0.1.x and page extraction's build) stops every run on
+  the folder with `OutputError`. Use a new folder.
 - On Windows, `os.replace` fails while another program holds the target open,
   and the error names the file.
 - Large PDFs make large reports, which is acceptable at Level 3.
@@ -742,18 +796,11 @@ From the survey's and page extraction's designs and reviews, still open:
 
 ## Review findings and observations left for later
 
-From page extraction's implementation review, withdrawn as not material for
-0.2.0, each with its failure case in that report:
-
-- A widget written inline in a page's `/Annots` (object number 0) loses the
-  whole form fact, as in 0.1.x. Inline widgets are not conforming PDF.
-- An outline entry whose `/Next` or `/First` names an object past the
-  cross-reference table now loses every bookmark, where 0.1.x read them.
-- In the report, a table header cell whose `row_span` reaches past `header_rows`
-  shifts the next body row's cells one column left. The page file is right.
-- The `load()` case under **Pushed to later steps**.
-
-Its other observations:
+The verifier cycle fixed the defects page extraction's implementation review
+withdrew as not material (inline form widgets, outline links to missing objects,
+report tables with spanning header cells, `load()` with another PDF's page
+files), the `TEXT_FLAGS` comment and the docs wording its final review found.
+Still open, from page extraction's implementation review:
 
 - An interrupted `overwrite` run can leave an old page file naming a crop that
   the new answer overwrote, since crops are named by item position and written
@@ -770,37 +817,9 @@ Its other observations:
   at 1.04 MB.
 - Figure crops render at a fixed 200 DPI with no pixel cap, so a full-page
   figure on a 36 x 48 in page takes about 0.8 GB while it renders.
-- One design wording and one code comment do not match the correct code. The
-  design says crops are clipped in unrotated coordinates, where the code clips
-  in displayed-page coordinates. The `TEXT_FLAGS` comment in `utils/pdf.py` says
-  text is clipped to the media box, where PyMuPDF clips to the CropBox.
-
-From the final review, docs wording that is looser than the code, worth fixing
-when those pages are edited:
-
-- "pydelity doesn't send the text stored in the PDF"
-  (`guides/page-extraction.md`, `guides/models-and-providers.md`, the
-  `prompts.py` and `text_layer.py` docstrings): page requests do list the page's
-  repeated lines with their stored text, and text retry messages quote stored
-  lines. The FAQ's list of what page extraction sends leaves out form field
-  values.
-- `reference/page-json.md` shows survey examples for `checks[].failures[]` and
-  `issues[].details`, and says a failure "names" an item by its answer ref,
-  which no page file field holds.
-- `reference/run-json.md` says `steps[].pages` is `null` for a step that reads
-  the whole PDF, but a skipped page extraction step also has `null`.
-- `guides/command-line.md`'s `2> pydelity.log` example also sends the spending
-  question to the log, so the command waits with nothing shown.
-- "A second model reviews" (README, `index.md`, `page-extraction.md`): the
-  verifier is a second request to the same model. "Every function takes the PDF"
-  (`python.md`): `load` takes the folder. `RunResult.pages` "the page files in
-  `pages/`": `arun` returns the selected pages. "If you say no, the run stops
-  with nothing more spent" (`costs.md`): requests in flight may be billed.
-  `faq.md` names `expiry_hours` without its `advanced.uploads.` prefix.
-- `guides/reruns.md` lists the PDF's file name among the survey's inputs; the
-  fingerprint holds the PDF's hash, not its name. It also leaves out that a
-  damaged line in `cost.jsonl` other than the last stops every run on that
-  folder with an `OutputError`.
+- Page extraction's design says crops are clipped in unrotated coordinates,
+  where the code clips in displayed-page coordinates. The design is a signed-off
+  cycle's record, so the wording stays as it is.
 
 From the user's real runs (2026-11-20), accepted for 0.2.0:
 
@@ -880,6 +899,19 @@ whenever work is moved out of the current step.
   survey and page extraction do (the user's decision, 2026-11-19, confirmed on
   2026-11-20 for every later step, step 3 included). Each step keeps its own
   default constant in `providers/profiles.py`, so one can change alone.
+- **Verifier per step (each later step).** Every step's verifier is opt-in and
+  off by default. The global `verify` setting (`--verify`/`-vf` on the CLI,
+  `verify=True` in Python) turns on every step's verifier, and each step has an
+  optional override of its own, `advanced.<step>.verify` (`true`, `false`, or
+  `null` to follow `verify`), set in the config file or from Python, with no CLI
+  option. The survey and page extraction have theirs. Each later step adds its
+  own override, a resolved `Config.verify_<step>` property, a verifier that is a
+  second request to its own model with its own instructions,
+  `verification: null` in its outputs when no verifier ran, every difference on
+  the review list when none ran, an estimate that prices the verifier only when
+  it will run, and the reuse rule that redoes outputs no verifier reviewed while
+  the verifier is on. A step's verifier runs on all of that step's work or on
+  none of it.
 - **Instructions per step (each later step).** Instructions live under each
   step's `advanced:` section (`advanced.survey.instructions`,
   `advanced.extraction.instructions`) and go only to that step's models. They
@@ -887,24 +919,22 @@ whenever work is moved out of the current step.
   step's instructions are specific to that step. The top-level `instructions`
   setting and `--instructions`/`-i` are gone. Each later step gets its own
   optional `advanced.<step>.instructions` the same way.
-- **Raising internal versions again (not yet decided).** Neither cycle raised
+- **Raising internal versions again (not yet decided).** No cycle so far raised
   `PROBE_VERSION`, a `PROMPT_VERSION` or an output `schema_version`, because no
   one uses pydelity yet. When to go back to raising them for changed outputs is
   still open, and so is when pydelity starts keeping backwards compatibility
   (aliases, deprecation warnings, migrations or defaults kept for old files),
   likely once it has public users.
-- **Page files of another PDF in a reused folder (step 3).** `load()` returns
-  every page file in `pages/`. When a different PDF runs into a folder another
-  PDF used and does not extract every page the first PDF had (it is shorter, or
-  its page selection is narrower), the first PDF's other page files stay, and
-  `load()` returns them with the new PDF's pages. The run warns that the folder
-  holds another PDF's results, and `run.json` and the report list only this
-  run's pages. Each page file records its PDF's SHA-256 in `inputs.pdf_sha256`,
-  so step 3, the first step that reads page files, should skip any page file
-  whose hash does not match the PDF, and `load()` should do the same. Page
-  extraction keeps old page files on purpose, for narrowed page selections. A
-  page file kept that way can come from an older survey or other settings, and
-  step 3 should decide whether to use it.
+- **Page files of another PDF in a reused folder (step 3).** When a different
+  PDF runs into a folder another PDF used and does not extract every page the
+  first PDF had (it is shorter, or its page selection is narrower), the first
+  PDF's other page files stay in `pages/`. The run warns that the folder holds
+  another PDF's results, `run.json` and the report list only this run's pages,
+  and `load()` leaves out page files whose `inputs.pdf_sha256` differs from
+  `pdf_facts.json`'s. Step 3, the first step that reads page files, should skip
+  them the same way. Page extraction keeps old page files on purpose, for
+  narrowed page selections. A page file kept that way can come from an older
+  survey or other settings, and step 3 should decide whether to use it.
 - **Snapping boxes to measured text (page extraction, not yet scheduled).** Box
   accuracy rests on the extraction and verifier models. In the Anthropic real
   runs a few boxes sat off their text, such as a Chinese footer's box about 7 pt

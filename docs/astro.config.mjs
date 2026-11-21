@@ -48,6 +48,7 @@ export default defineConfig({
             "guides/command-line",
             "guides/python",
             "guides/page-extraction",
+            "guides/verifiers",
             "guides/models-and-providers",
             "guides/costs",
             "guides/reruns",

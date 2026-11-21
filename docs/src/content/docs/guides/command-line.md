@@ -30,6 +30,9 @@ pydelity document.pdf --no-pause
 # Use an OpenAI model. It needs OPENAI_API_KEY.
 pydelity document.pdf --model openai:gpt-6.2-astra
 
+# Have a verifier review each step's answer, at extra cost.
+pydelity document.pdf --verify
+
 # Write the results to a folder of your choice.
 pydelity document.pdf --output-dir results/document
 
@@ -54,7 +57,9 @@ the pages. Add `--no-pause` (or `-np`) to do both in one run.
 By default, pydelity prints only warnings, errors, the cost estimate and the
 summary at the end. Add `--verbose` (or `-v`) to also see each step as it
 happens: the settings in use, what was measured in the PDF, the text sent with
-the survey, and each page's checks, verifier result and cost.
+the survey, the survey's verifier outcome, and each page's checks, verifier
+outcome and cost. The outcome is `no verifier` when the verifier is off. See
+[Review answers with a verifier](../verifiers/#read-what-the-verifier-found).
 
 The summary lists each step's outcome and cost, and the first review issues,
 each with the step, the page number from 1 and, when it is about one item, the
@@ -64,11 +69,16 @@ item's ID:
 Run completed: survey reused, extraction completed (2 pages selected: 2 extracted, 0 reused); ...
 ```
 
-Everything goes to standard error, so you can save it with `2>`:
+Everything goes to standard error, the cost question included. To save it to a
+file with `2>`, add `--yes`. Otherwise the question goes to the file too, and
+the command waits for an answer with nothing shown:
 
 ```sh
-pydelity document.pdf --verbose 2> pydelity.log
+pydelity document.pdf --verbose --yes 2> pydelity.log
 ```
+
+With `--yes`, pydelity doesn't ask before spending, so check the estimate first,
+for example with `pydelity.aestimate`. See [Control costs](../costs/).
 
 The same information is saved in the output folder whatever you choose here.
 [Read the outputs](../outputs/) covers where.

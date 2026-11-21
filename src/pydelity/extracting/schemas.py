@@ -257,8 +257,8 @@ class ExtractionCheckResult(_Output):
     """How many answers were checked: 1 plus the retries used."""
 
     failures: list[CheckFailure]
-    """The problems the check found in the kept answer. A failure about one item
-    names it in ``details``."""
+    """The problems the check found in the kept answer. A review issue made from a
+    failure names its item by ID in ``item_id``."""
 
     name: ExtractionCheckName
     """The check."""

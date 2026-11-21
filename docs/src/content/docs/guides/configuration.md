@@ -106,6 +106,7 @@ Most runs never need them.
 | `advanced.extraction.max_output_tokens`       | `32000` | The longest answer a model may give for one page, thinking included |
 | `advanced.extraction.model`                   | not set | The model for page extraction only, in place of `model`             |
 | `advanced.extraction.request_timeout_seconds` | `600`   | How long to wait for one page request                               |
+| `advanced.extraction.verify`                  | not set | Turns page extraction's verifier on or off, in place of `verify`    |
 | `advanced.models`                             | none    | Your own prices for a model                                         |
 | `advanced.provider_retries`                   | `2`     | Retries after a temporary provider failure, such as a timeout       |
 | `advanced.survey.check_retries`               | `2`     | How often the model may try again after failing the survey checks   |
@@ -113,13 +114,15 @@ Most runs never need them.
 | `advanced.survey.instructions`                | not set | What is unusual about the PDF, in your words, for the survey        |
 | `advanced.survey.max_output_tokens`           | `32000` | The longest answer the model may give, thinking included            |
 | `advanced.survey.request_timeout_seconds`     | `900`   | How long to wait for one survey request                             |
+| `advanced.survey.verify`                      | not set | Turns the survey's verifier on or off, in place of `verify`         |
 | `advanced.uploads.expiry_hours`               | not set | How long the provider keeps the PDF uploaded for the survey         |
 
 Lowering `effort` or `check_retries` makes a run cheaper and faster, and can
 make the answer less reliable. [Extract pages](../page-extraction/) covers page
 extraction's settings and instructions,
-[Models and providers](../models-and-providers/) covers retries and uploads, and
-[Control costs](../costs/) covers prices.
+[Review answers with a verifier](../verifiers/) covers `verify` and each step's
+override, [Models and providers](../models-and-providers/) covers retries and
+uploads, and [Control costs](../costs/) covers prices.
 
 On the command line, advanced settings can only come from a config file. In
 Python, pass them as a nested mapping:

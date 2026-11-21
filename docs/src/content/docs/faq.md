@@ -37,7 +37,9 @@ The model sees the pages, so it's usually the better reader. The measurements
 can go wrong, for example by taking numbers in a table for page numbers. Where
 the model's page number or rotation differs from what pydelity measured,
 pydelity keeps the model's answer and puts the page on the review list, so a
-person can decide. See [The review list](../guides/outputs/#the-review-list).
+person can decide. When the survey's verifier is on and accepts the answer, the
+difference stays off the list. See
+[The review list](../guides/outputs/#the-review-list).
 
 ### What should I check in the results?
 
@@ -76,6 +78,18 @@ dropped or added lines. Stored text can be wrong, for example with Arabic
 letters out of order or broken ligatures, so the model's reading is kept. See
 [Text compared with the PDF's stored text](../guides/page-extraction/#text-compared-with-the-pdfs-stored-text).
 
+### Can pydelity double-check the model's answers?
+
+Yes, if you turn on the verifiers with `--verify` (`verify: true` in a config
+file, `verify=True` in Python). A verifier is a second request to the same model
+that reviews a step's answer against the PDF and may correct it. It looks for
+mistakes code can't find, such as a label that doesn't fit, a missed item or a
+wrong reading order. Verifiers are off by default because each one adds cost.
+The survey's verifier sends the whole PDF again, and page extraction's adds a
+request for every page. Without them, every difference from what pydelity
+measured goes on the review list. See
+[Review answers with a verifier](../guides/verifiers/).
+
 ## Models and your data
 
 ### Which models can I use?
@@ -92,17 +106,19 @@ provider accepts works. See
 For the survey: the PDF, pydelity's instructions, a plain-text summary of what
 it measured, and your `languages` and `advanced.survey.instructions` if you set
 them. For page extraction: an image of each page, pydelity's instructions, the
-survey's results for that page, and your `advanced.extraction.instructions` if
-you set them. Only send a PDF that you're allowed to share with your provider.
-See
+survey's results for that page, the page's repeated lines with their stored
+text, its fillable form fields with their values, and your
+`advanced.extraction.instructions` if you set them. A verifier, when it is on,
+also gets the step's answer to review. Only send a PDF that you're allowed to
+share with your provider. See
 [What is sent to the provider](../guides/models-and-providers/#what-is-sent-to-the-provider).
 
 ### How long does the provider keep my PDF?
 
 pydelity uploads the PDF to your provider account's file storage for the survey.
 By default Anthropic keeps it for 90 days and OpenAI for 30 days. Set
-`expiry_hours` to keep it for less time. Page extraction sends page images
-inside each request and uploads nothing. See
+`advanced.uploads.expiry_hours` to keep it for less time. Page extraction sends
+page images inside each request and uploads nothing. See
 [How long the provider keeps your PDF](../guides/models-and-providers/#how-long-the-provider-keeps-your-pdf).
 
 ### Can I use pydelity without an API key?
@@ -120,10 +136,11 @@ then stops with exit code 2. See
 It depends on the model and the PDF. Before spending anything, pydelity
 estimates a likely cost and a maximum for each step it will run. For a 6-page
 form with the default model, the survey was about $0.36, at most $2.90. Page
-extraction makes two requests per page, one to read it and one to review it, so
-its cost grows with the number of pages you select. On the command line pydelity
-then asks whether to go ahead. In Python, `pydelity.aestimate` shows the
-estimate without an API key. See [The estimate](../guides/costs/#the-estimate).
+extraction makes one request per page, so its cost grows with the number of
+pages you select. Turning on the verifiers adds a request to review the survey
+and each page, which about doubles the cost. On the command line pydelity then
+asks whether to go ahead. In Python, `pydelity.aestimate` shows the estimate
+without an API key. See [The estimate](../guides/costs/#the-estimate).
 
 ### Does running it again cost money again?
 
@@ -133,7 +150,8 @@ survey and page files and makes no model request. Changing the survey's model,
 `check_retries` or `max_output_tokens` runs the survey again at full cost. Other
 settings, such as `max_cost` or `advanced.survey.request_timeout_seconds`, keep
 the saved survey. A page is extracted again only when something it depends on
-changes. See [What gets reused](../guides/reruns/#what-gets-reused).
+changes. Turning a verifier on redoes the saved outputs that no verifier
+reviewed. See [What gets reused](../guides/reruns/#what-gets-reused).
 
 ### How do I cap what a PDF can cost?
 

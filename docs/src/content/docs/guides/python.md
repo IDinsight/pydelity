@@ -6,8 +6,9 @@ description:
 ---
 
 `import pydelity` gives you the same steps as the command, without the
-questions. Its functions are async, so you `await` them. Every function takes
-the PDF, an optional `config` and settings as keyword arguments. The
+questions. Its functions are async, so you `await` them. Every function except
+`load` takes the PDF, an optional `config` and settings as keyword arguments,
+and `load` takes an output folder. The
 [Python API reference](../../reference/python-api/) lists every argument, result
 and error.
 
@@ -88,7 +89,7 @@ result = await pydelity.arun("document.pdf", pause=False, pages="1-5,8")
 - `record`: the contents of `run.json`
 - `facts`: the contents of `pdf_facts.json`
 - `survey`: the contents of `pdf_survey.json`
-- `pages`: the page files in `pages/`, in page order
+- `pages`: the page files of the pages the run selected, in page order
 - `ledger`: the lines of `cost.jsonl`, one per model request
 - `output_dir`: the output folder
 
@@ -144,7 +145,13 @@ result = await pydelity.arun(
     "document.pdf",
     advanced={"extraction": {"instructions": "Each page is a slide with notes."}},
 )
+
+# Have a verifier review each step's answer, at extra cost.
+result = await pydelity.arun("document.pdf", verify=True)
 ```
+
+[Review answers with a verifier](../verifiers/) shows how to turn on one step's
+verifier only.
 
 ## Check a PDF before you spend
 
@@ -161,7 +168,8 @@ print("\n".join(facts.summary))
 estimate = await pydelity.aestimate("document.pdf", pause=False)
 print(estimate.expected_usd, estimate.max_usd)  # likely and largest cost, in USD
 for step in estimate.steps:
-    print(step.name, step.pages, step.expected_usd, step.max_usd)
+    # step.verifier says whether the figures include the step's verifier.
+    print(step.name, step.verifier, step.pages, step.expected_usd, step.max_usd)
 ```
 
 The estimate covers the steps the run would do. Before a survey exists, a run
@@ -180,12 +188,16 @@ result = pydelity.load("pydelity-output/document")
 if result.record is not None:
     print(result.record.status, len(result.record.review))
 for page in result.pages:
-    print(page.page_index, len(page.items), page.verification.verdict.passed)
+    # verification is None when no verifier reviewed the page.
+    reviewed = page.verification is not None
+    print(page.page_index, len(page.items), reviewed)
 ```
 
 A part is `None`, or an empty list for `pages`, when its files are missing, so a
-folder that only `ameasure` wrote still loads. `pages` holds every page file in
-the folder, including pages left from an earlier, wider `pages` selection.
+folder that only `ameasure` wrote still loads. `pages` holds the page files made
+from the PDF in `pdf_facts.json`, including pages left from an earlier, wider
+`pages` selection. It leaves out page files of another PDF that ran in the
+folder, and it is empty when the folder has no `pdf_facts.json`.
 
 ## Run several PDFs at once
 
@@ -218,16 +230,16 @@ it, and the two runs can overwrite each other's files.
 Every error pydelity raises on purpose is a `pydelity.PydelityError`, so one
 `except` clause catches them all. Each kind also has its own class:
 
-| Error                 | When                                                                                          |
-| --------------------- | --------------------------------------------------------------------------------------------- |
-| `ConfigError`         | A setting is invalid, such as a PDF path that doesn't exist, or the config file can't be read |
-| `PdfError`            | The PDF is empty, password-protected or can't be opened                                       |
-| `MissingApiKeyError`  | The API key for a step's model provider is not set                                            |
-| `BudgetExceededError` | The run could go over `max_cost` and `allow_over_max_cost` is not set                         |
-| `ProviderError`       | The provider rejected a request or kept failing after its retries                             |
-| `SurveyError`         | The survey's model refused, ran out of output tokens or never gave a usable answer            |
-| `ExtractionError`     | A page's model refused, ran out of output tokens or never gave a usable answer                |
-| `OutputError`         | `load` can't read the output folder                                                           |
+| Error                 | When                                                                                               |
+| --------------------- | -------------------------------------------------------------------------------------------------- |
+| `ConfigError`         | A setting is invalid, such as a PDF path that doesn't exist, or the config file can't be read      |
+| `PdfError`            | The PDF is empty, password-protected or can't be opened                                            |
+| `MissingApiKeyError`  | The API key for a step's model provider is not set                                                 |
+| `BudgetExceededError` | The run could go over `max_cost` and `allow_over_max_cost` is not set                              |
+| `ProviderError`       | The provider rejected a request or kept failing after its retries                                  |
+| `SurveyError`         | The survey's model or its verifier refused, ran out of output tokens or never gave a usable answer |
+| `ExtractionError`     | A page's model or its verifier refused, ran out of output tokens or never gave a usable answer     |
+| `OutputError`         | `load` can't read the output folder, or a run finds a damaged line in `cost.jsonl` before its last |
 
 ```python
 import pydelity

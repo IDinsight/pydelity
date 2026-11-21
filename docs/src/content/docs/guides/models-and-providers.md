@@ -57,18 +57,26 @@ For the survey, pydelity sends the provider:
   found
 - your `languages` and `advanced.survey.instructions`, if you set them
 
+With the survey's verifier on, a second request sends the same PDF again, with
+the survey's answer, the checks it still fails and its differences from the
+measured facts.
+
 For page extraction, each request carries one page:
 
 - an image of the page, turned upright
 - pydelity's instructions for page extraction, with the labels the survey found
-- what the survey found for that page: its writing direction, its rotation and
-  which of its repeated lines are page furniture
+- what the survey found for that page: its writing direction, its rotation, and
+  its repeated lines with their stored text and what each one is, such as page
+  furniture
 - the page's fillable form fields, if it has any, with their values
 - your `advanced.extraction.instructions`, if you set them
-- for the verifier, the extraction to review and the checks it still fails
+- with page extraction's verifier on, the extraction to review and the checks it
+  still fails, in a second request
 
-Page extraction doesn't send the PDF or the text stored in it. Run with
-`--verbose` to see the text sent with the survey.
+Page extraction doesn't send the PDF. Of the text stored in the PDF, it sends
+only the page's repeated lines and its form fields' values. When an answer goes
+back for a text check, the message quotes the stored lines the problem is about.
+Run with `--verbose` to see the text sent with the survey.
 
 ## How long the provider keeps your PDF
 
@@ -149,8 +157,9 @@ The survey itself can fail even when every request succeeds:
   `advanced.survey.max_output_tokens` can help.
 - The model never gives an answer in the form pydelity expects.
 
-These raise a `SurveyError` in Python, and the command exits with code 1. An
-answer that is well formed but fails one of the
+The same goes for the survey's verifier, when it is on. These raise a
+`SurveyError` in Python, and the command exits with code 1, with no new
+`pdf_survey.json` saved. An answer that is well formed but fails one of the
 [survey checks](../../reference/survey-checks/) is not a failure. pydelity sends
 it back to the model with the problems listed, up to
 `advanced.survey.check_retries` times, then keeps the last answer and adds each
