@@ -1243,6 +1243,20 @@ def check_reading_order(
     return failures
 
 
+# The checks on the content of an answer, in the order they run.
+CHECKS: dict[ExtractionCheckName, Check] = {
+    "labels": check_labels,
+    "content": check_content,
+    "languages": check_languages,
+    "boxes": check_boxes,
+    "containers": check_containers,
+    "captions": check_captions,
+    "reading_order": check_reading_order,
+    "artifacts": check_artifacts,
+    "form_fields": check_form_fields,
+}
+
+
 def check_results(
     failures: Mapping[ExtractionCheckName, list[CheckFailure]], *, attempts: int
 ) -> list[ExtractionCheckResult]:
@@ -1356,6 +1370,14 @@ def check_text_dropped(
         failure.details["line"] = text_lines[index]
         failures.append(failure)
     return failures
+
+
+# The checks that compare the answer's text with the page's text layer, in the order
+# they run, after `CHECKS`.
+TEXT_CHECKS: dict[ExtractionCheckName, Check] = {
+    "text_dropped": check_text_dropped,
+    "text_added": check_text_added,
+}
 
 
 def comparison_status(
@@ -1525,24 +1547,3 @@ def unmatched_labels(answer: PageAnswer, context: PageContext) -> list[ReviewIss
         )
         for (role, kind), refs in pairs.items()
     ]
-
-
-# The checks on the content of an answer, in the order they run.
-CHECKS: dict[ExtractionCheckName, Check] = {
-    "labels": check_labels,
-    "content": check_content,
-    "languages": check_languages,
-    "boxes": check_boxes,
-    "containers": check_containers,
-    "captions": check_captions,
-    "reading_order": check_reading_order,
-    "artifacts": check_artifacts,
-    "form_fields": check_form_fields,
-}
-
-# The checks that compare the answer's text with the page's text layer, in the order
-# they run, after `CHECKS`.
-TEXT_CHECKS: dict[ExtractionCheckName, Check] = {
-    "text_dropped": check_text_dropped,
-    "text_added": check_text_added,
-}

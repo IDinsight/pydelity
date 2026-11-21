@@ -122,25 +122,6 @@ def _price(
     )
 
 
-def _sum_or_none(costs: Sequence[Decimal | None]) -> Decimal | None:
-    """Add costs, unless one is unknown.
-
-    Parameters
-    ----------
-    costs
-        The costs; ``None`` where no price is known.
-
-    Returns
-    -------
-    Decimal | None
-        Their sum, or ``None`` when any is ``None``.
-    """
-
-    if any(cost is None for cost in costs):
-        return None
-    return sum((cost for cost in costs if cost is not None), Decimal(0))
-
-
 def _stopped_error(max_cost: Decimal) -> BudgetExceededError:
     """Make the error that stops a run whose spend may not exceed ``max_cost``.
 
@@ -160,6 +141,25 @@ def _stopped_error(max_cost: Decimal) -> BudgetExceededError:
         f"({format_usd(max_cost)}). To continue, raise max_cost, pass --yes on the "
         "command line, or call with allow_over_max_cost=True."
     )
+
+
+def _sum_or_none(costs: Sequence[Decimal | None]) -> Decimal | None:
+    """Add costs, unless one is unknown.
+
+    Parameters
+    ----------
+    costs
+        The costs; ``None`` where no price is known.
+
+    Returns
+    -------
+    Decimal | None
+        Their sum, or ``None`` when any is ``None``.
+    """
+
+    if any(cost is None for cost in costs):
+        return None
+    return sum((cost for cost in costs if cost is not None), Decimal(0))
 
 
 def _unpriced_message(model: str) -> str:

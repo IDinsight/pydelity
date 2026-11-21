@@ -216,72 +216,6 @@ class AnswerItem(_Output):
     """The text of a text, code or formula item, as printed; null for other kinds."""
 
 
-class PageAnswer(_Output):
-    """The model's reading of one page: its items in reading order."""
-
-    column_order: ColumnOrder | None
-    """On a page written top to bottom, the order its columns are read in; null on
-    other pages."""
-
-    containers: list[AnswerContainer]
-    """The bordered or shaded boxes on the page; empty when there are none."""
-
-    items: list[AnswerItem]
-    """Every item on the page, in reading order."""
-
-
-class VerifierProblem(_Output):
-    """A problem the verifier found in the extraction."""
-
-    category: ProblemCategory
-    """What kind of problem it is."""
-
-    description: str
-    """What is wrong and where, so that a person can find it."""
-
-    item_ref: str | None
-    """The ref of the item or container the problem is about; null when it is about
-    no single one, such as a missing item."""
-
-
-class VerifierVerdict(_Output):
-    """The verifier's verdict on one page's extraction."""
-
-    corrected: PageAnswer | None
-    """The whole page extracted again with the problems fixed; null when the
-    extraction passed or cannot be corrected."""
-
-    passed: bool
-    """Whether the extraction is faithful to the page, with nothing to fix."""
-
-    problems: list[VerifierProblem]
-    """The problems found; empty when the extraction passed."""
-
-    @model_validator(mode="after")
-    def _agree(self) -> Self:
-        """Check that ``passed`` agrees with the problems and the correction.
-
-        Returns
-        -------
-        Self
-            The verdict.
-
-        Raises
-        ------
-        ValueError
-            If a passed verdict lists problems or a correction, or a failed verdict
-            lists no problem.
-        """
-
-        if self.passed and (self.problems or self.corrected is not None):
-            raise ValueError(
-                "a verdict that passed has no problems and no corrected extraction"
-            )
-        if not self.passed and not self.problems:
-            raise ValueError("a verdict that did not pass names at least one problem")
-        return self
-
-
 class Container(_Output):
     """A bordered or shaded box on the page that holds items."""
 
@@ -314,6 +248,36 @@ class Entry(_Output):
 
     text: str
     """The entry's text as printed."""
+
+
+class ExtractionCheckResult(_Output):
+    """The result of one check on the page's kept answer."""
+
+    attempts: int
+    """How many answers were checked: 1 plus the retries used."""
+
+    failures: list[CheckFailure]
+    """The problems the check found in the kept answer. A failure about one item
+    names it in ``details``."""
+
+    name: ExtractionCheckName
+    """The check."""
+
+    passed: bool
+    """Whether the kept answer passed: ``failures`` is empty."""
+
+
+class ExtractionSettings(_Output):
+    """The page extraction settings a page's result depends on."""
+
+    check_retries: int
+    """How many times a model could answer again after failing the checks."""
+
+    effort: Effort
+    """How hard the models thought before answering."""
+
+    max_output_tokens: int
+    """The most tokens one model answer could contain, thinking included."""
 
 
 class Figure(_Output):
@@ -379,44 +343,18 @@ class Item(_Output):
     kinds."""
 
 
-class ExtractionCheckResult(_Output):
-    """The result of one check on the page's kept answer."""
+class PageAnswer(_Output):
+    """The model's reading of one page: its items in reading order."""
 
-    attempts: int
-    """How many answers were checked: 1 plus the retries used."""
+    column_order: ColumnOrder | None
+    """On a page written top to bottom, the order its columns are read in; null on
+    other pages."""
 
-    failures: list[CheckFailure]
-    """The problems the check found in the kept answer. A failure about one item
-    names it in ``details``."""
+    containers: list[AnswerContainer]
+    """The bordered or shaded boxes on the page; empty when there are none."""
 
-    name: ExtractionCheckName
-    """The check."""
-
-    passed: bool
-    """Whether the kept answer passed: ``failures`` is empty."""
-
-
-class ExtractionSettings(_Output):
-    """The page extraction settings a page's result depends on."""
-
-    check_retries: int
-    """How many times a model could answer again after failing the checks."""
-
-    effort: Effort
-    """How hard the models thought before answering."""
-
-    max_output_tokens: int
-    """The most tokens one model answer could contain, thinking included."""
-
-
-class PageImageSize(_Output):
-    """The size of the page image the models were sent."""
-
-    height_px: int
-    """Its height in pixels."""
-
-    width_px: int
-    """Its width in pixels."""
+    items: list[AnswerItem]
+    """Every item on the page, in reading order."""
 
 
 class PageRepeatedLine(_Output):
@@ -435,19 +373,6 @@ class PageRepeatedLine(_Output):
     use: RepeatedLineUse
     """Whether the survey decided the line is page furniture (``artifact``), content
     (``content``), or neither (``unclassified``)."""
-
-
-class RenderingSettings(_Output):
-    """How page images and figure crops are made."""
-
-    crop_dpi: int
-    """The resolution of figure crops, in dots per inch."""
-
-    jpeg_quality: int
-    """The JPEG quality of page images, from 0 to 100."""
-
-    max_dpi: int
-    """The highest resolution of a page image, in dots per inch."""
 
 
 class PageContext(_Output):
@@ -494,6 +419,29 @@ class PageContext(_Output):
     """The page's writing direction, from the profile."""
 
 
+class PageImageSize(_Output):
+    """The size of the page image the models were sent."""
+
+    height_px: int
+    """Its height in pixels."""
+
+    width_px: int
+    """Its width in pixels."""
+
+
+class RenderingSettings(_Output):
+    """How page images and figure crops are made."""
+
+    crop_dpi: int
+    """The resolution of figure crops, in dots per inch."""
+
+    jpeg_quality: int
+    """The JPEG quality of page images, from 0 to 100."""
+
+    max_dpi: int
+    """The highest resolution of a page image, in dots per inch."""
+
+
 class PageInputs(_Output):
     """What a page's extraction depends on, which its fingerprint covers."""
 
@@ -514,6 +462,58 @@ class PageInputs(_Output):
 
     settings: ExtractionSettings
     """The page extraction settings used."""
+
+
+class VerifierProblem(_Output):
+    """A problem the verifier found in the extraction."""
+
+    category: ProblemCategory
+    """What kind of problem it is."""
+
+    description: str
+    """What is wrong and where, so that a person can find it."""
+
+    item_ref: str | None
+    """The ref of the item or container the problem is about; null when it is about
+    no single one, such as a missing item."""
+
+
+class VerifierVerdict(_Output):
+    """The verifier's verdict on one page's extraction."""
+
+    corrected: PageAnswer | None
+    """The whole page extracted again with the problems fixed; null when the
+    extraction passed or cannot be corrected."""
+
+    passed: bool
+    """Whether the extraction is faithful to the page, with nothing to fix."""
+
+    problems: list[VerifierProblem]
+    """The problems found; empty when the extraction passed."""
+
+    @model_validator(mode="after")
+    def _agree(self) -> Self:
+        """Check that ``passed`` agrees with the problems and the correction.
+
+        Returns
+        -------
+        Self
+            The verdict.
+
+        Raises
+        ------
+        ValueError
+            If a passed verdict lists problems or a correction, or a failed verdict
+            lists no problem.
+        """
+
+        if self.passed and (self.problems or self.corrected is not None):
+            raise ValueError(
+                "a verdict that passed has no problems and no corrected extraction"
+            )
+        if not self.passed and not self.problems:
+            raise ValueError("a verdict that did not pass names at least one problem")
+        return self
 
 
 class PageVerification(_Output):

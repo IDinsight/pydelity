@@ -25,6 +25,52 @@ if TYPE_CHECKING:
     from pydantic_ai.models.openai import OpenAIResponsesModelSettings
     from pydantic_ai.settings import ModelSettings
 
+# Images Anthropic reads without shrinking them, on Claude 4.7 and later models: at most
+# 2,576 px on the long edge and 4,784 patches of 28 x 28 px, each one input token
+# (Anthropic's vision guide). Older models shrink larger images to their own limit.
+_ANTHROPIC_IMAGE_MAX_LONG_EDGE_PX = 2_576
+_ANTHROPIC_IMAGE_MAX_PATCHES = 4_784
+_ANTHROPIC_IMAGE_PATCH_PX = 28
+
+# Estimated input tokens for one PDF page sent to Anthropic. Anthropic's PDF support
+# page gives 1,500-3,000 text tokens per page, plus each page billed as an image; its
+# vision page caps an image at 4,784 tokens on Claude 4.7 and later models. The
+# estimate takes the top of both, so cost estimates err high.
+_ANTHROPIC_PDF_IMAGE_TOKENS = 4_784
+_ANTHROPIC_PDF_TEXT_TOKENS = 3_000
+
+# Anthropic's Files API keeps an upload for 1 hour to 90 days (3,600 to 7,776,000
+# seconds).
+_ANTHROPIC_UPLOAD_EXPIRY_HOURS = (1, 2_160)
+
+# Images OpenAI reads at their own size with detail "original": at most 6,000 px on the
+# long edge and 10,000 patches of 32 x 32 px on the GPT-5.4 and GPT-5.5 models, the
+# lowest limits of the models that take "original" (OpenAI's images guide). Their image
+# tokens are the patches times 1.2.
+_OPENAI_IMAGE_DETAIL = "original"
+_OPENAI_IMAGE_MAX_LONG_EDGE_PX = 6_000
+_OPENAI_IMAGE_MAX_PATCHES = 10_000
+_OPENAI_IMAGE_PATCH_PX = 32
+_OPENAI_IMAGE_TOKENS_PER_PATCH = 1.2
+
+# Estimated input tokens for one PDF page sent to OpenAI, which reads both the page's
+# extracted text and an image of the page. OpenAI gives no per-page figure, so the text
+# share uses Anthropic's documented upper bound (the same page text), and the image
+# share is OpenAI's high-detail cap of 2,500 patches times its 1.2 token multiplier.
+_OPENAI_PDF_IMAGE_TOKENS = 3_000
+_OPENAI_PDF_TEXT_TOKENS = 3_000
+
+# OpenAI's Files API keeps an upload for 1 hour to 30 days (3,600 to 2,592,000 seconds)
+# when given an expiry.
+_OPENAI_UPLOAD_EXPIRY_HOURS = (1, 720)
+
+# The page extraction model used when neither ``advanced.extraction.model`` nor
+# ``model`` is set.
+DEFAULT_EXTRACTION_MODEL = "anthropic:claude-opus-5-5"
+
+# The survey model used when ``model`` is not set.
+DEFAULT_SURVEY_MODEL = "anthropic:claude-opus-5-5"
+
 # How hard the model thinks before answering.
 type Effort = Literal["low", "medium", "high"]
 
@@ -38,45 +84,6 @@ type PdfTransport = Literal["upload", "request"]
 
 # The providers pydelity supports.
 type ProviderName = Literal["anthropic", "openai"]
-
-# Estimated input tokens for one PDF page sent to Anthropic. Anthropic's PDF support
-# page gives 1,500-3,000 text tokens per page, plus each page billed as an image; its
-# vision page caps an image at 4,784 tokens on Claude 4.7 and later models. The
-# estimate takes the top of both, so cost estimates err high.
-_ANTHROPIC_PDF_IMAGE_TOKENS = 4_784
-_ANTHROPIC_PDF_TEXT_TOKENS = 3_000
-
-# Anthropic's Files API keeps an upload for 1 hour to 90 days (3,600 to 7,776,000
-# seconds).
-_ANTHROPIC_UPLOAD_EXPIRY_HOURS = (1, 2_160)
-
-# Images Anthropic reads without shrinking them, on Claude 4.7 and later models: at most
-# 2,576 px on the long edge and 4,784 patches of 28 x 28 px, each one input token
-# (Anthropic's vision guide). Older models shrink larger images to their own limit.
-_ANTHROPIC_IMAGE_MAX_LONG_EDGE_PX = 2_576
-_ANTHROPIC_IMAGE_MAX_PATCHES = 4_784
-_ANTHROPIC_IMAGE_PATCH_PX = 28
-
-# Estimated input tokens for one PDF page sent to OpenAI, which reads both the page's
-# extracted text and an image of the page. OpenAI gives no per-page figure, so the text
-# share uses Anthropic's documented upper bound (the same page text), and the image
-# share is OpenAI's high-detail cap of 2,500 patches times its 1.2 token multiplier.
-_OPENAI_PDF_IMAGE_TOKENS = 3_000
-_OPENAI_PDF_TEXT_TOKENS = 3_000
-
-# OpenAI's Files API keeps an upload for 1 hour to 30 days (3,600 to 2,592,000 seconds)
-# when given an expiry.
-_OPENAI_UPLOAD_EXPIRY_HOURS = (1, 720)
-
-# Images OpenAI reads at their own size with detail "original": at most 6,000 px on the
-# long edge and 10,000 patches of 32 x 32 px on the GPT-5.4 and GPT-5.5 models, the
-# lowest limits of the models that take "original" (OpenAI's images guide). Their image
-# tokens are the patches times 1.2.
-_OPENAI_IMAGE_DETAIL = "original"
-_OPENAI_IMAGE_MAX_LONG_EDGE_PX = 6_000
-_OPENAI_IMAGE_MAX_PATCHES = 10_000
-_OPENAI_IMAGE_PATCH_PX = 32
-_OPENAI_IMAGE_TOKENS_PER_PATCH = 1.2
 
 
 def _anthropic_effort_settings(effort: Effort) -> ModelSettings:
@@ -236,13 +243,6 @@ class ProviderProfile:
 
         return self.pdf_image_tokens_per_page + self.pdf_text_tokens_per_page
 
-
-# The page extraction model used when neither ``advanced.extraction.model`` nor
-# ``model`` is set.
-DEFAULT_EXTRACTION_MODEL = "anthropic:claude-opus-5-5"
-
-# The survey model used when ``model`` is not set.
-DEFAULT_SURVEY_MODEL = "anthropic:claude-opus-5-5"
 
 PROFILES: dict[ProviderName, ProviderProfile] = {
     "anthropic": ProviderProfile(

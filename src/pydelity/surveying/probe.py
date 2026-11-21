@@ -48,6 +48,53 @@ from pydelity.surveying.schemas import (
 from pydelity.utils.pdf import TEXT_FLAGS
 from pydelity.utils.text import normalize_line
 
+# Items of a PDF array as PyMuPDF prints it: references, inline dictionaries and
+# integers (marked-content IDs).
+_ARRAY_ITEM = re.compile(r"(\d+)\s+\d+\s+R|(<<.*?>>)|(-?\d+)", re.DOTALL)
+
+# Form field types, as PyMuPDF names them, and as pdf_facts.json records them.
+_FIELD_TYPES: dict[str, FieldType] = {
+    "Button": "button",
+    "CheckBox": "checkbox",
+    "ComboBox": "combobox",
+    "ListBox": "listbox",
+    "RadioButton": "radio",
+    "Signature": "signature",
+    "Text": "text",
+}
+
+# A page label's number at its end, after any prefix: decimal digits, or letters (a
+# roman numeral) after a character that is not a letter, as in "Page 12" or "A-iv".
+_LABEL_NUMBER = re.compile(r"(?:.*\W)?([^\W\d_]+)|.*?(\d+)")
+
+# How long an error message from a malformed PDF may be.
+_MAX_MESSAGE_CHARS = 200
+
+# How many role-map steps lead from a custom structure type to a standard one, at most.
+_MAX_ROLE_STEPS = 10
+
+# Page-label numbering styles that give a page number: decimal digits, and upper- or
+# lower-case roman numerals. Letter styles (A, a) and labels with no style give none.
+_NUMBERED_LABEL_STYLES = frozenset({"D", "R", "r"})
+
+# A line's number or word parts: runs of decimal digits (any script) or of letters.
+_NUMBER_PARTS = re.compile(r"\d+|[^\W\d_]+")
+
+# The page reference of an inline marked-content or object reference dictionary.
+_PAGE_REFERENCE = re.compile(r"/Pg\s+(\d+)\s+\d+\s+R")
+
+# A key of a dictionary whose value is a reference, as PyMuPDF prints the dictionary,
+# such as the on and off states of a button's appearances: /Yes 12 0 R.
+_REFERENCE_KEY = re.compile(r"/([^\s/<>\[\]()]+)\s+\d+\s+\d+\s+R")
+
+# A pair in an inline role-map dictionary: /CustomType /StandardType.
+_ROLE_MAP_PAIR = re.compile(r"/([^\s/<>\[\]()]+)\s*/([^\s/<>\[\]()]+)")
+
+# A roman numeral from 1 to 3999.
+_ROMAN = re.compile(r"M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})")
+
+_ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+
 # A page's top band, and its bottom band, as a share of the displayed page's height.
 # Printed page numbers are looked for there, and repeated lines are placed by it.
 BAND_SHARE = 0.1
@@ -99,53 +146,6 @@ STRUCTURE_GROUPING_TYPES = frozenset(
 )
 
 STRUCTURE_MIN_ELEMENTS = 10
-
-# Items of a PDF array as PyMuPDF prints it: references, inline dictionaries and
-# integers (marked-content IDs).
-_ARRAY_ITEM = re.compile(r"(\d+)\s+\d+\s+R|(<<.*?>>)|(-?\d+)", re.DOTALL)
-
-# Form field types, as PyMuPDF names them, and as pdf_facts.json records them.
-_FIELD_TYPES: dict[str, FieldType] = {
-    "Button": "button",
-    "CheckBox": "checkbox",
-    "ComboBox": "combobox",
-    "ListBox": "listbox",
-    "RadioButton": "radio",
-    "Signature": "signature",
-    "Text": "text",
-}
-
-# How long an error message from a malformed PDF may be.
-_MAX_MESSAGE_CHARS = 200
-
-# How many role-map steps lead from a custom structure type to a standard one, at most.
-_MAX_ROLE_STEPS = 10
-
-# Page-label numbering styles that give a page number: decimal digits, and upper- or
-# lower-case roman numerals. Letter styles (A, a) and labels with no style give none.
-_NUMBERED_LABEL_STYLES = frozenset({"D", "R", "r"})
-
-# A line's number or word parts: runs of decimal digits (any script) or of letters.
-_NUMBER_PARTS = re.compile(r"\d+|[^\W\d_]+")
-
-# A page label's number at its end, after any prefix: decimal digits, or letters (a
-# roman numeral) after a character that is not a letter, as in "Page 12" or "A-iv".
-_LABEL_NUMBER = re.compile(r"(?:.*\W)?([^\W\d_]+)|.*?(\d+)")
-
-# The page reference of an inline marked-content or object reference dictionary.
-_PAGE_REFERENCE = re.compile(r"/Pg\s+(\d+)\s+\d+\s+R")
-
-# A key of a dictionary whose value is a reference, as PyMuPDF prints the dictionary,
-# such as the on and off states of a button's appearances: /Yes 12 0 R.
-_REFERENCE_KEY = re.compile(r"/([^\s/<>\[\]()]+)\s+\d+\s+\d+\s+R")
-
-# A pair in an inline role-map dictionary: /CustomType /StandardType.
-_ROLE_MAP_PAIR = re.compile(r"/([^\s/<>\[\]()]+)\s*/([^\s/<>\[\]()]+)")
-
-# A roman numeral from 1 to 3999.
-_ROMAN = re.compile(r"M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})")
-
-_ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 
 
 @dataclass(frozen=True)

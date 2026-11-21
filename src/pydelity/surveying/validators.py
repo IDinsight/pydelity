@@ -610,6 +610,18 @@ def check_writing_direction(answer: SurveyAnswer, facts: Facts) -> list[CheckFai
     )
 
 
+# The checks, C1 to C7 in order.
+CHECKS: dict[SurveyCheckName, Check] = {
+    "labels": check_labels,
+    "regions": check_regions,
+    "rotation": check_rotation,
+    "page_numbering": check_page_numbering,
+    "artifacts": check_artifacts,
+    "writing_direction": check_writing_direction,
+    "languages": check_languages,
+}
+
+
 def compare_with_facts(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
     """Record where the accepted answer differs from the measured facts.
 
@@ -745,15 +757,3 @@ def run_checks(
     """
 
     return {name: check(answer, facts) for name, check in CHECKS.items()}
-
-
-# The checks, C1 to C7 in order.
-CHECKS: dict[SurveyCheckName, Check] = {
-    "labels": check_labels,
-    "regions": check_regions,
-    "rotation": check_rotation,
-    "page_numbering": check_page_numbering,
-    "artifacts": check_artifacts,
-    "writing_direction": check_writing_direction,
-    "languages": check_languages,
-}

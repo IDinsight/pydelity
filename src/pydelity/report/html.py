@@ -38,13 +38,6 @@ from pydelity.surveying.schemas import Facts, ItemKind, PageFacts, PdfFacts, Pdf
 from pydelity.surveying.validators import covering_range
 from pydelity.utils.files import write_text_atomic
 
-
-class _Html(str):
-    """Markup built in this module, which `_table` puts in a cell as it is."""
-
-    __slots__ = ()
-
-
 # Each step's heading in the review section, by the step's name in the review issues.
 _STEP_TITLES = {"extraction": "Page extraction", "survey": "Survey"}
 
@@ -58,6 +51,12 @@ _TEXT_COMPARISON = {
 
 # The report's file name in the output folder.
 REPORT_FILE_NAME = "report.html"
+
+
+class _Html(str):
+    """Markup built in this module, which `_table` puts in a cell as it is."""
+
+    __slots__ = ()
 
 
 def _box(*, bbox: Sequence[float], kind: str, label: str, page: PageFacts) -> str:

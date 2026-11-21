@@ -121,9 +121,9 @@ class ProviderError(PydelityError):
         self.upload_error = upload_error
 
 
-class SurveyError(PydelityError):
-    """The survey step could not produce a usable answer."""
-
-
 class PydelityWarning(UserWarning):
     """A problem the user should know about that does not stop the run."""
+
+
+class SurveyError(PydelityError):
+    """The survey step could not produce a usable answer."""

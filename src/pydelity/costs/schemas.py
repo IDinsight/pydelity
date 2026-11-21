@@ -11,20 +11,78 @@ from typing import Annotated, Literal
 # Third Party Library
 from pydantic import BaseModel, ConfigDict, PlainSerializer
 
+# Which ``max_cost`` check failed: ``plan``, before the run starts spending, or
+# ``request``, before one model request.
+type MaxCostCheck = Literal["plan", "request"]
+
 # A sum of money in US dollars, written as a JSON number.
 type Money = Annotated[
     Decimal, PlainSerializer(float, return_type=float, when_used="json")
 ]
-
-# Which ``max_cost`` check failed: ``plan``, before the run starts spending, or
-# ``request``, before one model request.
-type MaxCostCheck = Literal["plan", "request"]
 
 
 class _Record(BaseModel):
     """Base for the cost records."""
 
     model_config = ConfigDict(use_attribute_docstrings=True)
+
+
+class StepEstimate(_Record):
+    """The cost estimate for one step."""
+
+    expected_usd: Money | None
+    """The likely cost: one request per agent (and per page, for a page step) with a
+    typical answer; ``None`` when unpriced."""
+
+    max_usd: Money | None
+    """The most the step can cost: every allowed retry, each with the longest answer
+    allowed; ``None`` when unpriced."""
+
+    model: str
+    """The model, as ``<provider>:<model-id>``."""
+
+    name: str
+    """The step, such as ``survey``."""
+
+    pages: int | None
+    """How many pages the step would send requests about, for a page step; ``None``
+    for a step that reads the whole PDF at once, such as the survey."""
+
+    requests_max: int
+    """The most model requests the step can make (provider retries aside)."""
+
+    reused: bool
+    """Whether the step's saved output will be reused, so it costs nothing."""
+
+
+class CostEstimate(_Record):
+    """A run's likely and maximum cost, estimated before it spends anything."""
+
+    expected_usd: Money | None
+    """The steps' likely cost; ``None`` when a model is unpriced."""
+
+    max_cost: Money | None
+    """The ``max_cost`` setting."""
+
+    max_usd: Money | None
+    """The most the steps can cost; ``None`` when a model is unpriced."""
+
+    over_max_cost: bool
+    """Whether ``max_cost`` is set and either the folder's spend plus
+    ``expected_usd`` exceeds it or a model has no known price. Each request is still
+    checked against its own maximum before it is sent."""
+
+    priced: bool
+    """Whether a price is known for every model the run uses."""
+
+    spent_usd: Money
+    """What the output folder's ledger has recorded so far, from earlier runs."""
+
+    steps: list[StepEstimate]
+    """The estimate for each step."""
+
+    warnings: list[str]
+    """Problems with the estimate, such as a model with no known price."""
 
 
 class LedgerEntry(_Record):
@@ -107,61 +165,3 @@ class MaxCostWarning(_Record):
 
     spent_usd: Money
     """What the output folder's ledger had recorded before the check."""
-
-
-class StepEstimate(_Record):
-    """The cost estimate for one step."""
-
-    expected_usd: Money | None
-    """The likely cost: one request per agent (and per page, for a page step) with a
-    typical answer; ``None`` when unpriced."""
-
-    max_usd: Money | None
-    """The most the step can cost: every allowed retry, each with the longest answer
-    allowed; ``None`` when unpriced."""
-
-    model: str
-    """The model, as ``<provider>:<model-id>``."""
-
-    name: str
-    """The step, such as ``survey``."""
-
-    pages: int | None
-    """How many pages the step would send requests about, for a page step; ``None``
-    for a step that reads the whole PDF at once, such as the survey."""
-
-    requests_max: int
-    """The most model requests the step can make (provider retries aside)."""
-
-    reused: bool
-    """Whether the step's saved output will be reused, so it costs nothing."""
-
-
-class CostEstimate(_Record):
-    """A run's likely and maximum cost, estimated before it spends anything."""
-
-    expected_usd: Money | None
-    """The steps' likely cost; ``None`` when a model is unpriced."""
-
-    max_cost: Money | None
-    """The ``max_cost`` setting."""
-
-    max_usd: Money | None
-    """The most the steps can cost; ``None`` when a model is unpriced."""
-
-    over_max_cost: bool
-    """Whether ``max_cost`` is set and either the folder's spend plus
-    ``expected_usd`` exceeds it or a model has no known price. Each request is still
-    checked against its own maximum before it is sent."""
-
-    priced: bool
-    """Whether a price is known for every model the run uses."""
-
-    spent_usd: Money
-    """What the output folder's ledger has recorded so far, from earlier runs."""
-
-    steps: list[StepEstimate]
-    """The estimate for each step."""
-
-    warnings: list[str]
-    """Problems with the estimate, such as a model with no known price."""

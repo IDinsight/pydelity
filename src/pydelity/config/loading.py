@@ -28,10 +28,6 @@ from pydelity.providers.profiles import (
     parse_model,
 )
 
-# Where the settings can come from, besides keywords: a JSON or YAML file, a `Config`,
-# or a mapping of settings.
-type ConfigSource = str | os.PathLike[str] | Config | Mapping[str, object]
-
 # The environment variable that holds each provider's API key.
 _API_KEY_VARIABLES: dict[ProviderName, str] = {
     "anthropic": "ANTHROPIC_API_KEY",
@@ -46,6 +42,10 @@ _INPUT_SHOWN_CHARS = 60
 
 # The top-level settings that hold paths.
 _PATH_SETTINGS = ("output_dir", "pdf")
+
+# Where the settings can come from, besides keywords: a JSON or YAML file, a `Config`,
+# or a mapping of settings.
+type ConfigSource = str | os.PathLike[str] | Config | Mapping[str, object]
 
 
 def _describe_input(value: object) -> str:

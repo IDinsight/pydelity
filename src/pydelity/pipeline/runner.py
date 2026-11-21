@@ -477,45 +477,6 @@ async def _finish(
     return record
 
 
-def _load_part[ModelT: BaseModel](
-    *, model_type: type[ModelT], path: Path, version: str
-) -> ModelT | None:
-    """Read one output file for `load_run`, raising instead of reporting damage.
-
-    Parameters
-    ----------
-    model_type
-        The model the file must validate against. It has a ``schema_version``.
-    path
-        The file.
-    version
-        The schema version this pydelity writes; the file's major version must match.
-
-    Returns
-    -------
-    ModelT | None
-        The file's contents, or ``None`` when it does not exist.
-
-    Raises
-    ------
-    OutputError
-        If the file is not valid JSON, does not match its schema, or has another
-        major schema version.
-    """
-
-    loaded = load_model(model_type=model_type, path=path)
-    if loaded.damage is not None:
-        raise OutputError(f"{loaded.damage}; it cannot be read back")
-    found = getattr(loaded.model, "schema_version", None)
-    major = version.split(".", maxsplit=1)[0]
-    if found is not None and found.split(".", maxsplit=1)[0] != major:
-        raise OutputError(
-            f"{path.name} has schema version {found}, but this pydelity reads only "
-            f"version {major}.x"
-        )
-    return loaded.model
-
-
 def _load_pages(folder: Path) -> list[PageFile]:
     """Read every page file in an output folder for `load_run`.
 
@@ -555,6 +516,45 @@ def _load_pages(folder: Path) -> list[PageFile]:
                 )
         pages.append(page)
     return pages
+
+
+def _load_part[ModelT: BaseModel](
+    *, model_type: type[ModelT], path: Path, version: str
+) -> ModelT | None:
+    """Read one output file for `load_run`, raising instead of reporting damage.
+
+    Parameters
+    ----------
+    model_type
+        The model the file must validate against. It has a ``schema_version``.
+    path
+        The file.
+    version
+        The schema version this pydelity writes; the file's major version must match.
+
+    Returns
+    -------
+    ModelT | None
+        The file's contents, or ``None`` when it does not exist.
+
+    Raises
+    ------
+    OutputError
+        If the file is not valid JSON, does not match its schema, or has another
+        major schema version.
+    """
+
+    loaded = load_model(model_type=model_type, path=path)
+    if loaded.damage is not None:
+        raise OutputError(f"{loaded.damage}; it cannot be read back")
+    found = getattr(loaded.model, "schema_version", None)
+    major = version.split(".", maxsplit=1)[0]
+    if found is not None and found.split(".", maxsplit=1)[0] != major:
+        raise OutputError(
+            f"{path.name} has schema version {found}, but this pydelity reads only "
+            f"version {major}.x"
+        )
+    return loaded.model
 
 
 def _log_estimate(estimate: CostEstimate) -> None:

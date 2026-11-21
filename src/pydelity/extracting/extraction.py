@@ -92,6 +92,13 @@ from pydelity.utils.fingerprints import fingerprint
 _EXTRACTOR_ALLOWANCE_CHARS = 20_000
 _VERIFIER_ALLOWANCE_CHARS = 24_000
 
+# The folder in the output folder that holds the figure crops,
+# ``figures/<item ID>.png``.
+FIGURES_FOLDER_NAME = "figures"
+
+# The folder in the output folder that holds the page files, ``pages/<NNNN>.json``.
+PAGES_FOLDER_NAME = "pages"
+
 
 @dataclass(frozen=True)
 class _KeptAnswer:
@@ -743,14 +750,6 @@ async def _write_page(
         if old.name not in named:
             old.unlink(missing_ok=True)
             logger.debug("Removed {path}, which the page no longer has", path=old)
-
-
-# The folder in the output folder that holds the figure crops,
-# ``figures/<item ID>.png``.
-FIGURES_FOLDER_NAME = "figures"
-
-# The folder in the output folder that holds the page files, ``pages/<NNNN>.json``.
-PAGES_FOLDER_NAME = "pages"
 
 
 @dataclass(frozen=True)
