@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
-`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -30,8 +30,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `CHECKPOINT` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
-`Increment 4 ready: load() filters page files by the facts' PDF, report tables keep body cells in their columns, and the probe survives dangling outline links and inline widgets (DEV-008 to DEV-010; AC-021 to AC-025); Tester assesses it.`
+`Kind`: `CHECKPOINT` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
+`Increment 4 verified: load() keeps only the folder's PDF's page files, report tables keep body cells in their columns, and the probe survives dangling outline links and inline widgets (AC-021 to AC-025); Developer selects the next work.`
 
 ## Recovery
 

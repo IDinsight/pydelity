@@ -6,6 +6,7 @@ import os
 import re
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -72,6 +73,16 @@ class _Ancestry(HTMLParser):
             self._open.append(element)
 
 
+@dataclass
+class _Cell:
+    """One cell of an HTML table, as written."""
+
+    col_span: int
+    row_span: int
+    tag: str
+    text: str = ""
+
+
 class _Links(HTMLParser):
     """Collect the image sources, link targets and tags of an HTML page."""
 
@@ -100,6 +111,109 @@ class _Links(HTMLParser):
                 self.images.append(value)
             elif name == "href" and value is not None:
                 self.links.append(value)
+
+
+class _TableCells(HTMLParser):
+    """Collect the cells of a page's item tables, by row group and row."""
+
+    def __init__(self) -> None:
+        """Start with no cell read."""
+
+        super().__init__()
+        self._cell: _Cell | None = None
+        self._in_table = False
+        self.groups: list[list[list[_Cell]]] = []
+
+    def handle_data(self, data: str) -> None:
+        """Add text to the cell being read.
+
+        Parameters
+        ----------
+        data
+            The text.
+        """
+
+        if self._cell is not None:
+            self._cell.text += data
+
+    def handle_endtag(self, tag: str) -> None:
+        """Finish a cell or an item table.
+
+        Parameters
+        ----------
+        tag
+            The tag's name.
+        """
+
+        if tag in {"td", "th"}:
+            self._cell = None
+        elif tag == "table":
+            self._in_table = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Start an item table, a row group, a row or a cell.
+
+        Parameters
+        ----------
+        tag
+            The tag's name.
+        attrs
+            Its attributes.
+        """
+
+        values = dict(attrs)
+        if tag == "table":
+            self._in_table = "item-table" in (values.get("class") or "").split()
+        elif not self._in_table:
+            return
+        elif tag in {"tbody", "tfoot", "thead"}:
+            self.groups.append([])
+        elif tag == "tr":
+            if not self.groups:
+                self.groups.append([])
+            self.groups[-1].append([])
+        elif tag in {"td", "th"}:
+            self._cell = _Cell(
+                col_span=int(values.get("colspan") or 1),
+                row_span=int(values.get("rowspan") or 1),
+                tag=tag,
+            )
+            self.groups[-1][-1].append(self._cell)
+
+
+def _columns(groups: list[list[list[_Cell]]]) -> dict[str, int]:
+    """Place each cell in its column, as HTML does.
+
+    Cells fill each row from the left, skipping places that a cell above still
+    spans. A row span ends at the end of its row group.
+
+    Parameters
+    ----------
+    groups
+        The table's row groups, each a list of rows of cells.
+
+    Returns
+    -------
+    dict[str, int]
+        Each cell's text and its first column, counted from 0.
+    """
+
+    columns = {}
+    for rows in groups:
+        taken: set[tuple[int, int]] = set()
+        for row_number, cells in enumerate(rows):
+            column = 0
+            for cell in cells:
+                while (row_number, column) in taken:
+                    column += 1
+                columns[cell.text] = column
+                taken.update(
+                    (row, place)
+                    for row in range(row_number, row_number + cell.row_span)
+                    for place in range(column, column + cell.col_span)
+                )
+                column += cell.col_span
+    return columns
 
 
 def _css_rules(stylesheet: str) -> list[tuple[str, dict[str, str]]]:
@@ -194,6 +308,99 @@ def _parse(path: Path) -> _Links:
     parser = _Links()
     parser.feed(path.read_text(encoding="utf-8"))
     return parser
+
+
+def test_a_header_cell_spanning_into_the_body_keeps_each_body_cell_in_its_column(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """A table's rows share one row group, so a header cell can span the body.
+
+    The header row's first cell spans all three rows. Placed as a browser places
+    them, the report's cells land in the columns the page file gives them, header
+    cells as ``th`` and body cells as ``td``.
+    """
+
+    def cell(text: str, row_span: int = 1) -> dict[str, object]:
+        """Write one table cell."""
+
+        return {"col_span": 1, "row_span": row_span, "text": text}
+
+    table = {
+        "header_rows": 1,
+        "rows": [
+            [cell("Section", row_span=3), cell("Item"), cell("Amount")],
+            [cell("b1"), cell("c1")],
+            [cell("b2"), cell("c2")],
+        ],
+    }
+    item = dict.fromkeys(
+        ["caption_of", "container", "entries", "field", "figure", "latex", "text"]
+    ) | {
+        "box": [100, 100, 900, 400],
+        "kind": "table",
+        "label": "Table",
+        "language": "en",
+        "ref": "tab",
+        "role": "body",
+        "table": table,
+    }
+    labels = [
+        {"description": "Text.", "kinds": ["text"], "name": "Body", "role": "body"},
+        {"description": "Grid.", "kinds": ["table"], "name": "Table", "role": "body"},
+    ]
+    mock_providers(
+        answers=[survey_answer(labels=labels)],
+        page_answers={
+            0: {
+                "extractor": {
+                    "column_order": None,
+                    "containers": [],
+                    "items": [item],
+                }
+            }
+        },
+    )
+
+    pydelity.run(
+        pdf_path("irs_form_1040a_1965_scan.pdf"),
+        output_dir="out",
+        pages="1",
+        pause=False,
+    )
+
+    (page,) = pydelity.load("out").pages
+    (saved,) = [item.table for item in page.items if item.table is not None]
+    rows = [
+        [
+            _Cell(col_span=c.col_span, row_span=c.row_span, tag="", text=c.text or "")
+            for c in row
+        ]
+        for row in saved.rows
+    ]
+    parser = _TableCells()
+    parser.feed(Path("out/report.html").read_text(encoding="utf-8"))
+    assert _columns([rows]) == {
+        "Section": 0,
+        "Item": 1,
+        "Amount": 2,
+        "b1": 1,
+        "c1": 2,
+        "b2": 1,
+        "c2": 2,
+    }
+    assert _columns(parser.groups) == _columns([rows])
+    cells = [cell for group in parser.groups for row in group for cell in row]
+    assert [(cell.text, cell.tag) for cell in cells] == [
+        ("Section", "th"),
+        ("Item", "th"),
+        ("Amount", "th"),
+        ("b1", "td"),
+        ("c1", "td"),
+        ("b2", "td"),
+        ("c2", "td"),
+    ]
 
 
 def test_a_page_no_verifier_reviewed_says_so_in_the_report(

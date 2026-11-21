@@ -270,6 +270,39 @@ def test_event_loop_stays_responsive_while_measuring(
     assert longest_wait < 0.6 * measuring
 
 
+def test_load_leaves_out_the_page_files_of_another_pdf(
+    canned_answers: Callable[[str], dict[str, object]],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+) -> None:
+    """`load` returns only the page files made from the PDF in ``pdf_facts.json``.
+
+    Two page files from another PDF are left out, even the one naming a figure image
+    that is missing. A page file of the folder's own PDF naming a missing figure
+    image still raises `OutputError`.
+    """
+
+    mock_providers(**canned_answers(_SCAN))
+    pydelity.extract(pdf_path(_SCAN), output_dir="out")
+    own = json.loads(Path("out/pages/0000.json").read_text("utf-8"))
+    figure = {"crop": "figures/p0003-001.png", "description": "A seal.", "text": None}
+    for index, with_figure in ((3, True), (4, False)):
+        other = json.loads(json.dumps(own))
+        other["inputs"]["pdf_sha256"] = "0" * 64
+        other["page_index"] = index
+        if with_figure:
+            other["items"][0] |= {"figure": figure, "kind": "figure"}
+        Path(f"out/pages/{index:04d}.json").write_text(json.dumps(other), "utf-8")
+
+    loaded = pydelity.load("out")
+
+    assert [page.page_index for page in loaded.pages] == [0, 1]
+    own["items"][0] |= {"figure": figure, "kind": "figure"}
+    Path("out/pages/0000.json").write_text(json.dumps(own), "utf-8")
+    with pytest.raises(OutputError, match=r"p0003-001\.png"):
+        pydelity.load("out")
+
+
 def test_load_of_a_damaged_file_raises_naming_it(
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
@@ -298,6 +331,28 @@ def test_load_of_a_damaged_page_file_raises_naming_it(
 
     with pytest.raises(OutputError, match=r"0001\.json"):
         pydelity.load("out")
+
+
+def test_load_of_a_folder_without_facts_gives_no_pages(
+    canned_answers: Callable[[str], dict[str, object]],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+) -> None:
+    """Without ``pdf_facts.json`` the folder's PDF is unknown, so no page is loaded.
+
+    The survey and the ledger still load.
+    """
+
+    mock_providers(**canned_answers(_SCAN))
+    extracted = pydelity.extract(pdf_path(_SCAN), output_dir="out")
+    assert len(extracted) == 2
+    Path("out/pdf_facts.json").unlink()
+
+    loaded = pydelity.load("out")
+
+    assert (loaded.facts, loaded.pages) == (None, [])
+    assert loaded.survey is not None
+    assert len(loaded.ledger) == 3
 
 
 def test_load_of_a_measured_folder_gives_only_the_facts(

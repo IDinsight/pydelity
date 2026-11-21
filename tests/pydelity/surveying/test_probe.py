@@ -15,7 +15,13 @@ import pytest
 
 # Package Library
 from pydelity.surveying.probe import probe_pdf
-from pydelity.surveying.schemas import Bookmark, Facts, PrintedNumber, StructureFacts
+from pydelity.surveying.schemas import (
+    Bookmark,
+    Facts,
+    PrintedNumber,
+    ProbeError,
+    StructureFacts,
+)
 
 
 def _new_object(*, document: pymupdf.Document, source: str) -> int:
@@ -37,6 +43,39 @@ def _new_object(*, document: pymupdf.Document, source: str) -> int:
     xref = document.get_new_xref()
     document.update_object(xref, source)
     return xref
+
+
+def _save_outline(*, cycle: bool, dangling: str, path: Path) -> None:
+    """Save a 3-page PDF whose outline has a link to an object it does not have.
+
+    Parameters
+    ----------
+    cycle
+        Whether the last entry's ``Next`` also links back to the first entry.
+    dangling
+        The link to an object past the PDF's last one: ``Next`` on the last entry, or
+        ``First`` on the middle entry.
+    path
+        Where to save the PDF.
+    """
+
+    document = pymupdf.open()
+    for _ in range(3):
+        document.new_page()
+    document.set_toc([[1, "Intro", 1], [1, "Methods", 2], [1, "Results", 3]])
+    catalog = document.pdf_catalog()
+    first = document.xref_get_key(catalog, "Outlines/First")[1]
+    middle = int(document.xref_get_key(catalog, "Outlines/First/Next")[1].split()[0])
+    last = int(document.xref_get_key(catalog, "Outlines/Last")[1].split()[0])
+    missing = f"{document.xref_length() + 10} 0 R"
+    if dangling == "Next":
+        document.xref_set_key(last, "Next", missing)
+    else:
+        document.xref_set_key(middle, "First", missing)
+    if cycle:
+        document.xref_set_key(last, "Next", first)
+    document.save(path)
+    document.close()
 
 
 def _save_radio_group(*, path: Path, shown: tuple[str, str]) -> None:
@@ -198,6 +237,49 @@ def test_a_fact_that_cannot_be_read_is_null_with_a_probe_error(
     ]
     assert facts.form_fields == []
     assert facts.structure is not None
+
+
+@pytest.mark.parametrize(
+    "widget", ["/FT/Tx/V(typed)", "/FT/Btn/V/Yes/AS/Yes"], ids=["text", "checkbox"]
+)
+def test_an_inline_form_field_is_left_out_with_a_probe_error_and_the_others_kept(
+    tmp_path: Path, widget: str
+) -> None:
+    """A field written inside a page's annotation list is skipped, with one error.
+
+    PyMuPDF gives such a field object number 0. The other field on the page is read
+    as usual, whether the inline field is a text field or a checkbox.
+    """
+
+    document = pymupdf.open()
+    page = document.new_page()
+    kept = pymupdf.Widget()
+    kept.field_name = "kept"
+    kept.field_type = pymupdf.PDF_WIDGET_TYPE_TEXT
+    kept.field_value = "Ada"
+    kept.rect = pymupdf.Rect(72, 72, 272, 92)
+    page.add_widget(kept)
+    inline = f"<</Type/Annot/Subtype/Widget/T(inline){widget}/Rect[72 300 272 320]>>"
+    document.xref_set_key(page.xref, "Annots", f"[{kept.xref} 0 R {inline}]")
+    path = tmp_path / "inline_field.pdf"
+    document.save(path)
+    document.close()
+    with pymupdf.open(path) as saved:
+        assert [xref for xref, *_ in saved[0].annot_xrefs()] == [kept.xref, 0]
+
+    facts = probe_pdf(path)
+
+    assert facts.form_fields is not None
+    assert [(field.name, field.value) for field in facts.form_fields] == [
+        ("kept", "Ada")
+    ]
+    assert facts.probe_errors == [
+        ProbeError(
+            fact="form",
+            message="Page 1 (index 0): a form field written inside the page's "
+            "annotation list has no object number, so it was not read",
+        )
+    ]
 
 
 def test_arabic_two_column_pages_read_right_to_left(
@@ -403,6 +485,37 @@ def test_letter_page_labels_give_no_page_number(tmp_path: Path) -> None:
         PrintedNumber(source="page_label", style="label", text="C", value=None),
         PrintedNumber(source="page_label", style="label", text="i", value=None),
     ]
+
+
+@pytest.mark.parametrize(
+    ("dangling", "cycle"), [("Next", False), ("First", True)], ids=["next", "first"]
+)
+def test_outline_links_to_missing_objects_keep_the_bookmarks_pymupdf_reads(
+    cycle: bool, dangling: str, tmp_path: Path
+) -> None:
+    """A link to an object the PDF does not have is skipped, with no probe error.
+
+    The bookmarks are what PyMuPDF reads from the outline, which ends at that link.
+    A cycle after it is still cut, so they are the same as from the outline without
+    the cycle, where PyMuPDF would read none.
+    """
+
+    path = tmp_path / "outline.pdf"
+    _save_outline(cycle=cycle, dangling=dangling, path=path)
+    without_cycle = tmp_path / "outline_without_cycle.pdf"
+    _save_outline(cycle=False, dangling=dangling, path=without_cycle)
+    with pymupdf.open(without_cycle) as document:
+        read = document.get_toc(simple=True)
+
+    facts = probe_pdf(path)
+
+    assert facts.bookmarks == [
+        Bookmark(level=level, page_index=page - 1 if page >= 1 else None, title=title)
+        for level, title, page in read
+    ]
+    assert facts.bookmarks is not None
+    assert [bookmark.title for bookmark in facts.bookmarks[:2]] == ["Intro", "Methods"]
+    assert facts.probe_errors == []
 
 
 def test_outline_with_a_cycle_keeps_the_bookmarks_before_it(tmp_path: Path) -> None:
