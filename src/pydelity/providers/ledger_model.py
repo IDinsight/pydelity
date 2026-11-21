@@ -272,7 +272,8 @@ class LedgerContext:
     ----------
     agent
         The step's agent that makes the requests, such as ``extractor``; ``None`` for
-        a step with one agent.
+        the step's own wrapper, which sends no request itself. Each request goes
+        through a wrapper from `LedgerModel.for_agent` or `LedgerModel.for_page`.
     guard
         The run's ``max_cost`` guard.
     ledger_path
@@ -328,13 +329,36 @@ class LedgerModel(WrapperModel):
         self._context = context
         self._requests = 0
 
+    def _agent(self) -> str:
+        """Return the agent that makes this wrapper's requests.
+
+        Returns
+        -------
+        str
+            The agent's name, such as ``surveyor``.
+
+        Raises
+        ------
+        RuntimeError
+            If the wrapper names no agent, so a request through it could not be
+            recorded with its agent. Requests go through `for_agent` or `for_page`.
+        """
+
+        agent = self._context.agent
+        if agent is None:
+            raise RuntimeError(
+                f"{self._label()} requests must go through a wrapper that names their "
+                "agent"
+            )
+        return agent
+
     def _label(self) -> str:
         """Name the requests' step, and their page and agent when they have them.
 
         Returns
         -------
         str
-            Such as ``Survey`` or ``Extraction, page 4 (index 3), verifier``.
+            Such as ``Survey, surveyor`` or ``Extraction, page 4 (index 3), verifier``.
         """
 
         context = self._context
@@ -418,7 +442,7 @@ class LedgerModel(WrapperModel):
         usage = response.usage
         self._requests += 1
         entry = LedgerEntry(
-            agent=self._context.agent,
+            agent=self._agent(),
             cache_read_tokens=usage.cache_read_tokens,
             cache_write_tokens=usage.cache_write_tokens,
             cost_usd=None if cost is None else cost.quantize(_COST_QUANTUM),
@@ -489,6 +513,31 @@ class LedgerModel(WrapperModel):
             overrides=self._config.advanced.models,
         )
 
+    def for_agent(self, *, agent: str) -> "LedgerModel":
+        """Wrap the same provider model for one agent's requests about the whole PDF.
+
+        The new wrapper shares the provider model, its SDK client, the step's PDF
+        and the run's ``max_cost`` guard, and counts its own requests. Each request's
+        highest possible cost therefore still counts the PDF's tokens.
+
+        Parameters
+        ----------
+        agent
+            The step's agent that makes the requests, such as ``surveyor``.
+
+        Returns
+        -------
+        LedgerModel
+            The wrapper for that agent.
+        """
+
+        return LedgerModel(
+            self.wrapped,
+            choice=self._choice,
+            config=self._config,
+            context=replace(self._context, agent=agent),
+        )
+
     def for_page(self, *, agent: str, page_index: int) -> "LedgerModel":
         """Wrap the same provider model for one page's requests by one agent.
 
@@ -544,8 +593,12 @@ class LedgerModel(WrapperModel):
             is no; nothing is sent.
         ProviderError
             If the provider fails or rejects the request after the SDK's retries.
+        RuntimeError
+            If the wrapper names no agent; nothing is sent.
         """
 
+        # Every response is recorded with its agent, so check for one before sending.
+        self._agent()
         upper_bound = self._upper_bound(
             messages=messages,
             model_settings=merge_model_settings(self.settings, model_settings),
@@ -594,8 +647,12 @@ class LedgerModel(WrapperModel):
             is no; nothing is sent.
         ProviderError
             If the provider fails or rejects the request after the SDK's retries.
+        RuntimeError
+            If the wrapper names no agent; nothing is sent.
         """
 
+        # Every response is recorded with its agent, so check for one before sending.
+        self._agent()
         upper_bound = self._upper_bound(
             messages=messages,
             model_settings=merge_model_settings(self.settings, model_settings),

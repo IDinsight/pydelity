@@ -7,7 +7,7 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 
 `Cycle`: `add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada`
 `Mode`: `STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`IN_PROGRESS` `Verification Cadence`: `INCREMENTAL` `Current Increment`: `2`
+`IN_PROGRESS` `Verification Cadence`: `INCREMENTAL` `Current Increment`: `3`
 
 ## Implementation Contract
 
@@ -455,7 +455,7 @@ Evidence, 2026-11-21, repo root, on `384204a` plus this one change
 
 ### DEV-004 — Every survey request names its agent
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`: `AC-015, AC-016`
+`Status`: `DONE` `Depends On`: `DEV-001` `Acceptance`: `AC-015, AC-016`
 
 **Goal**
 
@@ -486,6 +486,54 @@ wrapper), `src/pydelity/pipeline/runner.py` if it builds the survey's context,
 Ruff, ty and interrogate; a scratchpad survey run against the stand-in checking
 the ledger lines and that a ledger with `agent: null` lines raises
 `OutputError`; the existing tests with replaced-contract failures listed.
+
+Evidence, 2026-11-21, repo root, on `50aca23` plus the uncommitted DEV-004
+changes to `src/pydelity/providers/ledger_model.py`, `costs/schemas.py`,
+`surveying/llm.py` and the generated
+`docs/src/content/docs/reference/cost-jsonl.md` (macOS arm64, Python 3.13.9,
+`.venv`). `surveying/agents.py`, `pipeline/runner.py` and the smoke script
+needed no change.
+
+- Scratch script `dev004/check_agents.py` in the session scratchpad, run with
+  `.venv/bin/python -I check_agents.py <repo>` against the stand-in on
+  `irs_form_1040a_1965_scan.pdf` with its canned answers: 9 of 9 checks passed.
+  - A run that pauses after the survey writes ledger lines that all have
+    `agent: "surveyor"`, `step: "survey"`, `page_index: null`. With
+    `SpendGuard.reserve` wrapped to record each bound, every survey reservation
+    is at least the price of the PDF's tokens (2 pages times
+    `pdf_tokens_per_page`) with `max_output_tokens` of output, $0.702272.
+  - After page extraction, the survey lines stay `surveyor` and the page lines
+    are `extractor` for pages 0 and 1.
+  - A copy of that `cost.jsonl` with every `agent` set to null stops the next
+    run with `OutputError`
+    (`cost.jsonl: line 1 is damaged, and it is not the last line`), and the
+    stand-in receives no request.
+  - A `LedgerModel` around PydanticAI's `TestModel` with a context that names no
+    agent raises `RuntimeError`
+    (`... requests must go through a wrapper that names their agent`) before any
+    reservation, and writes no ledger line. Its `for_agent(agent="surveyor")`
+    wrapper keeps the PDF in its context and records one line with
+    `agent: "surveyor"`, `page_index: null`, `step: "survey"`.
+- `.venv/bin/ruff check scripts src tests` "All checks passed!";
+  `ruff format --check` "89 files already formatted";
+  `ty check scripts src tests` "All checks passed!"; `interrogate` 100.0%; the
+  module order check finds no new departure.
+- Tests: 188 passed; doctests 27 passed, 1 skipped. No existing test reads a
+  survey ledger line's agent or builds a `LedgerContext`, so no test fails.
+- Reference pages: `generate_reference_docs.py` and `format_markdown.mjs` change
+  only the `agent` entry of `cost-jsonl.md`, which now says `string`, required,
+  `surveyor` or `verifier` for the survey and `extractor` or `verifier` for page
+  extraction. The survey's `verifier` agent arrives with DEV-005; Increment 3 is
+  assessed as a whole.
+
+**Implementation Notes**
+
+- `LedgerModel.for_agent` sits beside `for_page`. The step's own wrapper keeps
+  `agent: None`, since `attach_pdf` uses it for the provider's client, and a
+  private `_agent` check makes any request through it fail before anything is
+  reserved or sent.
+- `surveying/llm.py` names the agent with a `SURVEYOR` constant, as
+  `extracting/llm.py` does with `EXTRACTOR` and `VERIFIER`.
 
 ---
 
@@ -882,3 +930,12 @@ Gates**: the plan stays `IN_PROGRESS` with `Current Increment: 2`, because
 DEV-004 to DEV-011 are approved future work, not part of this correction. No
 rerun is needed, so the frame is popped and Tester resumes its suspended
 Increment 2 assessment (verification report, **Suspended Assignment 1**).
+
+### Increment 2 return
+
+Tester returned Increment 2 `VERIFIED` (verification report, E12–E21), with the
+smoke script fix from recovery frame 1 (`45bfa10`). Reconciled on `50aca23`:
+since `384204a`, `src/`, `scripts/`, `examples/`, `docs/` and `pyproject.toml`
+changed only by that fix; the later commit changes only STANDARDS records. Rerun
+on `50aca23`: tests 188 passed; `ruff check` and `ty check` clean.
+`Current Increment` moves to 3.

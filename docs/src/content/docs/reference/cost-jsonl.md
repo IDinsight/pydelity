@@ -14,9 +14,8 @@ response pydelity received, in the order received.
 
 One model request that returned a response, as a line of `cost.jsonl`.
 
-- `agent` (string or null; required): The step's agent that made the request,
-  such as `extractor` or `verifier`; `None` for a step with one agent, such as
-  the survey.
+- `agent` (string; required): The step's agent that made the request: `surveyor`
+  or `verifier` for the survey, `extractor` or `verifier` for page extraction.
 - `cache_read_tokens` (integer; required): Input tokens read from the provider's
   prompt cache (included in `input_tokens`).
 - `cache_write_tokens` (integer; required): Input tokens written to the

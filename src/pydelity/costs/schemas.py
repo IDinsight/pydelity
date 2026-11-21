@@ -92,9 +92,9 @@ class CostEstimate(_Record):
 class LedgerEntry(_Record):
     """One model request that returned a response, as a line of ``cost.jsonl``."""
 
-    agent: str | None
-    """The step's agent that made the request, such as ``extractor`` or ``verifier``;
-    ``None`` for a step with one agent, such as the survey."""
+    agent: str
+    """The step's agent that made the request: ``surveyor`` or ``verifier`` for the
+    survey, ``extractor`` or ``verifier`` for page extraction."""
 
     cache_read_tokens: int
     """Input tokens read from the provider's prompt cache (included in

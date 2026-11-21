@@ -31,6 +31,9 @@ from pydelity.surveying.schemas import PdfFacts, SurveyAnswer
 from pydelity.utils.pdf import PdfInfo
 from pydelity.utils.prompts import PromptPair
 
+# The name of the survey's agent, in the ledger.
+SURVEYOR = "surveyor"
+
 
 async def _run_agent(
     *,
@@ -137,7 +140,7 @@ async def ask_model(
     facts
         The measured facts, sent as a summary and used by the checks.
     model
-        The step's model.
+        The step's model; requests are recorded for the surveyor.
     on_attached
         Called with how requests will carry the PDF, each time the PDF is attached,
         before any request is sent, so a failed survey can still say how it sent the
@@ -172,7 +175,7 @@ async def ask_model(
         check_retries=survey_settings.check_retries,
         facts=facts.facts,
         instructions=prompts.system_message,
-        model=model,
+        model=model.for_agent(agent=SURVEYOR),
     )
     attachment = await attach_pdf(
         config=config, model=model, output_folder=config.output_folder, pdf=pdf
