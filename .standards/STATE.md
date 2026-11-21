@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `SCOPING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
-`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -28,8 +28,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `USER_REWORK` `From`: `DEVELOPING` `FailureType`: `SCOPING` `Reason`:
-`User added a first step: Developer and Tester reorganize each module's constants, classes, functions and methods to the user styles' updated ordering, which the scope does not cover.`
+`Kind`: `FORWARD` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
+`Scope adds work item 1, reordering each module to the updated ordering rule (AC-041 for the package and scripts, AC-042 for the tests), so the technical design must cover the new acceptance conditions.`
 
 ## Recovery
 
@@ -39,7 +39,7 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 `From`: `DEVELOPING` `Owner`: `SCOPING` `FailureType`: `SCOPING` `Reason`:
 `User added a first step: Developer and Tester reorganize each module's constants, classes, functions and methods to the user styles' updated ordering, which the scope does not cover.`
-`ResumeAt`: `DEVELOPING` `RerunThrough`: `NONE`
+`ResumeAt`: `DEVELOPING` `RerunThrough`: `ARCHITECTING`
 
 ## Outstanding Obligations
 

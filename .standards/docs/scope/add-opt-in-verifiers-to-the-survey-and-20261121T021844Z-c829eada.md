@@ -12,8 +12,11 @@ is signed off but not merged. This cycle runs on the same branch before
 page-break verification, and its work merges with page extraction and ships with
 it as 0.2.0.
 
-The cycle does three things:
+The cycle does four things:
 
+- First, before the other work, each Python module in the package, the scripts
+  and the tests is reordered to the ordering rule that the developer and tester
+  user styles now give. The reorder only moves code.
 - The survey gets the producer and verifier approach page extraction has. After
   the survey's answer is accepted, a second request to the survey's model
   reviews the answer against the PDF and may return a corrected answer, which is
@@ -117,13 +120,41 @@ review list.
   `artifacts/next_cycle_inputs.md`.
 - The page extraction design's wording about how crops are clipped, which sits
   in a signed-off cycle's record.
+- Bringing code that this cycle's work does not otherwise change in line with
+  the user styles' other updated rules, such as comment wording, American
+  English and private names.
 - Any change to KGForEdGlobal.
 - `just` recipes that work on Windows without a POSIX shell, a hosted service, a
   web UI beyond the HTML report, telemetry, and other Level 4 capabilities.
 
 ## Work
 
-### 1. Turn verifiers on and off
+### 1. Reorder each module
+
+**Intent:** Put every module in the updated order before the other work changes
+it, so that the reorder and this cycle's changes can be reviewed apart.
+
+**Done when:**
+
+- `AC-041`: Every Python module in `src/pydelity/` and `scripts/` follows this
+  ordering rule. Module-level constants and type aliases come first, private
+  before public. Private classes and functions (names that begin with an
+  underscore) come next, then public ones, and inside each class private methods
+  come before public ones. Within the private names and within the public names,
+  each logical group, such as classes or functions, is in alphabetical order. A
+  module departs from the rule only where the rule's order would break execution
+  or make the code hard to follow, such as for dependencies, Pydantic validators
+  and type definitions. The reorder only moves code, with comments and
+  docstrings moving with it. It changes no name or behavior, and the tests, Ruff
+  and ty give the same results after it as before.
+- `AC-042`: Every Python module in `tests/`, each `conftest.py` included,
+  follows the ordering rule in `AC-041`. The reorder only moves code, with
+  comments and docstrings moving with it, and the suite runs the same tests with
+  the same results after it as before.
+
+**Depends on:** None.
+
+### 2. Turn verifiers on and off
 
 **Intent:** Let the user decide whether to pay for a verifier, for every step at
 once or for one step, with no verifier unless they ask for one.
@@ -148,9 +179,9 @@ once or for one step, with no verifier unless they ask for one.
   the survey. When a change to the survey's verifier setting reruns the survey,
   pages rerun only when the new survey changes what they depend on.
 
-**Depends on:** None.
+**Depends on:** 1.
 
-### 2. Review the survey with a verifier
+### 3. Review the survey with a verifier
 
 **Intent:** Catch survey mistakes that code cannot judge before later steps rely
 on the profile, the way page extraction's verifier reviews each page.
@@ -201,9 +232,9 @@ on the profile, the way page extraction's verifier reviews each page.
   CLI shows the provider's error and exits non-zero, and the Python API raises
   an error that carries it.
 
-**Depends on:** 1.
+**Depends on:** 2.
 
-### 3. Extract pages without a verifier
+### 4. Extract pages without a verifier
 
 **Intent:** Make page extraction's verifier optional and keep a signal for what
 code finds on pages that no verifier reviewed.
@@ -222,9 +253,9 @@ code finds on pages that no verifier reviewed.
   and the page's log line say that no verifier ran instead of showing a verifier
   outcome.
 
-**Depends on:** 1.
+**Depends on:** 2.
 
-### 4. Fix the correctness issues left from page extraction
+### 5. Fix the correctness issues left from page extraction
 
 **Intent:** Close the confirmed defects that page extraction's reviews left for
 later, before 0.2.0 ships them.
@@ -245,9 +276,9 @@ later, before 0.2.0 ships them.
 - `AC-025`: The `TEXT_FLAGS` comment in `src/pydelity/utils/pdf.py` says that
   text is clipped to the CropBox, as PyMuPDF does.
 
-**Depends on:** None.
+**Depends on:** 1.
 
-### 5. Test across providers, Python versions and platforms
+### 6. Test across providers, Python versions and platforms
 
 **Intent:** Prove the verifier settings, the survey's verifier and the fixes
 without paying for model calls, on every Python version and platform 0.2.0
@@ -255,7 +286,7 @@ supports.
 
 **Done when:**
 
-- `AC-026`: Automated tests cover items 1–4 with both providers' responses
+- `AC-026`: Automated tests cover items 2–5 with both providers' responses
   mocked and no network calls to model providers. They include the default with
   no verifier, the global setting and each override, the survey verifier's
   outcomes (passed, correction kept, correction not kept) and their review
@@ -270,9 +301,9 @@ supports.
   the `pydelity` command and the Python API run the survey and page extraction
   with mocked model responses.
 
-**Depends on:** 1, 2, 3, 4.
+**Depends on:** 1, 2, 3, 4, 5.
 
-### 6. Prepare release 0.2.0
+### 7. Prepare release 0.2.0
 
 **Intent:** Ship page extraction and this cycle's work to PyPI as 0.2.0 once the
 cycle is signed off and merged.
@@ -291,9 +322,9 @@ cycle is signed off and merged.
   the GitHub release it creates when accepted starts the PyPI release and the
   docs site's publication of 0.2.0.
 
-**Depends on:** 5.
+**Depends on:** 6.
 
-### 7. Document the verifiers and correct the docs wording
+### 8. Document the verifiers and correct the docs wording
 
 **Intent:** Let a user choose and read the verifiers from the docs alone, and
 correct the wording that page extraction's final review found looser than the
@@ -339,9 +370,9 @@ code.
   and an override of its own, and the file still lists the remaining issues this
   cycle left for later.
 
-**Depends on:** 1, 2, 3, 4.
+**Depends on:** 2, 3, 4, 5.
 
-### 8. User review of real runs
+### 9. User review of real runs
 
 **Intent:** Confirm on real documents, which mocked tests cannot show, that the
 survey's verifier helps and that runs without verifiers give a usable review
@@ -360,7 +391,7 @@ list.
   the survey verdicts, page files, review lists and HTML reports, and accepts
   them, with every issue they raise resolved.
 
-**Depends on:** 1, 2, 3, 4.
+**Depends on:** 2, 3, 4, 5.
 
 ## Assumptions
 
