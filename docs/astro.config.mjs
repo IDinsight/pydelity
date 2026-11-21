@@ -8,7 +8,7 @@ export default defineConfig({
     starlight({
       title: "pydelity",
       description:
-        "Survey any PDF with Anthropic or OpenAI models: page numbers, rotation, writing direction and repeated lines, as JSON with a list of things to review.",
+        "Survey any PDF and extract each page's content in reading order with Anthropic or OpenAI models, as JSON with a list of things to review.",
       favicon: "/favicon.svg",
       social: [
         {
@@ -47,6 +47,7 @@ export default defineConfig({
             "guides/configuration",
             "guides/command-line",
             "guides/python",
+            "guides/page-extraction",
             "guides/models-and-providers",
             "guides/costs",
             "guides/reruns",

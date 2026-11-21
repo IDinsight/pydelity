@@ -8,7 +8,10 @@ to a provider, so a run needs no real API key and costs nothing. The server answ
 - OpenAI: ``POST /v1/responses`` (Responses API) and ``POST /v1/files`` (Files API).
 
 A model request gets the next survey answer the caller gave, as the reply's text, with
-the caller's usage figures. An upload succeeds and gets a new file ID. A model request
+the caller's usage figures. A page extraction request, whose text names its page with
+``Page index N (``, gets that page's answer for the extraction model or, when its text
+holds the extraction to review, for the verifier, whatever order concurrent requests
+arrive in. An upload succeeds and gets a new file ID. A model request
 that names a file ID the server does not hold gets HTTP 404 naming that ID, which is how
 the providers answer once an upload has expired. Faults the caller adds make requests
 fail; temporary ones (408, 409, 429 and 5xx) carry a ``retry-after-ms`` header of one
@@ -30,19 +33,24 @@ In Python::
         statuses = [request.status for request in mock.requests]
 
 From the command line, at the repository root, with an answer file such as
-``tests/fixtures/survey_answers/irs_form_1040a_1965_scan.json``::
+``tests/fixtures/survey_answers/irs_form_1040a_1965_scan.json`` and, for page
+extraction, a page answers file such as
+``tests/fixtures/extraction_answers/irs_form_1040a_1965_scan.json``::
 
-    python -m tests.fixtures.mock_providers --answer <answer JSON file>
+    python -m tests.fixtures.mock_providers --answer <answer JSON file> \
+        --page-answers <page answers JSON file>
 """
 
 # Standard Library
 import argparse
 import json
+import re
 import sys
 import threading
 import time
 import uuid
 
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -54,12 +62,6 @@ from pathlib import Path
 from types import TracebackType
 from typing import Literal, Self, cast
 from urllib.parse import urlsplit
-
-# Which provider's API a request is for.
-type Provider = Literal["anthropic", "openai"]
-
-# What a request does: ask the model, or upload a file.
-type Route = Literal["model", "upload"]
 
 # Anthropic's error type for each HTTP status that has its own type in the SDK. Other
 # statuses get ``invalid_request_error`` below 500 and ``api_error`` from 500.
@@ -79,20 +81,19 @@ _FIRST_SERVER_ERROR_CODE = 500
 # The interface the server listens on.
 _HOST = "127.0.0.1"
 
+# The line that starts the text of each page extraction request, naming its page.
+_PAGE_LINE = re.compile(r"Page index (\d+) \(")
+
 # How often the server checks whether it was asked to stop, so stopping takes at most
 # this long.
 _POLL_INTERVAL_SECONDS = 0.05
 
-# The provider and route of each path the server answers, after the base URL.
-_ROUTES: dict[str, tuple[Provider, Route]] = {
-    "/anthropic/v1/files": ("anthropic", "upload"),
-    "/anthropic/v1/messages": ("anthropic", "model"),
-    "/openai/v1/files": ("openai", "upload"),
-    "/openai/v1/responses": ("openai", "model"),
-}
-
 # HTTP status codes below 500 that the SDKs treat as temporary and retry.
 _TEMPORARY_STATUS_CODES = frozenset({408, 409, 429})
+
+# Text that only the verifier's requests hold: the heading of the extraction it
+# reviews.
+_VERIFIER_TEXT = "The extraction to review:"
 
 # The input tokens each model reply reports, unless the caller gives another figure.
 DEFAULT_INPUT_TOKENS = 3_000
@@ -103,6 +104,26 @@ DEFAULT_OUTPUT_TOKENS = 600
 # The value `MockProviders.environment` gives both API keys. pydelity refuses to start
 # a run without a key, and the server never looks at it.
 PLACEHOLDER_KEY = "mock-provider-placeholder"
+
+# An answer to a model request: JSON data, sent as JSON, or text, sent as it is.
+type Answer = Mapping[str, object] | str
+
+# Which of page extraction's agents a page request comes from.
+type PageAgent = Literal["extractor", "verifier"]
+
+# Which provider's API a request is for.
+type Provider = Literal["anthropic", "openai"]
+
+# What a request does: ask the model, or upload a file.
+type Route = Literal["model", "upload"]
+
+# The provider and route of each path the server answers, after the base URL.
+_ROUTES: dict[str, tuple[Provider, Route]] = {
+    "/anthropic/v1/files": ("anthropic", "upload"),
+    "/anthropic/v1/messages": ("anthropic", "model"),
+    "/openai/v1/files": ("openai", "upload"),
+    "/openai/v1/responses": ("openai", "model"),
+}
 
 
 @dataclass
@@ -122,6 +143,47 @@ class _Fault:
     """The HTTP status of the failure."""
 
 
+class _Handler(BaseHTTPRequestHandler):
+    """Answers one HTTP connection's requests from the `MockProviders` state."""
+
+    protocol_version = "HTTP/1.1"
+
+    def do_POST(self) -> None:
+        """Read a POST request, get the stand-in's reply and send it."""
+
+        length = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(length)
+        mock = cast("_Server", self.server).mock
+        reply = mock._answer(
+            body=body,
+            content_type=self.headers.get("Content-Type", ""),
+            path=self.path,
+        )
+
+        data = json.dumps(reply.payload).encode()
+        self.send_response(reply.status)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Type", "application/json")
+        for name, value in reply.headers.items():
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, format: str, *args: object) -> None:
+        """Print the request line to stderr only when the stand-in is verbose.
+
+        Parameters
+        ----------
+        format
+            The message's format string.
+        *args
+            The values to put into it.
+        """
+
+        if cast("_Server", self.server).mock.verbose:
+            super().log_message(format, *args)
+
+
 @dataclass(frozen=True)
 class _Reply:
     """What the server sends back for one request."""
@@ -134,6 +196,80 @@ class _Reply:
 
     headers: dict[str, str] = field(default_factory=dict)
     """Headers besides ``Content-Type`` and ``Content-Length``."""
+
+
+class _Server(ThreadingHTTPServer):
+    """The HTTP server, which holds the `MockProviders` its handler answers for."""
+
+    daemon_threads = True
+
+    def __init__(self, *, mock: "MockProviders", port: int) -> None:
+        """Bind the server to the loopback interface.
+
+        Parameters
+        ----------
+        mock
+            The stand-in whose state the handler uses.
+        port
+            The port, or 0 for any free port.
+        """
+
+        super().__init__(RequestHandlerClass=_Handler, server_address=(_HOST, port))
+        self.mock = mock
+
+    def handle_error(self, request: object, client_address: object) -> None:
+        """Ignore a client that went away mid-request; report any other error.
+
+        A test that cancels a run closes its connection while the server still waits
+        to answer, so writing the reply then fails. That is expected, not a failure.
+
+        Parameters
+        ----------
+        request
+            The request's socket.
+        client_address
+            The client's address.
+        """
+
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)  # ty: ignore[invalid-argument-type]
+
+
+def _answer_list(given: Answer | Sequence[Answer]) -> list[str]:
+    """Write one answer, or a list of answers, as the texts replies carry.
+
+    Parameters
+    ----------
+    given
+        An answer, or a sequence of answers.
+
+    Returns
+    -------
+    list[str]
+        Each answer's text, in order.
+    """
+
+    if isinstance(given, str | Mapping):
+        return [_answer_text(given)]
+    return [_answer_text(item) for item in given]
+
+
+def _answer_text(answer: Answer) -> str:
+    """Write an answer as the text a reply carries.
+
+    Parameters
+    ----------
+    answer
+        JSON data or text.
+
+    Returns
+    -------
+    str
+        The data as JSON, or the text as it is.
+    """
+
+    return answer if isinstance(answer, str) else json.dumps(answer, ensure_ascii=False)
 
 
 def _anthropic_file(*, fields: dict[str, str], upload: dict[str, object]) -> _Reply:
@@ -377,6 +513,29 @@ def _openai_response(*, answer: str, model: str, usage: tuple[int, int]) -> _Rep
     return _Reply(payload=payload, status=200)
 
 
+def _page_request(body: Mapping[str, object]) -> tuple[int, PageAgent] | None:
+    """Tell which page and agent a page extraction request is for.
+
+    Parameters
+    ----------
+    body
+        The model request's JSON body.
+
+    Returns
+    -------
+    tuple[int, PageAgent] | None
+        The page index and the agent, or ``None`` for a request that names no page,
+        such as the survey's.
+    """
+
+    text = json.dumps(body, ensure_ascii=False)
+    match = _PAGE_LINE.search(text)
+    if match is None:
+        return None
+    agent: PageAgent = "verifier" if _VERIFIER_TEXT in text else "extractor"
+    return int(match[1]), agent
+
+
 def _parse_json(body: bytes) -> dict[str, object]:
     """Read a JSON request body.
 
@@ -435,92 +594,19 @@ def _parse_upload(*, body: bytes, content_type: str) -> dict[str, object]:
     return {"fields": fields, **summary}
 
 
-class _Handler(BaseHTTPRequestHandler):
-    """Answers one HTTP connection's requests from the `MockProviders` state."""
-
-    protocol_version = "HTTP/1.1"
-
-    def do_POST(self) -> None:
-        """Read a POST request, get the stand-in's reply and send it."""
-
-        length = int(self.headers.get("Content-Length", "0"))
-        body = self.rfile.read(length)
-        mock = cast("_Server", self.server).mock
-        reply = mock._answer(
-            body=body,
-            content_type=self.headers.get("Content-Type", ""),
-            path=self.path,
-        )
-
-        data = json.dumps(reply.payload).encode()
-        self.send_response(reply.status)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Content-Type", "application/json")
-        for name, value in reply.headers.items():
-            self.send_header(name, value)
-        self.end_headers()
-        self.wfile.write(data)
-
-    def log_message(self, format: str, *args: object) -> None:
-        """Print the request line to stderr only when the stand-in is verbose.
-
-        Parameters
-        ----------
-        format
-            The message's format string.
-        *args
-            The values to put into it.
-        """
-
-        if cast("_Server", self.server).mock.verbose:
-            super().log_message(format, *args)
-
-
-class _Server(ThreadingHTTPServer):
-    """The HTTP server, which holds the `MockProviders` its handler answers for."""
-
-    daemon_threads = True
-
-    def __init__(self, *, mock: "MockProviders", port: int) -> None:
-        """Bind the server to the loopback interface.
-
-        Parameters
-        ----------
-        mock
-            The stand-in whose state the handler uses.
-        port
-            The port, or 0 for any free port.
-        """
-
-        super().__init__(RequestHandlerClass=_Handler, server_address=(_HOST, port))
-        self.mock = mock
-
-    def handle_error(self, request: object, client_address: object) -> None:
-        """Ignore a client that went away mid-request; report any other error.
-
-        A test that cancels a run closes its connection while the server still waits
-        to answer, so writing the reply then fails. That is expected, not a failure.
-
-        Parameters
-        ----------
-        request
-            The request's socket.
-        client_address
-            The client's address.
-        """
-
-        if isinstance(sys.exc_info()[1], ConnectionError):
-            return
-        super().handle_error(request, client_address)  # ty: ignore[invalid-argument-type]
-
-
 @dataclass(frozen=True)
 class RecordedRequest:
     """One request the server received, without its headers."""
 
+    agent: PageAgent | None
+    """For a page extraction request, the agent it came from; otherwise ``None``."""
+
     body: dict[str, object]
     """The JSON body of a model request. For an upload, its ``fields`` and the file's
     ``filename``, ``content_type`` and size in ``bytes``."""
+
+    page_index: int | None
+    """For a page extraction request, the page it is about; otherwise ``None``."""
 
     path: str
     """The request's path, after the host."""
@@ -549,7 +635,13 @@ class MockProviders:
     ----------
     answers
         The survey answers, as dicts (sent as JSON) or as text (sent as it is). Each
-        model request gets the next one; once they run out, the last one repeats.
+        model request that names no page gets the next one; once they run out, the
+        last one repeats.
+    page_answers
+        Page extraction's answers, by page index and then agent (``extractor`` or
+        ``verifier``): one answer, or a list whose next item each request for that
+        page and agent gets, the last one repeating. A page request without an
+        answer here gets HTTP 400.
     input_tokens
         The input tokens each model reply reports.
     output_tokens
@@ -565,28 +657,35 @@ class MockProviders:
     Raises
     ------
     ValueError
-        If no answer is given.
+        If neither answers nor page answers are given.
     """
 
     def __init__(  # noqa: PLR0913 - one argument per option of the stand-in
         self,
         *,
-        answers: Sequence[Mapping[str, object] | str],
+        answers: Sequence[Answer],
         delay_seconds: float = 0.0,
         input_tokens: int = DEFAULT_INPUT_TOKENS,
         output_tokens: int = DEFAULT_OUTPUT_TOKENS,
+        page_answers: Mapping[int, Mapping[str, Answer | Sequence[Answer]]]
+        | None = None,
         port: int = 0,
         verbose: bool = False,
     ) -> None:
         """Hold the answers and settings; nothing listens until `start`."""
 
-        if not answers:
+        if not answers and not page_answers:
             raise ValueError("MockProviders needs at least one answer")
-        self._answers = [
-            item if isinstance(item, str) else json.dumps(item, ensure_ascii=False)
-            for item in answers
-        ]
+        self._answers = [_answer_text(item) for item in answers]
         self._answers_sent = 0
+        self._in_flight = 0
+        self._max_in_flight = 0
+        self._page_answers: dict[tuple[int, str], list[str]] = {
+            (int(page), agent): _answer_list(given)
+            for page, by_agent in (page_answers or {}).items()
+            for agent, given in by_agent.items()
+        }
+        self._page_answers_sent: Counter[tuple[int, str]] = Counter()
         self._delay_seconds = delay_seconds
         self._faults: list[_Fault] = []
         self._files: dict[Provider, set[str]] = {"anthropic": set(), "openai": set()}
@@ -657,7 +756,13 @@ class MockProviders:
             with self._lock:
                 self._requests.append(
                     RecordedRequest(
-                        body={}, path=path, provider=None, route=None, status=404
+                        agent=None,
+                        body={},
+                        page_index=None,
+                        path=path,
+                        provider=None,
+                        route=None,
+                        status=404,
                     )
                 )
             return reply
@@ -665,6 +770,9 @@ class MockProviders:
         provider, route = target
         if route == "model":
             self._model_request_seen.set()
+            with self._lock:
+                self._in_flight += 1
+                self._max_in_flight = max(self._max_in_flight, self._in_flight)
             if self._delay_seconds:
                 time.sleep(self._delay_seconds)
         parsed = (
@@ -672,7 +780,10 @@ class MockProviders:
             if route == "upload"
             else _parse_json(body)
         )
+        page = _page_request(parsed) if route == "model" else None
         with self._lock:
+            if route == "model":
+                self._in_flight -= 1
             fault = self._take_fault(route)
             if fault is not None:
                 default = f"{responses.get(fault.status, 'Error')} (mock provider)"
@@ -687,7 +798,9 @@ class MockProviders:
                 reply = self._model_reply(body=parsed, provider=provider)
             self._requests.append(
                 RecordedRequest(
+                    agent=None if page is None else page[1],
                     body=parsed,
+                    page_index=None if page is None else page[0],
                     path=path,
                     provider=provider,
                     route=route,
@@ -710,7 +823,8 @@ class MockProviders:
         -------
         _Reply
             HTTP 404 naming the first file ID the server does not hold, or else the
-            next answer.
+            page's answer for a page extraction request, or the next survey answer.
+            HTTP 400 when there is no such answer.
         """
 
         missing = [
@@ -723,12 +837,53 @@ class MockProviders:
                 message=f"File not found: {missing[0]}", provider=provider, status=404
             )
 
-        answer = self._answers[min(self._answers_sent, len(self._answers) - 1)]
-        self._answers_sent += 1
+        page = _page_request(body)
+        if page is not None:
+            answer = self._page_answer(*page)
+            if answer is None:
+                return _error(
+                    message=f"No {page[1]} answer for page index {page[0]} (mock "
+                    "provider)",
+                    provider=provider,
+                    status=400,
+                )
+        elif self._answers:
+            answer = self._answers[min(self._answers_sent, len(self._answers) - 1)]
+            self._answers_sent += 1
+        else:
+            return _error(
+                message="No survey answer (mock provider)",
+                provider=provider,
+                status=400,
+            )
         model = str(body.get("model", "mock-model"))
         if provider == "anthropic":
             return _anthropic_message(answer=answer, model=model, usage=self._usage)
         return _openai_response(answer=answer, model=model, usage=self._usage)
+
+    def _page_answer(self, page_index: int, agent: str) -> str | None:
+        """Take the next answer for a page and agent. Call with the lock held.
+
+        Parameters
+        ----------
+        page_index
+            The page the request is about.
+        agent
+            The agent the request came from.
+
+        Returns
+        -------
+        str | None
+            The answer, the last one repeating, or ``None`` when there is none.
+        """
+
+        key = (page_index, agent)
+        answers = self._page_answers.get(key)
+        if not answers:
+            return None
+        sent = self._page_answers_sent[key]
+        self._page_answers_sent[key] += 1
+        return answers[min(sent, len(answers) - 1)]
 
     def _take_fault(self, route: Route) -> _Fault | None:
         """Use up one request of the first fault on a route. Call with the lock held.
@@ -774,39 +929,6 @@ class MockProviders:
         self._files[provider].add(str(reply.payload["id"]))
         return reply
 
-    @property
-    def anthropic_base_url(self) -> str:
-        """The value for ``ANTHROPIC_BASE_URL``."""
-
-        return f"{self.url}/anthropic"
-
-    @property
-    def openai_base_url(self) -> str:
-        """The value for ``OPENAI_BASE_URL``."""
-
-        return f"{self.url}/openai/v1"
-
-    @property
-    def requests(self) -> list[RecordedRequest]:
-        """Every request received so far, oldest first."""
-
-        with self._lock:
-            return list(self._requests)
-
-    @property
-    def url(self) -> str:
-        """The server's address, such as ``http://127.0.0.1:50123``.
-
-        Raises
-        ------
-        RuntimeError
-            If the server is not running.
-        """
-
-        if self._server is None:
-            raise RuntimeError("The mock provider server is not running")
-        return f"http://{_HOST}:{self._server.server_address[1]}"
-
     def add_fault(
         self,
         *,
@@ -851,6 +973,12 @@ class MockProviders:
         with self._lock:
             self._faults.append(fault)
 
+    @property
+    def anthropic_base_url(self) -> str:
+        """The value for ``ANTHROPIC_BASE_URL``."""
+
+        return f"{self.url}/anthropic"
+
     def environment(self) -> dict[str, str]:
         """Environment variables that send both SDKs to this server.
 
@@ -876,6 +1004,25 @@ class MockProviders:
         with self._lock:
             for file_ids in self._files.values():
                 file_ids.clear()
+
+    @property
+    def max_in_flight(self) -> int:
+        """The most model requests the server has been answering at the same time."""
+
+        return self._max_in_flight
+
+    @property
+    def openai_base_url(self) -> str:
+        """The value for ``OPENAI_BASE_URL``."""
+
+        return f"{self.url}/openai/v1"
+
+    @property
+    def requests(self) -> list[RecordedRequest]:
+        """Every request received so far, oldest first."""
+
+        with self._lock:
+            return list(self._requests)
 
     def start(self) -> None:
         """Start listening, in a background thread.
@@ -908,6 +1055,20 @@ class MockProviders:
             self._thread.join()
         self._server = None
         self._thread = None
+
+    @property
+    def url(self) -> str:
+        """The server's address, such as ``http://127.0.0.1:50123``.
+
+        Raises
+        ------
+        RuntimeError
+            If the server is not running.
+        """
+
+        if self._server is None:
+            raise RuntimeError("The mock provider server is not running")
+        return f"http://{_HOST}:{self._server.server_address[1]}"
 
     def wait_for_model_request(self, timeout: float) -> bool:
         """Wait until the first model request arrives, or the timeout passes.
@@ -949,12 +1110,24 @@ def main(argv: Sequence[str] | None = None) -> None:
         type=Path,
     )
     parser.add_argument(
+        "--page-answers",
+        help="JSON file with page extraction's answers, by page index and agent",
+        type=Path,
+    )
+    parser.add_argument(
         "--port", default=0, help="port to listen on (default: any free port)", type=int
     )
     arguments = parser.parse_args(argv)
 
     answer = json.loads(arguments.answer.read_text(encoding="utf-8"))
-    with MockProviders(answers=[answer], port=arguments.port, verbose=True) as mock:
+    page_answers = (
+        read_page_answers(arguments.page_answers)
+        if arguments.page_answers is not None
+        else None
+    )
+    with MockProviders(
+        answers=[answer], page_answers=page_answers, port=arguments.port, verbose=True
+    ) as mock:
         print(f"ANTHROPIC_BASE_URL={mock.anthropic_base_url}")
         print(f"OPENAI_BASE_URL={mock.openai_base_url}")
         print("Serving; press Ctrl+C to stop.", flush=True)
@@ -963,6 +1136,28 @@ def main(argv: Sequence[str] | None = None) -> None:
                 time.sleep(1)
         except KeyboardInterrupt:
             pass
+
+
+def read_page_answers(path: Path) -> dict[int, dict[str, Answer | list[Answer]]]:
+    """Read a page answers file: answers by page index, then agent.
+
+    Parameters
+    ----------
+    path
+        A JSON file whose keys are page indexes and whose values map ``extractor``
+        and ``verifier`` to an answer or a list of answers.
+
+    Returns
+    -------
+    dict[int, dict[str, Answer | list[Answer]]]
+        The answers, for `MockProviders`' ``page_answers``.
+    """
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        int(page): cast("dict[str, Answer | list[Answer]]", by_agent)
+        for page, by_agent in data.items()
+    }
 
 
 if __name__ == "__main__":

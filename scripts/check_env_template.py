@@ -10,12 +10,6 @@ import sys
 
 from pathlib import Path
 
-# Folders that have paired .env.* / .template.env.* files, relative to the repo root
-# (the hook runs from there).
-SECTIONS = [
-    Path("."),
-]
-
 # Specify which file pairs to compare in each section. These are the files .envrc
 # loads: .env, then the one for PROJECT_ENV.
 FILE_PAIRS = [
@@ -23,6 +17,12 @@ FILE_PAIRS = [
     (".env.local", ".template.env.local"),
     (".env.development", ".template.env.development"),
     (".env.production", ".template.env.production"),
+]
+
+# Folders that have paired .env.* / .template.env.* files, relative to the repo root
+# (the hook runs from there).
+SECTIONS = [
+    Path("."),
 ]
 
 

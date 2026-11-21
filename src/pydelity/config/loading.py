@@ -22,15 +22,11 @@ from pydantic import SecretStr, ValidationError
 from pydelity.config.schemas import Config, ProviderEnv
 from pydelity.errors import ConfigError, MissingApiKeyError
 from pydelity.providers.profiles import (
-    DEFAULT_MODEL,
+    DEFAULT_SURVEY_MODEL,
     PROFILES,
     ProviderName,
     parse_model,
 )
-
-# Where the settings can come from, besides keywords: a JSON or YAML file, a `Config`,
-# or a mapping of settings.
-type ConfigSource = str | os.PathLike[str] | Config | Mapping[str, object]
 
 # The environment variable that holds each provider's API key.
 _API_KEY_VARIABLES: dict[ProviderName, str] = {
@@ -46,6 +42,10 @@ _INPUT_SHOWN_CHARS = 60
 
 # The top-level settings that hold paths.
 _PATH_SETTINGS = ("output_dir", "pdf")
+
+# Where the settings can come from, besides keywords: a JSON or YAML file, a `Config`,
+# or a mapping of settings.
+type ConfigSource = str | os.PathLike[str] | Config | Mapping[str, object]
 
 
 def _describe_input(value: object) -> str:
@@ -73,14 +73,16 @@ def _describe_input(value: object) -> str:
 
 
 def _expiry_problem(*, expiry_hours: object, model: object) -> str | None:
-    """Check an upload expiry against the selected provider's allowed range.
+    """Check an upload expiry against the survey model's provider's allowed range.
+
+    Only the survey uploads the PDF, so only its model's provider matters.
 
     Parameters
     ----------
     expiry_hours
         The ``advanced.uploads.expiry_hours`` value, as given.
     model
-        The ``model`` value, as given.
+        The survey's model setting, as given.
 
     Returns
     -------
@@ -429,17 +431,18 @@ def resolve_config(
         problems = _problems(error)
 
     # The allowed expiry range depends on the provider, so Pydantic cannot check it.
-    # Check it here against the model setting, using the raw values if validation
+    # Check it here against the survey's model, using the raw values if validation
     # failed, unless Pydantic already reported a problem with the expiry.
     expiry_path = "advanced.uploads.expiry_hours"
     if resolved is not None:
         expiry = _expiry_problem(
-            expiry_hours=resolved.advanced.uploads.expiry_hours, model=resolved.model
+            expiry_hours=resolved.advanced.uploads.expiry_hours,
+            model=resolved.survey_model.setting,
         )
     else:
         expiry = _expiry_problem(
             expiry_hours=_raw_expiry_hours(data),
-            model=data.get("model", DEFAULT_MODEL),
+            model=data.get("model") or DEFAULT_SURVEY_MODEL,
         )
     if expiry is not None and expiry_path not in {path for path, _ in problems}:
         problems.append((expiry_path, expiry))

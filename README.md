@@ -2,15 +2,20 @@
 
 [![Docstring coverage](https://raw.githubusercontent.com/IDinsight/pydelity/main/interrogate_badge.svg)](https://interrogate.readthedocs.io/)
 
-pydelity reads a PDF with an Anthropic or OpenAI model and records how its pages
-are laid out: page numbers, rotation, writing direction, languages and the lines
-that repeat on many pages, such as headers and footers. It saves the results as
-JSON, with a list of things a person should check, and an HTML report you can
-open in a browser.
+pydelity reads a PDF with Anthropic or OpenAI models and turns it into
+structured JSON in two steps:
 
-This survey is the first step of a longer pipeline that will turn a PDF into
-faithful, structured JSON. Version 0.1.0 does the survey only. Later releases
-add the other steps.
+- **The survey** records how the PDF's pages are laid out: page numbers,
+  rotation, writing direction, languages and the lines that repeat on many
+  pages, such as headers and footers.
+- **Page extraction** lists everything on each page you select in reading order:
+  headings, paragraphs, lists, tables, formulas, figures and form fields, each
+  with its position on the page. A second model reviews every page.
+
+pydelity saves the results as JSON, with a list of things a person should check,
+and an HTML report you can open in a browser. These are the first steps of a
+longer pipeline that will turn a PDF into faithful, structured JSON. Later
+releases join the pages into one document.
 
 - Docs: <https://idinsight.github.io/pydelity/>
 - Source code: <https://github.com/IDinsight/pydelity>
@@ -58,32 +63,57 @@ current terminal only.
 [Install pydelity](https://idinsight.github.io/pydelity/start/install/) shows
 how to keep it set.
 
-## Run a survey
+## Run it
 
 ```sh
 pydelity document.pdf
 ```
 
 pydelity measures the PDF, shows what the survey will likely cost and asks
-before it sends anything to the model. The results go to
+before it sends anything to the model. When the survey is done, the run stops so
+you can check it before paying for page extraction. The results go to
 `pydelity-output/document/` in the current folder. Open `report.html` there to
-see them. Run `pydelity --help` for the options.
+see them.
+
+Then run the same command again to extract the pages. It reuses the survey and
+asks before spending again:
+
+```sh
+pydelity document.pdf
+```
+
+To extract only some pages, add `--pages 1-5,8`. To run both steps without
+stopping, add `--no-pause`. Run `pydelity --help` for the options.
 
 From Python:
 
 ```python
+import asyncio
+
 import pydelity
 
-# Python doesn't ask before spending. pydelity.estimate("document.pdf")
-# shows the likely cost first, with no API key needed.
-result = pydelity.run("document.pdf", languages=["en"])
 
-# Each issue is something a person should check.
-for issue in result.record.review:
-    print(issue.page_index, issue.message)
+async def main() -> None:
+    # Python doesn't ask before spending. pydelity.aestimate(...) shows the
+    # likely cost first, with no API key needed.
+    result = await pydelity.arun("document.pdf", languages=["en"], pause=False)
+
+    # Each page's items, in reading order.
+    for page in result.pages:
+        for item in page.items:
+            print(item.id, item.kind, item.text)
+
+    # Each issue is something a person should check.
+    for issue in result.record.review:
+        print(issue.step, issue.page_index, issue.message)
+
+
+asyncio.run(main())
 ```
 
-In Jupyter and other async code, use `await pydelity.arun(...)` instead.
+In Jupyter, `await pydelity.arun(...)` works directly in a cell. Each async
+function also has a sync version, named without the `a`, such as
+`pydelity.run(...)`.
 
 ## Settings
 
@@ -95,10 +125,11 @@ change what you need.
 
 ## Learn more
 
-- [Your first survey](https://idinsight.github.io/pydelity/start/first-survey/)
-  walks through a run and its output files.
+- [Your first run](https://idinsight.github.io/pydelity/start/first-survey/)
+  walks through the survey, page extraction and the output files.
 - The [guides](https://idinsight.github.io/pydelity/guides/configuration/) cover
-  settings, the command line, Python, models, costs, reruns and outputs.
+  settings, the command line, Python, page extraction, models, costs, reruns and
+  outputs.
 - The [reference](https://idinsight.github.io/pydelity/reference/configuration/)
   lists every setting, option, function and output field.
 - [Contributing](https://idinsight.github.io/pydelity/contributing/development/)

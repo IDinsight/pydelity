@@ -3,10 +3,11 @@
 A valid ``pdf_survey.json`` whose fingerprint matches the survey's inputs is reused
 unless ``overwrite`` is set. Otherwise the model surveys the PDF, and Python builds the
 profile from its accepted answer. It adds the ``other`` label, merges the languages,
-keeps the user's instructions and converts region boxes to points.
+and converts region boxes to points.
 """
 
 # Standard Library
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 
@@ -261,7 +262,6 @@ def build_survey(
             page_numbering=answer.page_numbering,
             rotation=answer.rotation,
             start_markers=answer.start_markers,
-            user_instructions=config.instructions,
             writing_direction=answer.writing_direction,
         ),
         proposal=Proposal(
@@ -279,7 +279,7 @@ async def run_survey(
     config: Config,
     facts: PdfFacts,
     model: LedgerModel,
-    output_folder: Path,
+    on_attached: Callable[[PdfTransport], None],
     pdf: PdfInfo,
 ) -> tuple[PdfSurvey, PdfTransport]:
     """Ask the model to survey the PDF and write ``pdf_survey.json`` atomically.
@@ -287,13 +287,14 @@ async def run_survey(
     Parameters
     ----------
     config
-        The run's settings.
+        The run's settings, whose output folder gets the survey.
     facts
         The measured facts.
     model
         The step's model.
-    output_folder
-        The output folder.
+    on_attached
+        Called with how requests will carry the PDF, each time the PDF is attached,
+        before any request is sent.
     pdf
         The PDF.
 
@@ -315,10 +316,10 @@ async def run_survey(
         matches the survey's answer format.
     """
 
-    ledger_path = output_folder / LEDGER_FILE_NAME
+    ledger_path = config.output_folder / LEDGER_FILE_NAME
     entries_before = len(read_ledger(ledger_path).entries)
     surveyed = await ask_model(
-        config=config, facts=facts, model=model, output_folder=output_folder, pdf=pdf
+        config=config, facts=facts, model=model, on_attached=on_attached, pdf=pdf
     )
     survey = build_survey(
         answer=surveyed.answer,
@@ -326,7 +327,7 @@ async def run_survey(
         config=config,
         facts=facts,
     )
-    path = output_folder / SURVEY_FILE_NAME
+    path = config.output_folder / SURVEY_FILE_NAME
     write_model_atomic(model=survey, path=path)
     logger.info(
         "Survey finished: {description}; cost {cost}. Saved to {path}",
@@ -392,8 +393,8 @@ def survey_fingerprint(inputs: SurveyInputs) -> str:
     -------
     str
         The ``sha256:`` fingerprint of the PDF's SHA-256, the facts' fingerprint, the
-        model, the user's instructions and languages, the survey settings, the prompt
-        version and the survey schema version.
+        model, the user's survey instructions and languages, the survey settings, the
+        prompt version and the survey schema version.
     """
 
     return fingerprint(
@@ -432,9 +433,9 @@ def survey_inputs(*, config: Config, facts: PdfFacts) -> SurveyInputs:
     survey_settings = config.advanced.survey
     return SurveyInputs(
         facts_fingerprint=facts.fingerprint,
-        instructions=config.instructions,
+        instructions=config.advanced.survey.instructions,
         languages=config.languages,
-        model=config.model_choice.setting,
+        model=config.survey_model.setting,
         page_count=facts.pdf.page_count,
         pdf_bytes=facts.pdf.bytes,
         pdf_name=facts.pdf.name,

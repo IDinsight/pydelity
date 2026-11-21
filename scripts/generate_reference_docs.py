@@ -3,12 +3,12 @@
 
 Run it with ``just docs-reference``; ``just lint`` runs it before formatting Markdown.
 It writes one Markdown page per topic to ``docs/src/content/docs/reference/``: the
-settings, the ``pydelity`` command, the Python API, each output file and the survey's
-checks. The pages come from the Pydantic models and their field docstrings, the Typer
-command, the public functions and their NumPy docstrings, and the constants the probe
-and the cost estimate use. Prettier formats the pages afterward, and running both again
-gives the same bytes, so CI's ``git diff --exit-code`` catches a page the code has
-outgrown.
+settings, the ``pydelity`` command, the Python API, each output file, and the checks
+of the survey and of page extraction. The pages come from the Pydantic models and
+their field docstrings, the Typer command, the public functions and their NumPy
+docstrings, and the constants the probe and the cost estimate use. Prettier formats
+the pages afterward, and running both again gives the same bytes, so CI catches a page
+the code has outgrown and a new page left uncommitted.
 """
 
 # Standard Library
@@ -43,6 +43,9 @@ from pydelity import cli, errors
 from pydelity.config.schemas import Config
 from pydelity.costs import budget
 from pydelity.costs.schemas import LedgerEntry
+from pydelity.extracting import text_layer
+from pydelity.extracting import validators as extraction_checks
+from pydelity.extracting.schemas import PageFile
 from pydelity.pipeline.schemas import RunRecord
 from pydelity.providers.profiles import PROFILES
 from pydelity.providers.schemas import Uploads
@@ -57,9 +60,22 @@ _BOUND_WORDS: dict[type, tuple[str, str]] = {
     annotated_types.Lt: ("lt", "less than"),
 }
 
+# Code names in the page-extraction checks' docstrings, and the words a reader of the
+# checks page sees instead.
+_CHECK_REFERENCES = {
+    "`comparison_status` is ``compared``": (
+        "the page file's ``text_comparison`` is ``compared``"
+    ),
+    "`unmatched_labels` records those items for review instead": (
+        "those items are listed for review as ``no_matching_label`` instead"
+    ),
+    "passes `check_labels`": "passes the ``labels`` check",
+}
+
 # The reference page that describes each exported class, by class name.
 _CLASS_PAGES = {
     "Config": "configuration",
+    "PageFile": "page-json",
     "PdfFacts": "pdf-facts-json",
     "PdfSurvey": "pdf-survey-json",
     "RunRecord": "run-json",
@@ -234,6 +250,28 @@ def _bounds(field: FieldInfo) -> list[str]:
             if isinstance(item, kind):
                 phrases.append(f"{words} {getattr(item, attribute)}")
     return list(dict.fromkeys(phrases))
+
+
+def _check_text(doc: str | None) -> str:
+    """Give a page-extraction check's docstring summary in a reader's words.
+
+    Parameters
+    ----------
+    doc
+        The check's docstring.
+
+    Returns
+    -------
+    str
+        The text before the parameters, each paragraph on one line, with the code
+        names in `_CHECK_REFERENCES` replaced.
+    """
+
+    text, _ = _docstring_parts(doc)
+    text = "\n\n".join(" ".join(part.split()) for part in text.split("\n\n"))
+    for code, words in _CHECK_REFERENCES.items():
+        text = text.replace(code, words)
+    return text
 
 
 def _constants(module: types.ModuleType) -> list[str]:
@@ -846,8 +884,68 @@ def cost_page() -> _Page:
         body=body,
         description="The fields of cost.jsonl and the figures the cost estimate uses.",
         name="cost-jsonl",
-        order=7,
+        order=8,
         title="cost.jsonl",
+    )
+
+
+def extraction_checks_page() -> _Page:
+    """Describe page extraction's checks and its other review issues.
+
+    Returns
+    -------
+    _Page
+        The page.
+    """
+
+    checks = [
+        f"### `{name}`\n\n{_prose(_check_text(check.__doc__))}"
+        for name, check in [
+            *extraction_checks.CHECKS.items(),
+            *extraction_checks.TEXT_CHECKS.items(),
+        ]
+    ]
+    comparison = _docstring_parts(text_layer.__doc__)[0].split("\n\n")[2]
+    body = "\n\n".join(
+        [
+            _prose(
+                "Each page answer, from the extraction model or in a verifier's "
+                "correction, goes through these checks. While retries remain "
+                "(``advanced.extraction.check_retries``), an answer that fails a check "
+                "is sent back to the model with every failure listed. The last answer "
+                "is kept as it is. A verifier correction replaces the extraction when "
+                "it passes every check other than ``text_dropped`` and "
+                "``text_added``. The page file's ``checks`` holds each check's result "
+                "on the kept answer. Each check it still fails becomes a review "
+                "issue, except ``text_dropped`` and ``text_added`` on a page the "
+                "verifier passes or whose correction is kept."
+            ),
+            "## Checks",
+            *checks,
+            "## How text is compared",
+            _prose(comparison),
+            "## Other review issues",
+            _prose("These are recorded without sending the answer back."),
+            "### `no_matching_label`",
+            _prose(_check_text(extraction_checks.unmatched_labels.__doc__)),
+            "### `verifier`",
+            _prose(
+                "A problem the verifier model found on a page whose extraction it did "
+                "not replace, because it gave no correction or its correction failed a "
+                "check. The issue names the item or container the problem is about, "
+                "when there is one."
+            ),
+        ]
+    )
+    return _Page(
+        body=body,
+        description=(
+            "The checks every page answer goes through, and the other review issues "
+            "page extraction records."
+        ),
+        name="extraction-checks",
+        order=11,
+        title="Page extraction checks",
     )
 
 
@@ -887,22 +985,31 @@ def main(argv: Sequence[str] | None = None) -> int:
             order=5,
             title="pdf_survey.json",
         ),
+        model_file_page(
+            description="Every field of a page file, pages/<NNNN>.json.",
+            extra=[],
+            model=PageFile,
+            name="page-json",
+            order=6,
+            title="pages/<NNNN>.json",
+        ),
         python_api_page(),
         model_file_page(
             description="Every field of run.json.",
             extra=[],
             model=RunRecord,
             name="run-json",
-            order=6,
+            order=7,
             title="run.json",
         ),
         survey_checks_page(),
+        extraction_checks_page(),
         model_file_page(
             description="Every field of uploads.json.",
             extra=[],
             model=Uploads,
             name="uploads-json",
-            order=8,
+            order=9,
             title="uploads.json",
         ),
     ]
@@ -1072,7 +1179,7 @@ def survey_checks_page() -> _Page:
             "the facts."
         ),
         name="survey-checks",
-        order=9,
+        order=10,
         title="Survey checks",
     )
 

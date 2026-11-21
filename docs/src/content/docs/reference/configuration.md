@@ -19,27 +19,33 @@ All the settings for a pydelity run.
 
 - `advanced` (object ([`advanced`](#advanced))): Settings most runs never need
   to change.
-- `instructions` (string or null; default `null`): Extra instructions for the
-  model about this PDF.
 - `languages` (list of strings; default `[]`): The PDF's languages as BCP-47
   tags such as `en` or `ar`, in standard form.
 - `max_cost` (number or null; more than 0; default `null`): The most the output
   folder's model requests may cost, in US dollars.
-- `model` (string; default `"anthropic:claude-opus-5-5"`): The model, as
-  `<provider>:<model-id>`; provider `anthropic` or `openai`.
+- `model` (string or null; default `null`): The model for every step, as
+  `<provider>:<model-id>`; each step's default if unset.
 
-  The model ID is sent to the provider as given.
+  The provider is `anthropic` or `openai`, and the model ID is sent to the
+  provider as given.
 
 - `output_dir` (path or null; default `null`): The output folder;
   `pydelity-output/<PDF name>` in the current folder if unset.
 - `overwrite` (boolean; default `false`): Whether to redo steps whose outputs
   could be reused.
+- `pages` (string or null; default `null`): The pages to extract, numbered from
+  1 as a PDF viewer shows them, such as `1-5,8`; every page if unset. The survey
+  always reads every page.
+- `pause` (boolean; default `true`): Whether to stop after a step that wrote new
+  output, so it can be checked before the next step is paid for.
 - `pdf` (path; required): The PDF to process.
 
 ## `advanced`
 
 Settings most runs never need to change.
 
+- `extraction` (object ([`advanced.extraction`](#advancedextraction))): Settings
+  for page extraction.
 - `models` (map of string to object
   ([`advanced.models.<provider>:<model-id>`](#advancedmodelsprovidermodel-id));
   default `{}`): Prices for models, by `<provider>:<model-id>`.
@@ -49,6 +55,26 @@ Settings most runs never need to change.
   survey step.
 - `uploads` (object ([`advanced.uploads`](#advanceduploads))): Settings for PDFs
   uploaded to the provider.
+
+## `advanced.extraction`
+
+Settings for page extraction.
+
+- `check_retries` (integer; at least 0; at most 5; default `2`): How many times
+  a model may answer again after failing page extraction's checks.
+- `concurrent_pages` (integer; at least 1; at most 32; default `8`): How many
+  pages are extracted at the same time.
+- `effort` (one of `low`, `medium`, `high`; default `"high"`): How hard the
+  models think before answering.
+- `instructions` (string or null; default `null`): What is particular, different
+  or nuanced about this PDF, in your own words, for page extraction's models.
+  Blank text counts as unset.
+- `max_output_tokens` (integer; more than 0; default `32000`): The most tokens
+  one model answer may contain, thinking included.
+- `model` (string or null; default `null`): The model for page extraction, as
+  `<provider>:<model-id>`; `model`, or else page extraction's default, if unset.
+- `request_timeout_seconds` (number; more than 0; default `600`): How long to
+  wait for one model request before it counts as failed.
 
 ## `advanced.models.<provider>:<model-id>`
 
@@ -69,6 +95,9 @@ Settings for the survey step.
   the model may answer again after failing the survey's checks.
 - `effort` (one of `low`, `medium`, `high`; default `"high"`): How hard the
   model thinks before answering.
+- `instructions` (string or null; default `null`): What is particular, different
+  or nuanced about this PDF, in your own words, for the survey's model. Blank
+  text counts as unset.
 - `max_output_tokens` (integer; more than 0; default `32000`): The most tokens
   one model answer may contain, thinking included.
 - `request_timeout_seconds` (number; more than 0; default `900`): How long to

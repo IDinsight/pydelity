@@ -21,14 +21,16 @@ from typing import Protocol
 
 # Package Library
 from pydelity.config.schemas import is_language_tag
-from pydelity.surveying.schemas import (
+from pydelity.review import (
     CheckFailure,
-    CheckName,
+    ReviewIssue,
+    SurveyCheckName,
+    SurveyComparisonName,
+)
+from pydelity.surveying.schemas import (
     CheckResult,
-    ComparisonName,
     Facts,
     PageNumberingRange,
-    ReviewIssue,
     RotationRange,
     SurveyAnswer,
 )
@@ -49,35 +51,8 @@ class _PageRange(Protocol):
         """The last page of the range, inclusive."""
 
 
-def _covering[RangeT: _PageRange](
-    ranges: Sequence[RangeT], *, page: int, page_count: int
-) -> RangeT | None:
-    """Find the first range that covers a page, ignoring ranges outside the PDF.
-
-    Parameters
-    ----------
-    ranges
-        The answer's ranges, in its order.
-    page
-        The page index.
-    page_count
-        The PDF's number of pages.
-
-    Returns
-    -------
-    RangeT | None
-        The range, or ``None`` when no range inside the PDF covers the page.
-    """
-
-    for page_range in ranges:
-        first, last = page_range.first_page_index, page_range.last_page_index
-        if 0 <= first <= last < page_count and first <= page <= last:
-            return page_range
-    return None
-
-
 def _failure(
-    check: CheckName,
+    check: SurveyCheckName,
     message: str,
     *,
     details: dict[str, object],
@@ -108,7 +83,7 @@ def _failure(
 
 
 def _issue(
-    comparison: ComparisonName,
+    comparison: SurveyComparisonName,
     message: str,
     *,
     details: dict[str, object],
@@ -136,6 +111,7 @@ def _issue(
     return ReviewIssue(
         check=comparison,
         details=details,
+        item_id=None,
         message=f"{comparison}: {message}",
         page_index=page_index,
         step="survey",
@@ -164,8 +140,8 @@ def _page_number_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]
         measured = page.printed_number
         if measured is None or measured.value is None:
             continue
-        numbering = _covering(
-            answer.page_numbering, page=page.index, page_count=page_count
+        numbering = covering_range(
+            answer.page_numbering, page_count=page_count, page_index=page.index
         )
         profile = _profile_number(numbering, page=page.index)
         if profile == measured.value:
@@ -179,8 +155,8 @@ def _page_number_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]
         issues.append(
             _issue(
                 "page_number_differs",
-                f"page {page.index} has the number {measured.value} in its {where}, "
-                f"but the profile gives {gives}",
+                f"page index {page.index} has the number {measured.value} in its "
+                f"{where}, but the profile gives {gives}",
                 details={
                     "measured": measured.value,
                     "profile": profile,
@@ -236,7 +212,7 @@ def _profile_number(numbering: PageNumberingRange | None, *, page: int) -> int |
 
 
 def _range_failures(
-    check: CheckName, ranges: Sequence[_PageRange], page_count: int
+    check: SurveyCheckName, ranges: Sequence[_PageRange], page_count: int
 ) -> list[CheckFailure]:
     """Check that page ranges lie inside the PDF and do not overlap.
 
@@ -267,7 +243,7 @@ def _range_failures(
         failures.append(
             _failure(
                 check,
-                f"range {first}-{last} is not inside the PDF's pages 0-"
+                f"range {first}-{last} is not inside the PDF's page indexes 0-"
                 f"{page_count - 1}, or ends before it starts",
                 details={
                     "page_count": page_count,
@@ -283,7 +259,7 @@ def _range_failures(
             failures.append(
                 _failure(
                     check,
-                    f"page {page} is in {count} ranges; ranges must not overlap",
+                    f"page index {page} is in {count} ranges; ranges must not overlap",
                     details={"proposed": count},
                     page_index=page,
                 )
@@ -313,8 +289,8 @@ def _rotation_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
         measured = page.orientation.dominant
         if not page.orientation.confident or measured is None:
             continue
-        turn: RotationRange | None = _covering(
-            answer.rotation, page=page.index, page_count=page_count
+        turn: RotationRange | None = covering_range(
+            answer.rotation, page_count=page_count, page_index=page.index
         )
         profile = 0 if turn is None else turn.degrees
         if profile == measured:
@@ -322,8 +298,8 @@ def _rotation_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
         issues.append(
             _issue(
                 "rotation_differs",
-                f"page {page.index} needs {measured} degrees by its measured text "
-                f"angle, but the profile gives {profile}",
+                f"page index {page.index} needs {measured} degrees by its measured "
+                f"text angle, but the profile gives {profile}",
                 details={"measured": measured, "profile": profile},
                 page_index=page.index,
             )
@@ -448,8 +424,8 @@ def check_labels(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
         failures.append(
             _failure(
                 "labels",
-                f"a region on page {page} uses label {region.label!r}, which is not "
-                "one of the labels",
+                f"a region on page index {page} uses label {region.label!r}, which is "
+                "not one of the labels",
                 details={"proposed": region.label},
                 page_index=page if 0 <= page < page_count else None,
             )
@@ -542,8 +518,8 @@ def check_regions(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
             failures.append(
                 _failure(
                     "regions",
-                    f"a region is on page {page}, but the PDF has pages 0-"
-                    f"{page_count - 1}",
+                    f"a region is on page index {page}, but the PDF's page indexes "
+                    f"are 0-{page_count - 1}",
                     details={"page_count": page_count, "proposed": page},
                     page_index=None,
                 )
@@ -556,7 +532,7 @@ def check_regions(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
         failures.append(
             _failure(
                 "regions",
-                f"a region on page {page} has the box {values}; a box needs "
+                f"a region on page index {page} has the box {values}; a box needs "
                 "0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1",
                 details={"proposed": values},
                 page_index=page,
@@ -566,7 +542,7 @@ def check_regions(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
 
 
 def check_results(
-    failures: dict[CheckName, list[CheckFailure]], *, attempts: int
+    failures: dict[SurveyCheckName, list[CheckFailure]], *, attempts: int
 ) -> list[CheckResult]:
     """Record each check's result on the accepted answer, C1 to C7 in order.
 
@@ -634,6 +610,18 @@ def check_writing_direction(answer: SurveyAnswer, facts: Facts) -> list[CheckFai
     )
 
 
+# The checks, C1 to C7 in order.
+CHECKS: dict[SurveyCheckName, Check] = {
+    "labels": check_labels,
+    "regions": check_regions,
+    "rotation": check_rotation,
+    "page_numbering": check_page_numbering,
+    "artifacts": check_artifacts,
+    "writing_direction": check_writing_direction,
+    "languages": check_languages,
+}
+
+
 def compare_with_facts(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
     """Record where the accepted answer differs from the measured facts.
 
@@ -659,7 +647,49 @@ def compare_with_facts(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
     return _rotation_issues(answer, facts) + _page_number_issues(answer, facts)
 
 
-def retry_message(failures: dict[CheckName, list[CheckFailure]]) -> str:
+def covering_range[RangeT: _PageRange](
+    ranges: Sequence[RangeT], *, page_count: int, page_index: int
+) -> RangeT | None:
+    """Find the first range that covers a page, ignoring ranges outside the PDF.
+
+    Every use of a profile's ranges reads them this way, so a range that a failed
+    check left in the profile, such as one running past the last page, gives the
+    same result everywhere.
+
+    Parameters
+    ----------
+    ranges
+        The ranges, in the answer's order.
+    page_count
+        The PDF's number of pages.
+    page_index
+        The page (0-based).
+
+    Returns
+    -------
+    RangeT | None
+        The range, or ``None`` when no range inside the PDF covers the page.
+
+    Examples
+    --------
+    On a 7-page PDF, a range that runs past the last page is skipped:
+
+    >>> ranges = [
+    ...     RotationRange(degrees=90, first_page_index=5, last_page_index=99),
+    ...     RotationRange(degrees=180, first_page_index=0, last_page_index=6),
+    ... ]
+    >>> covering_range(ranges, page_count=7, page_index=5).degrees
+    180
+    """
+
+    for page_range in ranges:
+        first, last = page_range.first_page_index, page_range.last_page_index
+        if 0 <= first <= last < page_count and first <= page_index <= last:
+            return page_range
+    return None
+
+
+def retry_message(failures: dict[SurveyCheckName, list[CheckFailure]]) -> str:
     """Write the message that asks the model to fix its answer.
 
     Parameters
@@ -698,6 +728,7 @@ def review_issues(results: list[CheckResult]) -> list[ReviewIssue]:
         ReviewIssue(
             check=result.name,
             details=failure.details,
+            item_id=None,
             message=failure.message,
             page_index=failure.page_index,
             step="survey",
@@ -709,7 +740,7 @@ def review_issues(results: list[CheckResult]) -> list[ReviewIssue]:
 
 def run_checks(
     answer: SurveyAnswer, facts: Facts
-) -> dict[CheckName, list[CheckFailure]]:
+) -> dict[SurveyCheckName, list[CheckFailure]]:
     """Run checks C1 to C7 on an answer.
 
     Parameters
@@ -721,20 +752,8 @@ def run_checks(
 
     Returns
     -------
-    dict[CheckName, list[CheckFailure]]
+    dict[SurveyCheckName, list[CheckFailure]]
         Each check's failures, C1 to C7 in order; an empty list when it passed.
     """
 
     return {name: check(answer, facts) for name, check in CHECKS.items()}
-
-
-# The checks, C1 to C7 in order.
-CHECKS: dict[CheckName, Check] = {
-    "labels": check_labels,
-    "regions": check_regions,
-    "rotation": check_rotation,
-    "page_numbering": check_page_numbering,
-    "artifacts": check_artifacts,
-    "writing_direction": check_writing_direction,
-    "languages": check_languages,
-}

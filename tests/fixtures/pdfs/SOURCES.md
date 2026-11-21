@@ -101,6 +101,38 @@ and SHA-256 identify the exact file, so a test can tell if a file changed.
 - SHA-256: `ec609a8bf9fac7da593355a57e49e0aa4d569eaceca3a7a84255104d864b1c34`
 - Contains: two-column English text; 22 bookmarks; tagged.
 
+## irs_w9_instructions_rotated.pdf
+
+- Source: a copy of `irs_w9_instructions.pdf` above, with the rotation attribute
+  of pages 2, 3 and 4 set to 90, 180 and 270 degrees. Nothing else changed:
+  every page's text is the same, and the bookmarks and tags are kept.
+- Made with PyMuPDF 2.1, at the repository root:
+
+  ```python
+  import pymupdf
+
+  document = pymupdf.open("tests/fixtures/pdfs/irs_w9_instructions.pdf")
+  for index, degrees in {1: 90, 2: 180, 3: 270}.items():
+      document[index].set_rotation(degrees)
+  document.save(
+      "tests/fixtures/pdfs/irs_w9_instructions_rotated.pdf",
+      deflate=True,
+      garbage=1,
+      use_objstms=1,
+  )
+  ```
+
+  Running it again gives the same pages but not the same bytes, because PyMuPDF
+  writes a new second part of the file ID each time.
+
+- License basis: as for `irs_w9_instructions.pdf`, a work of the U.S. federal
+  government (17 U.S.C. § 105).
+- Size: 187,076 bytes, 7 pages.
+- SHA-256: `26db71ee9721c68aff804acfc0ee8db983130e50d91733b6fb48dc22a018144c`
+- Contains: two-column English text on pages displayed upright (1, 5 to 7),
+  turned a quarter clockwise (2), upside down (3) and turned a quarter
+  counterclockwise (4); 22 bookmarks; tagged.
+
 ## japan_official_gazette_2019_extra_9.pdf
 
 - Source: Japan's Official Gazette (官報), Extra Special No. 9 of 2019 (April 1,

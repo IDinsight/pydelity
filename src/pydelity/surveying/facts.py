@@ -32,17 +32,17 @@ from pydelity.utils.files import load_model, write_model_atomic
 from pydelity.utils.fingerprints import fingerprint
 from pydelity.utils.pdf import PdfInfo
 
-# The facts file's name in the output folder.
-FACTS_FILE_NAME = "pdf_facts.json"
+# How much of a repeated line the summary quotes.
+_QUOTED_CHARS = 60
 
 # How many of the most frequent repeated lines the summary names.
 _REPEATED_LINES_NAMED = 3
 
-# How much of a repeated line the summary quotes.
-_QUOTED_CHARS = 60
-
 # A page counts as mostly vertical writing from this share of vertical characters.
 _VERTICAL_PAGE_SHARE = 0.5
+
+# The facts file's name in the output folder.
+FACTS_FILE_NAME = "pdf_facts.json"
 
 
 def _bookmarks_line(facts: Facts) -> list[str]:

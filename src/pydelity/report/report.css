@@ -1,19 +1,52 @@
 :root {
-  --border: #c8ccd2;
+  /* Colors drawn over the page images, which stay light in both color schemes. */
+  --container: #7b2cbf;
   --field: #8a4b00;
-  --muted: #555b63;
+  --flag: #c5221f;
+  --item: #137333;
+  --label-background: rgb(255 255 255 / 85%);
   --region: #0b57d0;
+  --target: rgb(255 214 0 / 35%);
+
+  /* Colors of the report itself. */
+  --background: #fff;
+  --border: #c8ccd2;
+  --highlight: #fff4c2;
+  --link: #0b57d0;
+  --muted: #555b63;
   --surface: #f6f7f9;
   --text: #1c1f23;
+  background: var(--background);
   color: var(--text);
+  color-scheme: light dark;
   font-family: system-ui, sans-serif;
   line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #16181c;
+    --border: #3d434b;
+    --highlight: #4a3f0a;
+    --link: #8ab4f8;
+    --muted: #a6adb7;
+    --surface: #23272d;
+    --text: #e4e7eb;
+  }
 }
 
 body {
   margin: 0 auto;
   max-inline-size: 72rem;
   padding: 1.5rem;
+}
+
+a {
+  color: var(--link);
+}
+
+.ref {
+  white-space: nowrap;
 }
 
 h1 {
@@ -75,6 +108,17 @@ th {
   margin: 0;
 }
 
+.page-layout {
+  align-items: start;
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+}
+
+.page-details {
+  min-inline-size: 0;
+}
+
 .page-image {
   max-inline-size: 50rem;
   position: relative;
@@ -100,10 +144,30 @@ th {
   border: 2px dashed var(--field);
 }
 
+.box.container {
+  border: 2px dotted var(--container);
+}
+
+.box.item {
+  border: 1px solid var(--item);
+  text-decoration: none;
+}
+
+.box.flagged {
+  border-color: var(--flag);
+  border-width: 3px;
+}
+
+.box:target {
+  background: var(--target);
+  outline: 3px solid var(--flag);
+}
+
 .box-label {
-  background: rgb(255 255 255 / 85%);
+  background: var(--label-background);
   font-size: 0.75rem;
   left: 0;
+  line-height: 1.2;
   padding-inline: 0.25rem;
   position: absolute;
   top: 0;
@@ -117,8 +181,91 @@ th {
   color: var(--field);
 }
 
+.box.container .box-label {
+  color: var(--container);
+  left: auto;
+  right: 0;
+}
+
+.box.item .box-label {
+  color: var(--item);
+  font-weight: 600;
+}
+
+.box.flagged .box-label {
+  color: var(--flag);
+}
+
 figcaption {
   color: var(--muted);
   font-size: 0.875rem;
   margin-block-start: 0.5rem;
+}
+
+.items {
+  padding-inline-start: 2rem;
+}
+
+.items > .item {
+  border-block-start: 1px solid var(--border);
+  padding-block: 0.5rem;
+}
+
+.items > .item:target {
+  background: var(--highlight);
+}
+
+.item-meta {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin-block: 0 0.25rem;
+}
+
+.item-text {
+  margin-block: 0.25rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.items > .item pre {
+  overflow-x: auto;
+}
+
+.items > .item dd {
+  unicode-bidi: plaintext;
+}
+
+.entries {
+  list-style: none;
+  padding-inline-start: 0;
+}
+
+.entries li {
+  margin-inline-start: calc(var(--level, 0) * 1.5rem);
+}
+
+.marker {
+  color: var(--muted);
+}
+
+.item-table {
+  font-size: 0.875rem;
+  margin-block: 0.5rem;
+}
+
+.crop {
+  block-size: auto;
+  border: 1px solid var(--border);
+  display: block;
+  max-inline-size: 100%;
+}
+
+.item-issues {
+  border-inline-start: 3px solid var(--flag);
+  padding-inline-start: 0.5rem;
+}
+
+.item-issues p {
+  font-weight: 600;
+  margin-block: 0.25rem 0;
 }

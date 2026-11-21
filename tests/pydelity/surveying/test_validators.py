@@ -16,6 +16,23 @@ from pydelity.surveying.validators import run_checks
 _PDF = "caps_english_hl_pages_28_35.pdf"
 
 
+def _pages_and_messages(failures: list[CheckFailure]) -> list[tuple[int | None, str]]:
+    """Reduce failures to their page and message, for comparing.
+
+    Parameters
+    ----------
+    failures
+        One check's failures.
+
+    Returns
+    -------
+    list[tuple[int | None, str]]
+        Each failure's page index and message.
+    """
+
+    return [(failure.page_index, failure.message) for failure in failures]
+
+
 def _region(*, label: str, page: int, x0: float = 0.1, x1: float = 0.9) -> dict:
     """Write one proposed region for an answer.
 
@@ -42,23 +59,6 @@ def _region(*, label: str, page: int, x0: float = 0.1, x1: float = 0.9) -> dict:
         "note": "",
         "page_index": page,
     }
-
-
-def _pages_and_messages(failures: list[CheckFailure]) -> list[tuple[int | None, str]]:
-    """Reduce failures to their page and message, for comparing.
-
-    Parameters
-    ----------
-    failures
-        One check's failures.
-
-    Returns
-    -------
-    list[tuple[int | None, str]]
-        Each failure's page index and message.
-    """
-
-    return [(failure.page_index, failure.message) for failure in failures]
 
 
 def _starts(
@@ -128,6 +128,40 @@ def test_a_well_formed_answer_passes_every_check(
     assert all(found == [] for found in failures.values())
 
 
+def test_artifacts_check_finds_missing_repeated_and_unknown_line_ids(
+    facts_of: Callable[[str], Facts], survey_answer: Callable[..., dict]
+) -> None:
+    """C5 needs every repeated line ID exactly once, and no ID the facts lack."""
+
+    facts = facts_of(_PDF)
+    assert [line.id for line in facts.repeated_lines] == [f"R{n}" for n in range(1, 9)]
+    artifacts = [
+        {
+            "description": "Running header",
+            "id": "A1",
+            "position": "top",
+            "repeated_line_ids": ["R1", "R2", "R9"],
+        }
+    ]
+    content = [
+        {"reason": "Heading", "repeated_line_id": line_id}
+        for line_id in ["R2", "R3", "R4", "R5", "R6", "R7"]
+    ]
+    answer = SurveyAnswer.model_validate(
+        survey_answer(facts, artifacts=artifacts, non_artifact_lines=content)
+    )
+
+    failures = run_checks(answer, facts)["artifacts"]
+
+    assert [failure.details for failure in failures] == [
+        {"proposed": 2, "repeated_line_id": "R2"},
+        {"proposed": 0, "repeated_line_id": "R8"},
+        {"proposed": "R9"},
+    ]
+    assert "R8" in failures[1].message
+    assert facts.repeated_lines[7].text in failures[1].message
+
+
 def test_labels_check_finds_empty_repeated_kindless_and_unknown_labels(
     facts_of: Callable[[str], Facts], survey_answer: Callable[..., dict]
 ) -> None:
@@ -158,7 +192,54 @@ def test_labels_check_finds_empty_repeated_kindless_and_unknown_labels(
             (None, "labels: the name 'body' is used by 2 lab"),
             (None, "labels: 1 label(s) have an empty name"),
             (None, "labels: label 'Table' has no kinds; give"),
-            (1, "labels: a region on page 1 uses label 'Mi"),
+            (1, "labels: a region on page index 1 uses label"),
+        ],
+    ), found
+
+
+def test_languages_check_needs_registered_tags_and_at_least_one(
+    facts_of: Callable[[str], Facts], survey_answer: Callable[..., dict]
+) -> None:
+    """C7 rejects unregistered or malformed tags one by one, and an empty list."""
+
+    facts = facts_of(_PDF)
+    tagged = SurveyAnswer.model_validate(
+        survey_answer(facts, languages=["en_US", "zz", "en-", "zxx", "ar"])
+    )
+    empty = SurveyAnswer.model_validate(survey_answer(facts, languages=[]))
+
+    failures = run_checks(tagged, facts)["languages"]
+    none_listed = run_checks(empty, facts)["languages"]
+
+    assert [failure.details for failure in failures] == [
+        {"proposed": "zz"},
+        {"proposed": "en-"},
+    ]
+    assert {failure.page_index for failure in failures} == {None}
+    assert [failure.details for failure in none_listed] == [{"proposed": []}]
+
+
+def test_page_numbering_check_finds_ranges_outside_the_pdf_and_overlaps(
+    facts_of: Callable[[str], Facts], survey_answer: Callable[..., dict]
+) -> None:
+    """C4 reports a range before the first page and each page two ranges cover."""
+
+    facts = facts_of(_PDF)
+    numbering = [
+        {"first_page_index": -1, "last_page_index": 2, "offset": 1, "style": "roman"},
+        {"first_page_index": 3, "last_page_index": 7, "offset": 23, "style": "arabic"},
+        {"first_page_index": 7, "last_page_index": 7, "offset": None, "style": "none"},
+    ]
+    answer = SurveyAnswer.model_validate(survey_answer(facts, page_numbering=numbering))
+
+    failures = run_checks(answer, facts)["page_numbering"]
+
+    found = _pages_and_messages(failures)
+    assert _starts(
+        found,
+        [
+            (None, "page_numbering: range -1-2 is not inside"),
+            (7, "page_numbering: page index 7 is in 2 ranges"),
         ],
     ), found
 
@@ -206,69 +287,10 @@ def test_rotation_check_finds_ranges_outside_the_pdf_and_overlaps(
         [
             (None, "rotation: range 6-9 is not inside the PD"),
             (None, "rotation: range 5-4 is not inside the PD"),
-            (2, "rotation: page 2 is in 2 ranges; ranges"),
-            (3, "rotation: page 3 is in 2 ranges; ranges"),
+            (2, "rotation: page index 2 is in 2 ranges"),
+            (3, "rotation: page index 3 is in 2 ranges"),
         ],
     ), found
-
-
-def test_page_numbering_check_finds_ranges_outside_the_pdf_and_overlaps(
-    facts_of: Callable[[str], Facts], survey_answer: Callable[..., dict]
-) -> None:
-    """C4 reports a range before the first page and each page two ranges cover."""
-
-    facts = facts_of(_PDF)
-    numbering = [
-        {"first_page_index": -1, "last_page_index": 2, "offset": 1, "style": "roman"},
-        {"first_page_index": 3, "last_page_index": 7, "offset": 23, "style": "arabic"},
-        {"first_page_index": 7, "last_page_index": 7, "offset": None, "style": "none"},
-    ]
-    answer = SurveyAnswer.model_validate(survey_answer(facts, page_numbering=numbering))
-
-    failures = run_checks(answer, facts)["page_numbering"]
-
-    found = _pages_and_messages(failures)
-    assert _starts(
-        found,
-        [
-            (None, "page_numbering: range -1-2 is not inside"),
-            (7, "page_numbering: page 7 is in 2 ranges"),
-        ],
-    ), found
-
-
-def test_artifacts_check_finds_missing_repeated_and_unknown_line_ids(
-    facts_of: Callable[[str], Facts], survey_answer: Callable[..., dict]
-) -> None:
-    """C5 needs every repeated line ID exactly once, and no ID the facts lack."""
-
-    facts = facts_of(_PDF)
-    assert [line.id for line in facts.repeated_lines] == [f"R{n}" for n in range(1, 9)]
-    artifacts = [
-        {
-            "description": "Running header",
-            "id": "A1",
-            "position": "top",
-            "repeated_line_ids": ["R1", "R2", "R9"],
-        }
-    ]
-    content = [
-        {"reason": "Heading", "repeated_line_id": line_id}
-        for line_id in ["R2", "R3", "R4", "R5", "R6", "R7"]
-    ]
-    answer = SurveyAnswer.model_validate(
-        survey_answer(facts, artifacts=artifacts, non_artifact_lines=content)
-    )
-
-    failures = run_checks(answer, facts)["artifacts"]
-
-    assert [failure.details for failure in failures] == [
-        {"proposed": 2, "repeated_line_id": "R2"},
-        {"proposed": 0, "repeated_line_id": "R8"},
-        {"proposed": "R9"},
-    ]
-    assert "R8" in failures[1].message
-    assert facts.repeated_lines[7].text in failures[1].message
 
 
 def test_writing_direction_check_finds_ranges_outside_the_pdf_and_overlaps(
@@ -296,28 +318,6 @@ def test_writing_direction_check_finds_ranges_outside_the_pdf_and_overlaps(
         found,
         [
             (None, "writing_direction: range 8-8 is not insi"),
-            (1, "writing_direction: page 1 is in 2 ranges"),
+            (1, "writing_direction: page index 1 is in 2 ranges"),
         ],
     ), found
-
-
-def test_languages_check_needs_registered_tags_and_at_least_one(
-    facts_of: Callable[[str], Facts], survey_answer: Callable[..., dict]
-) -> None:
-    """C7 rejects unregistered or malformed tags one by one, and an empty list."""
-
-    facts = facts_of(_PDF)
-    tagged = SurveyAnswer.model_validate(
-        survey_answer(facts, languages=["en_US", "zz", "en-", "zxx", "ar"])
-    )
-    empty = SurveyAnswer.model_validate(survey_answer(facts, languages=[]))
-
-    failures = run_checks(tagged, facts)["languages"]
-    none_listed = run_checks(empty, facts)["languages"]
-
-    assert [failure.details for failure in failures] == [
-        {"proposed": "zz"},
-        {"proposed": "en-"},
-    ]
-    assert {failure.page_index for failure in failures} == {None}
-    assert [failure.details for failure in none_listed] == [{"proposed": []}]

@@ -47,7 +47,7 @@ dependencies = [
     "pymupdf>=2.1",
     "typer>=0.29.1",
 ]
-description = "Survey any PDF with Anthropic or OpenAI models: page numbers, rotation, writing direction and repeated lines, as JSON with a list of things to review."
+description = "Survey any PDF and extract its pages with Anthropic or OpenAI models: a profile of the PDF, then each page's items in reading order with their boxes and figure crops, as JSON with a list of things to review."
 keywords = ["agents", "genai", "JSON", "llm", "PDF", "structured"]
 license = "MIT"
 license-files = ["LICENSE"]
@@ -70,13 +70,11 @@ Repository = "https://github.com/IDinsight/pydelity"
 # pytest coverage
 [tool.coverage.report]
 exclude_lines = [
-    "def cli",
     "if TYPE_CHECKING:",
     'if __name__ == "__main__"',
     "if __name__ == '__main__'",
     "pragma: no cover",
 ]
-omit = ["./src/pydelity/__init__.py"]
 
 [tool.coverage.run]
 branch = true

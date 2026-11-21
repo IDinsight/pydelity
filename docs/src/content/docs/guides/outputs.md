@@ -6,8 +6,7 @@ description:
 ---
 
 Every run writes to one output folder, `pydelity-output/<PDF name>/` unless you
-set `output_dir`. Page numbers in every file are page indexes that start at 0,
-so the PDF's first page is page 0.
+set `output_dir`.
 
 | File              | What it holds                                                    | Reference                                           |
 | ----------------- | ---------------------------------------------------------------- | --------------------------------------------------- |
@@ -15,9 +14,16 @@ so the PDF's first page is page 0.
 | `report/`         | The report's page images and their list                          |                                                     |
 | `run.json`        | The latest run: settings, status, cost, warnings and review list | [run.json](../../reference/run-json/)               |
 | `pdf_facts.json`  | What pydelity measured in the PDF                                | [pdf_facts.json](../../reference/pdf-facts-json/)   |
-| `pdf_survey.json` | The model's checked answer                                       | [pdf_survey.json](../../reference/pdf-survey-json/) |
+| `pdf_survey.json` | The survey's checked answer                                      | [pdf_survey.json](../../reference/pdf-survey-json/) |
+| `pages/`          | One page file per extracted page, such as `pages/0003.json`      | [Page file](../../reference/page-json/)             |
+| `figures/`        | An image of each figure, such as `figures/p0003-004.png`         | [Page file](../../reference/page-json/#itemsfigure) |
 | `cost.jsonl`      | One line per model request, from every run                       | [cost.jsonl](../../reference/cost-jsonl/)           |
 | `uploads.json`    | The PDF's uploads to providers                                   | [uploads.json](../../reference/uploads-json/)       |
+
+Pages in the JSON files are numbered by `page_index`, which starts at 0, so the
+PDF's first page is page 0 and its page file is `pages/0000.json`. The `pages`
+setting, the command's summary and the report number pages from 1, as a PDF
+viewer does. Each page file holds both.
 
 Each JSON file has a `schema_version`. In Python, `pydelity.load(folder)` reads
 the folder back as objects. See [Use pydelity from Python](../python/).
@@ -27,30 +33,40 @@ the folder back as objects. See [Use pydelity from Python](../python/).
 Open `report.html` in any browser. It shows:
 
 - how the run went, what it cost and its warnings
-- the review list
+- the review list, by step, with links to each issue's page and item
 - the survey's results: page numbering, rotation, writing direction, languages,
   labels and page furniture
 - the measured facts
-- each page as an image, with the model's regions and any form fields drawn on
-  it
+- each page as an image
+
+On a page that hasn't been extracted, the image shows the survey's regions and
+any form fields. On an extracted page, it shows every item as a box numbered in
+reading order, and every container as a dotted box. A box marked `!` has review
+issues. Beside the image is the list of items, with each item's ID, kind, role,
+label and content, a table drawn with its spans, a field's value, and a figure's
+description and image. Select a box to go to its item, and select an item's ID
+in the review list to go to its box. The page's details also say whether the
+verifier passed it and whether its text was compared with the PDF's stored text.
 
 The report is a single page with no scripts, and it loads nothing from the
-internet. It shows the page images from the `report/` folder next to it, so keep
-the two together if you move or share the report.
+internet. It shows images from the `report/` and `figures/` folders next to it,
+so keep them together if you move or share the report.
 
 ## run.json
 
 `run.json` describes the latest run on the folder:
 
-- `status`: `completed`, `failed`, `stopped`, `interrupted`, or `running` while
-  the run is going
+- `status`: `completed`, `paused` (stopped after a new survey, to be checked),
+  `failed`, `stopped`, `interrupted`, or `running` while the run is going
 - `error`: why the run failed or stopped, if it did
-- `steps`: what each step did, such as `completed` or `reused`, and how many
-  requests it made
+- `steps`: what each step did, such as `completed`, `reused` or `skipped` (page
+  extraction after a pause), how many requests it made and, for page extraction,
+  how many pages were selected, extracted and reused
 - `settings`: the settings the run used (never your API key)
 - `cost`: what the run and the whole folder have spent. See
   [Control costs](../costs/#what-a-run-spent).
-- `warnings`: problems that didn't stop the run
+- `warnings`: problems that didn't stop the run, each with the step that was
+  running
 - `review`: the review list
 
 ### Warnings
@@ -59,7 +75,7 @@ Each warning has a `code`:
 
 | Code                  | Meaning                                                                   |
 | --------------------- | ------------------------------------------------------------------------- |
-| `damaged_output`      | A saved file couldn't be read, so its step ran again                      |
+| `damaged_output`      | A saved file couldn't be read, so its step or page ran again              |
 | `max_cost_exceeded`   | The run could go over `max_cost`                                          |
 | `other_pdf_in_folder` | The folder held results for another PDF, which this run replaced          |
 | `probe_unavailable`   | pydelity couldn't read the PDF's bookmarks, form fields or structure tags |
@@ -68,17 +84,20 @@ Each warning has a `code`:
 
 ## The review list
 
-The review list in `run.json` holds everything a person should check. Each issue
-names the `check` that found it, the `page_index` it is on (or `null`), a
-`message` and the values involved in `details`. It comes from two places.
+The review list in `run.json` holds everything a person should check: the
+survey's issues first, then each selected page's issues in page order. Each
+issue names the `step` (`survey` or `extraction`) and the `check` that found it,
+the `page_index` it is on (or `null`), the `item_id` it is about (or `null`), a
+`message` and the values involved in `details`.
 
-**Checks the answer still fails.** pydelity checks every answer, for example
-that page ranges don't overlap and that every repeated line is accounted for. It
-sends a failing answer back to the model, up to `advanced.survey.check_retries`
-times. Whatever the last answer still gets wrong goes on the list. The
-[Survey checks](../../reference/survey-checks/) reference lists every check.
+**Checks the survey's answer still fails.** pydelity checks every survey answer,
+for example that page ranges don't overlap and that every repeated line is
+accounted for. It sends a failing answer back to the model, up to
+`advanced.survey.check_retries` times. Whatever the last answer still gets wrong
+goes on the list. The [Survey checks](../../reference/survey-checks/) reference
+lists every check.
 
-**Places where the model and the measurements disagree.** pydelity keeps the
+**Places where the survey and the measurements disagree.** pydelity keeps the
 model's reading, because the model sees the pages and is usually the better
 judge. Where it differs from what pydelity measured, the page goes on the list:
 
@@ -94,8 +113,49 @@ from the page's text (`text`) or its page label (`page_label`). The model can
 also misread a page where the measurements were right, and the review list is
 the only place that shows it.
 
-Where a page number or rotation matters for your work, check the page in the
-report.
+**Checks a page's answer still fails.** Each page answer goes through the
+[page extraction checks](../../reference/extraction-checks/), with retries.
+Whatever the kept answer still gets wrong goes on the list, usually naming the
+item. Lines dropped or added compared with the PDF's stored text (`text_dropped`
+and `text_added`) are listed only when the verifier didn't pass the page and its
+correction wasn't used.
+
+**Problems the verifier found.** When the verifier finds problems on a page and
+its correction can't be used, each problem goes on the list as a `verifier`
+issue.
+
+**Content no label fits.** When the survey gave no label for an item's role and
+kind, the item gets the label `other`, and the page gets one `no_matching_label`
+issue for each such role and kind.
+
+Where a page number, a rotation or an item matters for your work, check the page
+in the report.
+
+## Page files
+
+Each page file in `pages/` holds one extracted page:
+
+- `items`: the page's items in reading order, each with its `id`, `kind`,
+  `role`, `label`, `bbox` in points on the page as displayed, and its content.
+  [Extract pages](../page-extraction/#what-you-get) describes them.
+- `containers`: the page's bordered or shaded boxes. Items inside one name it in
+  `container`.
+- `checks`: each check's result on the kept answer, failures included
+- `issues`: the page's review issues, the same ones `run.json` lists
+- `verification`: the verifier's verdict as it gave it (`passed`, the `problems`
+  it found and any `corrected` answer), whether the correction was used
+  (`correction_applied`) and, if it wasn't, the checks it failed
+- `text_comparison`: whether the items' text was compared with the PDF's stored
+  text (`compared`), and if not, why
+- `writing_direction`, `rotation` and `column_order`: how the page was read
+- `inputs` and `fingerprint`: what the page was made from, which decides when it
+  is reused. See [Rerun and resume](../reruns/#what-gets-reused).
+
+A figure item's `figure.crop` names its image in `figures/`, cut from the page
+and turned upright.
+
+Every page file keeps its verdict, so you can count how often the verifier
+passed pages, found problems and had its correction used.
 
 ## pdf_facts.json
 
@@ -103,7 +163,8 @@ pydelity measures the PDF before calling any model and saves the results here
 straight away. They stay even if you stop at the cost question or the run fails
 later.
 
-- `summary`: the facts as short lines of text, the same lines the model gets
+- `summary`: the facts as short lines of text, the same lines the survey's model
+  gets
 - `facts`: each page's text layer, text angle, writing direction and printed
   page number, plus the repeated lines, bookmarks, form fields and structure
   tags
@@ -113,7 +174,7 @@ later.
 
 - `profile`: how the PDF's pages are laid out: page numbering, rotation, writing
   direction, languages, the labels for its kinds of content and where new units
-  of content start. Later pydelity steps will build on this.
+  of content start. Page extraction builds on this.
 - `proposal`: the rest of the model's answer: the regions it labeled on single
   pages, which repeated lines are page furniture such as running headers and
   which are content, and any notes

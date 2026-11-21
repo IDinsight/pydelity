@@ -92,8 +92,9 @@ Installing pydelity also installs the `pydelity` command in that environment.
 
 ## Set your API key
 
-pydelity sends the PDF to Anthropic or OpenAI, so you need an API key from the
-provider whose model you use. It reads the key from an environment variable:
+pydelity sends the PDF and images of its pages to Anthropic or OpenAI, so you
+need an API key from the provider whose model you use. It reads the key from an
+environment variable:
 
 | Provider  | Environment variable | Used for                                            |
 | --------- | -------------------- | --------------------------------------------------- |
@@ -165,4 +166,4 @@ use before you build pydelity into something you distribute.
 
 ## Next
 
-[Run your first survey](../first-survey/).
+[Run pydelity on your first PDF](../first-survey/).

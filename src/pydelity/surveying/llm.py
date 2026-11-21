@@ -1,8 +1,8 @@
 """Asking the model to survey a PDF: the request, the run and its errors."""
 
 # Standard Library
+from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 
 # Third Party Library
 from pydantic_ai import Agent, AgentRunResult
@@ -17,6 +17,7 @@ from pydantic_ai.messages import CachePoint, UserContent
 from pydelity.config.schemas import Config
 from pydelity.errors import ProviderError, SurveyError
 from pydelity.providers.ledger_model import LedgerModel
+from pydelity.providers.profiles import PdfTransport
 from pydelity.providers.uploads import (
     PdfAttachment,
     attach_pdf,
@@ -120,7 +121,7 @@ async def ask_model(
     config: Config,
     facts: PdfFacts,
     model: LedgerModel,
-    output_folder: Path,
+    on_attached: Callable[[PdfTransport], None],
     pdf: PdfInfo,
 ) -> ModelSurvey:
     """Attach the PDF and ask the model to survey it.
@@ -137,8 +138,10 @@ async def ask_model(
         The measured facts, sent as a summary and used by the checks.
     model
         The step's model.
-    output_folder
-        The output folder, which holds ``uploads.json``.
+    on_attached
+        Called with how requests will carry the PDF, each time the PDF is attached,
+        before any request is sent, so a failed survey can still say how it sent the
+        PDF.
     pdf
         The PDF.
 
@@ -159,7 +162,7 @@ async def ask_model(
 
     prompts = survey_pdf(
         facts_summary=facts.summary,
-        instructions=config.instructions,
+        instructions=config.advanced.survey.instructions,
         languages=config.languages,
         page_count=pdf.page_count,
         repeated_lines=facts.facts.repeated_lines,
@@ -172,8 +175,9 @@ async def ask_model(
         model=model,
     )
     attachment = await attach_pdf(
-        config=config, model=model, output_folder=output_folder, pdf=pdf
+        config=config, model=model, output_folder=config.output_folder, pdf=pdf
     )
+    on_attached(attachment.transport)
     try:
         result = await _run_agent(
             agent=agent, attachment=attachment, config=config, prompts=prompts
@@ -185,9 +189,10 @@ async def ask_model(
             attachment=attachment,
             config=config,
             model=model,
-            output_folder=output_folder,
+            output_folder=config.output_folder,
             pdf=pdf,
         )
+        on_attached(attachment.transport)
         result = await _run_agent(
             agent=agent, attachment=attachment, config=config, prompts=prompts
         )

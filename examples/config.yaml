@@ -4,6 +4,26 @@
 
 # Settings most runs never need to change.
 advanced:
+  # Settings for page extraction. They apply to the extraction model and to the
+  # verifier model alike.
+  extraction:
+    # How many times a model may answer again after failing page extraction's
+    # checks, from 0 to 5.
+    check_retries: 2
+    # How many pages are extracted at the same time, from 1 to 32.
+    concurrent_pages: 8
+    # How hard the models think before answering: low, medium or high.
+    effort: high
+    # What is particular, different or nuanced about this PDF, in your own words,
+    # for page extraction's models; none if null.
+    instructions: null
+    # The most tokens one model answer may contain, thinking included.
+    max_output_tokens: 32000
+    # The model for page extraction, as <provider>:<model-id>; model, or else page
+    # extraction's default (anthropic:claude-opus-5-5), if null.
+    model: null
+    # How many seconds to wait for one model request before it counts as failed.
+    request_timeout_seconds: 600
   # Prices for models, in US dollars per million tokens, by <provider>:<model-id>.
   # An entry replaces the price pydelity would look up for that model. This entry is
   # a placeholder for a model that does not exist: change it or remove it.
@@ -27,6 +47,9 @@ advanced:
     check_retries: 2
     # How hard the model thinks before answering: low, medium or high.
     effort: high
+    # What is particular, different or nuanced about this PDF, in your own words,
+    # for the survey's model; none if null.
+    instructions: null
     # The most tokens one model answer may contain, thinking included.
     max_output_tokens: 32000
     # How many seconds to wait for one model request before it counts as failed.
@@ -37,9 +60,6 @@ advanced:
     # null.
     expiry_hours: null
 
-# Extra instructions for the model about this PDF.
-instructions: null
-
 # The PDF's languages as BCP-47 tags, such as [en] or [en, ar].
 languages: []
 
@@ -47,14 +67,23 @@ languages: []
 # null.
 max_cost: null
 
-# The model, as <provider>:<model-id>; provider anthropic or openai.
-model: anthropic:claude-opus-5-5
+# The model for every step, as <provider>:<model-id>; provider anthropic or openai.
+# If null, each step uses its default, anthropic:claude-opus-5-5.
+model: null
 
 # The output folder; pydelity-output/<PDF name> in the current folder if null.
 output_dir: null
 
 # Whether to redo steps whose outputs could be reused.
 overwrite: false
+
+# The pages to extract, numbered from 1 as a PDF viewer shows them, such as "1-5,8";
+# every page if null. The survey always reads every page.
+pages: null
+
+# Whether to stop after a step that wrote new output, so it can be checked before
+# the next step is paid for.
+pause: true
 
 # The PDF to process. A PDF given on the command line wins over this one.
 pdf: document.pdf

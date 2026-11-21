@@ -36,8 +36,8 @@ from tests.fixtures.mock_providers import MockProviders
 # The 8-page test PDF whose text runs sideways and whose page labels are 23 to 30.
 _CAPS = "caps_english_hl_pages_28_35.pdf"
 
-# Words that name a document type or a domain. AC-006 keeps them out of prompts,
-# schema field names and the item vocabulary.
+# Words that name a document type or a domain, which prompts, schema field names
+# and the item vocabulary must not use.
 _DOMAIN_WORDS = (
     "article",
     "assessment",
@@ -151,6 +151,171 @@ def _model_requests(mock: MockProviders) -> list[str]:
     ]
 
 
+def test_an_answer_that_fails_a_check_is_sent_back_with_each_failure(
+    facts_of: Callable[[str], Facts],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """A first answer missing a repeated line is sent back; the second is accepted.
+
+    The retry message names the check and the missing line, both answers are
+    ledger lines, and the stored checks record two attempts and no failure.
+    """
+
+    facts = facts_of(_CAPS)
+    complete = _caps_answer(facts, survey_answer)
+    missing = dict(complete, non_artifact_lines=complete["non_artifact_lines"][:-1])
+    mock = mock_providers(answers=[missing, complete])
+
+    result = pydelity.run(pdf_path(_CAPS), output_dir="out")
+
+    requests = _model_requests(mock)
+    assert len(requests) == 2
+    assert "artifacts: repeated line R8" not in requests[0]
+    assert "artifacts: repeated line R8" in requests[1]
+    assert result.survey is not None
+    assert {(check.passed, check.attempts) for check in result.survey.checks} == {
+        (True, 2)
+    }
+    assert result.survey.issues == []
+    assert [entry.request for entry in result.ledger] == [1, 2]
+
+
+def test_an_answer_that_never_parses_fails_the_survey(
+    mock_providers: Callable[..., MockProviders], pdf_path: Callable[[str], Path]
+) -> None:
+    """An answer that is not the answer format raises `SurveyError` after the retries.
+
+    The run is recorded as failed, with the way the PDF reached the model, no
+    survey is saved, and the report is written.
+    """
+
+    mock = mock_providers(answers=["I cannot answer in that format."])
+
+    with pytest.raises(SurveyError, match="no usable survey answer"):
+        pydelity.run(
+            pdf_path(_SCAN), advanced={"survey": {"check_retries": 1}}, output_dir="out"
+        )
+
+    assert len(_model_requests(mock)) == 2
+    record = pydelity.load("out").record
+    assert record is not None
+    assert (record.status, record.steps[0].status) == ("failed", "failed")
+    assert record.steps[0].pdf_transport == "upload"
+    assert record.error is not None
+    assert record.error.startswith("SurveyError: ")
+    assert not Path("out/pdf_survey.json").exists()
+    assert Path("out/report.html").is_file()
+
+
+def test_answers_that_differ_from_the_facts_are_kept_and_listed_by_page(
+    facts_of: Callable[[str], Facts],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """A well-formed answer that disagrees with the facts is accepted at once.
+
+    The profile keeps the model's rotation and numbering. Each page whose measured
+    turn or printed number differs gets one review issue; pages that agree get none.
+    """
+
+    facts = facts_of(_CAPS)
+    answer = _caps_answer(
+        facts,
+        survey_answer,
+        page_numbering=[
+            {
+                "first_page_index": 0,
+                "last_page_index": 3,
+                "offset": 23,
+                "style": "arabic",
+            },
+            {
+                "first_page_index": 4,
+                "last_page_index": 7,
+                "offset": None,
+                "style": "none",
+            },
+        ],
+        rotation=[{"degrees": 90, "first_page_index": 0, "last_page_index": 3}],
+    )
+    mock = mock_providers(answers=[answer])
+
+    survey: PdfSurvey = pydelity.survey(pdf_path(_CAPS), output_dir="out")
+
+    assert len(_model_requests(mock)) == 1
+    assert all(check.passed and check.attempts == 1 for check in survey.checks)
+    assert [
+        (r.first_page_index, r.last_page_index) for r in survey.profile.rotation
+    ] == [(0, 3)]
+    assert len(survey.profile.page_numbering) == 2
+    rotation = [i for i in survey.issues if i.check == "rotation_differs"]
+    numbers = [i for i in survey.issues if i.check == "page_number_differs"]
+    assert [(i.page_index, i.details) for i in rotation] == [
+        (page, {"measured": 90, "profile": 0}) for page in range(4, 8)
+    ]
+    assert [(i.page_index, i.details) for i in numbers] == [
+        (page, {"measured": page + 23, "profile": None, "source": "page_label"})
+        for page in range(4, 8)
+    ]
+    assert "page index 4" in rotation[0].message
+    assert "27" in numbers[0].message
+
+
+def test_checks_still_failing_after_the_retries_are_listed_for_review(  # noqa: PLR0913, PLR0917 - fixtures
+    facts_of: Callable[[str], Facts],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    run_cli: Callable[..., Result],
+    survey_answer: Callable[..., dict],
+    tmp_path: Path,
+) -> None:
+    """After the last allowed answer, each failure is a review issue in both files.
+
+    The command summary counts the issues by check and lists each with its step and
+    its page numbered from 1, as a PDF viewer shows it.
+    """
+
+    facts = facts_of(_CAPS)
+    complete = _caps_answer(facts, survey_answer)
+    flawed = dict(
+        complete,
+        non_artifact_lines=complete["non_artifact_lines"][:-1],
+        regions=[
+            {
+                "bbox": {"x0": 0.1, "x1": 0.9, "y0": 0.1, "y1": 0.2},
+                "label": "Sidebar",
+                "note": "",
+                "page_index": 2,
+            }
+        ],
+    )
+    mock = mock_providers(answers=[flawed])
+    config_file = tmp_path / "pydelity.yaml"
+    config_file.write_text("advanced:\n  survey:\n    check_retries: 1\n")
+
+    result = run_cli(
+        [str(pdf_path(_CAPS)), "--config", str(config_file), "-d", "out", "--yes"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(_model_requests(mock)) == 2
+    survey = pydelity.load("out").survey
+    record = pydelity.load("out").record
+    assert survey is not None
+    assert record is not None
+    assert [(i.step, i.check, i.page_index) for i in survey.issues] == [
+        ("survey", "labels", 2),
+        ("survey", "artifacts", None),
+    ]
+    assert record.review == survey.issues
+    assert "Review issues by check: labels 1, artifacts 1" in result.stderr
+    assert "survey, page 3: labels: a region on page index 2" in result.stderr
+    assert "survey: artifacts: repeated line R8" in result.stderr
+
+
 def test_profile_owns_other_dedupes_kinds_and_converts_region_boxes(
     pdf_path: Callable[[str], Path],
     survey_answer: Callable[..., dict],
@@ -208,226 +373,6 @@ def test_profile_owns_other_dedupes_kinds_and_converts_region_boxes(
     assert survey.inputs.facts_fingerprint == facts.fingerprint
 
 
-def test_user_languages_lead_and_rejected_model_tags_become_review_issues(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """User tags come first in standard form; a tag C7 rejects is left out.
-
-    With no check retries the first answer is accepted, and its rejected tag is a
-    review issue. Pages with nothing measured never differ from the facts, so the
-    answer's rotation and page numbering give no issue.
-    """
-
-    answer = survey_answer(
-        languages=["en", "eng", "zz", "ar"],
-        page_numbering=[
-            {
-                "first_page_index": 0,
-                "last_page_index": 1,
-                "offset": 5,
-                "style": "arabic",
-            }
-        ],
-        rotation=[{"degrees": 90, "first_page_index": 0, "last_page_index": 1}],
-    )
-    mock = mock_providers(answers=[answer])
-
-    survey = pydelity.survey(
-        pdf_path(_SCAN),
-        advanced={"survey": {"check_retries": 0}},
-        instructions="Treat stamps as content.",
-        languages=["EN_us"],
-        output_dir="out",
-    )
-
-    assert survey.profile.languages == ["en-US", "en", "ar"]
-    assert survey.profile.user_instructions == "Treat stamps as content."
-    assert [(issue.check, issue.details) for issue in survey.issues] == [
-        ("languages", {"proposed": "zz"})
-    ]
-    assert survey.issues[0].step == "survey"
-    languages = next(check for check in survey.checks if check.name == "languages")
-    assert (languages.passed, languages.attempts) == (False, 1)
-    assert len(_model_requests(mock)) == 1
-
-
-def test_an_answer_that_fails_a_check_is_sent_back_with_each_failure(
-    facts_of: Callable[[str], Facts],
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """A first answer missing a repeated line is sent back; the second is accepted.
-
-    The retry message names the check and the missing line, both answers are
-    ledger lines, and the stored checks record two attempts and no failure.
-    """
-
-    facts = facts_of(_CAPS)
-    complete = _caps_answer(facts, survey_answer)
-    missing = dict(complete, non_artifact_lines=complete["non_artifact_lines"][:-1])
-    mock = mock_providers(answers=[missing, complete])
-
-    result = pydelity.run(pdf_path(_CAPS), output_dir="out")
-
-    requests = _model_requests(mock)
-    assert len(requests) == 2
-    assert "artifacts: repeated line R8" not in requests[0]
-    assert "artifacts: repeated line R8" in requests[1]
-    assert result.survey is not None
-    assert {(check.passed, check.attempts) for check in result.survey.checks} == {
-        (True, 2)
-    }
-    assert result.survey.issues == []
-    assert [entry.request for entry in result.ledger] == [1, 2]
-
-
-def test_checks_still_failing_after_the_retries_are_listed_for_review(  # noqa: PLR0913, PLR0917 - fixtures
-    facts_of: Callable[[str], Facts],
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    run_cli: Callable[..., Result],
-    survey_answer: Callable[..., dict],
-    tmp_path: Path,
-) -> None:
-    """After the last allowed answer, each failure is a review issue in both files.
-
-    The command summary counts the issues by check and lists each with its step and
-    page.
-    """
-
-    facts = facts_of(_CAPS)
-    complete = _caps_answer(facts, survey_answer)
-    flawed = dict(
-        complete,
-        non_artifact_lines=complete["non_artifact_lines"][:-1],
-        regions=[
-            {
-                "bbox": {"x0": 0.1, "x1": 0.9, "y0": 0.1, "y1": 0.2},
-                "label": "Sidebar",
-                "note": "",
-                "page_index": 2,
-            }
-        ],
-    )
-    mock = mock_providers(answers=[flawed])
-    config_file = tmp_path / "pydelity.yaml"
-    config_file.write_text("advanced:\n  survey:\n    check_retries: 1\n")
-
-    result = run_cli(
-        [str(pdf_path(_CAPS)), "--config", str(config_file), "-d", "out", "--yes"]
-    )
-
-    assert result.exit_code == 0, result.output
-    assert len(_model_requests(mock)) == 2
-    survey = pydelity.load("out").survey
-    record = pydelity.load("out").record
-    assert survey is not None
-    assert record is not None
-    assert [(i.step, i.check, i.page_index) for i in survey.issues] == [
-        ("survey", "labels", 2),
-        ("survey", "artifacts", None),
-    ]
-    assert record.review == survey.issues
-    assert "Review issues by check: labels 1, artifacts 1" in result.stderr
-    assert "survey, page 2: labels: a region on page 2" in result.stderr
-    assert "survey, page -: artifacts: repeated line R8" in result.stderr
-
-
-def test_answers_that_differ_from_the_facts_are_kept_and_listed_by_page(
-    facts_of: Callable[[str], Facts],
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """A well-formed answer that disagrees with the facts is accepted at once.
-
-    The profile keeps the model's rotation and numbering. Each page whose measured
-    turn or printed number differs gets one review issue; pages that agree get none.
-    """
-
-    facts = facts_of(_CAPS)
-    answer = _caps_answer(
-        facts,
-        survey_answer,
-        page_numbering=[
-            {
-                "first_page_index": 0,
-                "last_page_index": 3,
-                "offset": 23,
-                "style": "arabic",
-            },
-            {
-                "first_page_index": 4,
-                "last_page_index": 7,
-                "offset": None,
-                "style": "none",
-            },
-        ],
-        rotation=[{"degrees": 90, "first_page_index": 0, "last_page_index": 3}],
-    )
-    mock = mock_providers(answers=[answer])
-
-    survey: PdfSurvey = pydelity.survey(pdf_path(_CAPS), output_dir="out")
-
-    assert len(_model_requests(mock)) == 1
-    assert all(check.passed and check.attempts == 1 for check in survey.checks)
-    assert [
-        (r.first_page_index, r.last_page_index) for r in survey.profile.rotation
-    ] == [(0, 3)]
-    assert len(survey.profile.page_numbering) == 2
-    rotation = [i for i in survey.issues if i.check == "rotation_differs"]
-    numbers = [i for i in survey.issues if i.check == "page_number_differs"]
-    assert [(i.page_index, i.details) for i in rotation] == [
-        (page, {"measured": 90, "profile": 0}) for page in range(4, 8)
-    ]
-    assert [(i.page_index, i.details) for i in numbers] == [
-        (page, {"measured": page + 23, "profile": None, "source": "page_label"})
-        for page in range(4, 8)
-    ]
-    assert "page 4" in rotation[0].message
-    assert "27" in numbers[0].message
-
-
-def test_request_sends_the_facts_as_hints_with_every_repeated_line(
-    facts_of: Callable[[str], Facts],
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """The request holds the facts summary, each repeated line and the user's text.
-
-    Its instructions tell the model to treat the facts as hints and to answer with
-    its own reading where they differ.
-    """
-
-    facts = facts_of(_CAPS)
-    mock = mock_providers(answers=[_caps_answer(facts, survey_answer)])
-
-    saved = pydelity.measure(pdf_path(_CAPS), output_dir="out")
-    pydelity.survey(
-        pdf_path(_CAPS),
-        instructions="Margin notes are content.",
-        languages=["en"],
-        output_dir="out",
-    )
-
-    (request,) = _model_requests(mock)
-    text = json.loads(request)
-    sent = json.dumps(text["messages"], ensure_ascii=False)
-    system = json.dumps(text.get("system", ""), ensure_ascii=False)
-    for line in saved.summary:
-        assert json.dumps(line, ensure_ascii=False)[1:-1] in sent
-    for line in facts.repeated_lines:
-        assert line.id in sent
-        assert json.dumps(line.text, ensure_ascii=False)[1:-1] in sent
-    assert "Margin notes are content." in sent
-    assert "Treat them as hints" in system
-    assert "answer with what you read" in system
-
-
 def test_prompt_schema_and_vocabulary_name_no_document_type() -> None:
     """The prompt, the answer and output field names and the item enums are neutral.
 
@@ -463,26 +408,90 @@ def test_prompt_schema_and_vocabulary_name_no_document_type() -> None:
     assert found == {}
 
 
-def test_an_answer_that_never_parses_fails_the_survey(
-    mock_providers: Callable[..., MockProviders], pdf_path: Callable[[str], Path]
+def test_request_sends_the_facts_as_hints_with_every_repeated_line(
+    facts_of: Callable[[str], Facts],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
 ) -> None:
-    """An answer that is not the answer format raises `SurveyError` after the retries.
+    """The request holds the facts summary, each repeated line and the user's text.
 
-    The run is recorded as failed, no survey is saved, and the report is written.
+    Its instructions tell the model to treat the facts as hints and to answer with
+    its own reading where they differ, and end with the survey's instructions from
+    the user.
     """
 
-    mock = mock_providers(answers=["I cannot answer in that format."])
+    facts = facts_of(_CAPS)
+    mock = mock_providers(answers=[_caps_answer(facts, survey_answer)])
 
-    with pytest.raises(SurveyError, match="no usable survey answer"):
-        pydelity.run(
-            pdf_path(_SCAN), advanced={"survey": {"check_retries": 1}}, output_dir="out"
-        )
+    saved = pydelity.measure(pdf_path(_CAPS), output_dir="out")
+    pydelity.survey(
+        pdf_path(_CAPS),
+        advanced={"survey": {"instructions": "Margin notes are content."}},
+        languages=["en"],
+        output_dir="out",
+    )
 
-    assert len(_model_requests(mock)) == 2
-    record = pydelity.load("out").record
-    assert record is not None
-    assert (record.status, record.steps[0].status) == ("failed", "failed")
-    assert record.error is not None
-    assert record.error.startswith("SurveyError: ")
-    assert not Path("out/pdf_survey.json").exists()
-    assert Path("out/report.html").is_file()
+    (request,) = _model_requests(mock)
+    text = json.loads(request)
+    sent = json.dumps(text["messages"], ensure_ascii=False)
+    system = json.dumps(text.get("system", ""), ensure_ascii=False)
+    for line in saved.summary:
+        assert json.dumps(line, ensure_ascii=False)[1:-1] in sent
+    for line in facts.repeated_lines:
+        assert line.id in sent
+        assert json.dumps(line.text, ensure_ascii=False)[1:-1] in sent
+    assert "Margin notes are content." not in sent
+    assert "Treat them as hints" in system
+    assert system.index("The user's instructions for this PDF follow.") > (
+        system.index("Treat them as hints")
+    )
+    assert "Margin notes are content." in system
+    assert "answer with what you read" in system
+
+
+def test_user_languages_lead_and_rejected_model_tags_become_review_issues(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """User tags come first in standard form; a tag C7 rejects is left out.
+
+    With no check retries the first answer is accepted, and its rejected tag is a
+    review issue. Pages with nothing measured never differ from the facts, so the
+    answer's rotation and page numbering give no issue.
+    """
+
+    answer = survey_answer(
+        languages=["en", "eng", "zz", "ar"],
+        page_numbering=[
+            {
+                "first_page_index": 0,
+                "last_page_index": 1,
+                "offset": 5,
+                "style": "arabic",
+            }
+        ],
+        rotation=[{"degrees": 90, "first_page_index": 0, "last_page_index": 1}],
+    )
+    mock = mock_providers(answers=[answer])
+
+    survey = pydelity.survey(
+        pdf_path(_SCAN),
+        advanced={
+            "survey": {"check_retries": 0, "instructions": "Treat stamps as content."}
+        },
+        languages=["EN_us"],
+        output_dir="out",
+    )
+
+    assert survey.profile.languages == ["en-US", "en", "ar"]
+    assert survey.inputs.instructions == "Treat stamps as content."
+    assert "Treat stamps as content." not in survey.profile.model_dump_json()
+    assert [(issue.check, issue.details) for issue in survey.issues] == [
+        ("languages", {"proposed": "zz"})
+    ]
+    assert survey.issues[0].step == "survey"
+    languages = next(check for check in survey.checks if check.name == "languages")
+    assert (languages.passed, languages.attempts) == (False, 1)
+    assert len(_model_requests(mock)) == 1

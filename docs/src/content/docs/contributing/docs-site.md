@@ -41,7 +41,7 @@ just docs-build
 
 This builds the site from the current tree into `docs/dist/` and then checks
 every internal link and `#fragment` in it. A broken link fails the build. CI
-runs the same build and check on every pull request.
+runs the same build and check on every pull request to `main`.
 
 ## Reference pages
 
@@ -53,10 +53,13 @@ docstrings, then run:
 
 ```sh
 just docs-reference
+just lint-markdown
 ```
 
-`just lint` runs this too, before formatting Markdown. CI regenerates the pages
-and fails if they differ from what is committed, so a reference page can't fall
+`just docs-reference` writes the pages unformatted, and `just lint-markdown`
+formats them with Prettier, so run both before you commit. `just lint` runs both
+too. CI regenerates and formats the pages and fails if they differ from what is
+committed or if a new page isn't committed, so a reference page can't fall
 behind the code.
 
 ## Write a page
@@ -96,11 +99,15 @@ later.
 The `Docs` workflow (`.github/workflows/docs.yml`) publishes the site to GitHub
 Pages:
 
-- Pull requests build the current tree and check its links. Nothing is
+- Pull requests to `main` build the current tree and check its links. Nothing is
   published.
 - Pushes to `main`, release tags and manual runs build every released version.
-  The site is published only when the package version on `main` has its release
-  tag.
+  Only a push publishes, and only when the package version on `main` has its
+  release tag. A manual run builds and checks the site but never publishes it.
+
+To publish the site again, for example after a failed deployment, open the
+`Docs` run of the latest push to `main` or of the release tag in the
+repository's Actions tab and re-run it.
 
 Because pages come from release tags, a docs change merged into `main` reaches
 the published site with the next release.

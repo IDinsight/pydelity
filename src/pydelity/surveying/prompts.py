@@ -33,7 +33,8 @@ def survey_pdf(
     facts_summary
         The facts summary lines from ``pdf_facts.json``.
     instructions
-        The user's instructions, if any.
+        The user's instructions for the survey (``advanced.survey.instructions``), if
+        any.
     languages
         The user's languages, as BCP-47 tags in standard form.
     page_count
@@ -45,9 +46,9 @@ def survey_pdf(
     Returns
     -------
     PromptPair
-        The instructions as the system message. The user message has the page count,
-        the facts summary, the repeated lines, and the user's instructions and
-        languages when given.
+        The instructions as the system message, ending with the user's instructions
+        when given. The user message has the page count, the facts summary, the
+        repeated lines, and the user's languages when given.
 
     Examples
     --------
@@ -137,9 +138,13 @@ top-left corner. Leave regions empty when no area needs one.
 
 Notes. Add anything else about the layout that later steps should know.
 
-The user's instructions, when given, add to these instructions and do not replace \
-them. Your answer is checked for form and completeness, and you will be told what to \
-fix if a check fails."""
+Your answer is checked for form and completeness, and you will be told what to fix \
+if a check fails."""
+    if instructions:
+        system_message += (
+            "\n\nThe user's instructions for this PDF follow. They add to the "
+            f"instructions above and do not replace them.\n{instructions}"
+        )
 
     pages = (
         "1 page, with index 0"
@@ -160,8 +165,6 @@ fix if a check fails."""
                 for line in repeated_lines
             )
         )
-    if instructions:
-        sections.append(f"The user's instructions:\n{instructions}")
     if languages:
         sections.append(f"The user says the PDF is written in: {', '.join(languages)}")
 

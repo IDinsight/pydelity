@@ -13,6 +13,9 @@ LEDGER_SCHEMA_VERSION = "1.0"
 # ``report/manifest.json``: the rendered page images.
 MANIFEST_SCHEMA_VERSION = "1.0"
 
+# ``pages/<NNNN>.json``: one page's extracted items and their checks.
+PAGE_SCHEMA_VERSION = "1.0"
+
 # ``run.json``: one run on one PDF.
 RUN_SCHEMA_VERSION = "1.0"
 

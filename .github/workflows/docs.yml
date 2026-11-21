@@ -43,18 +43,28 @@ jobs:
 
       # The versioned build needs a release tag of 0.1.0 or later; the check uses the
       # same rule as the build. Only a push publishes, and only once the package
-      # version on the built commit has its tag.
+      # version on the built commit has its tag. This step runs the runner's own Node
+      # and Python, before the build sets up the pinned Node; it needs only their
+      # standard features. Any error from the check fails the step with its message.
       - name: Choose the build and whether to publish
         id: plan
         env:
           EVENT: ${{ github.event_name }}
         run: |
           script=build
-          if [[ "$EVENT" != "pull_request" ]] && node --input-type=module --eval '
-            import { releaseVersions } from "./docs/src/versioning/versions.mjs";
-            releaseVersions(process.argv[1].split("\n"));
-          ' "$(git tag --list 'v*')" 2>/dev/null; then
-            script=build:versions
+          if [[ "$EVENT" != "pull_request" ]]; then
+            releases="$(node --input-type=module --eval '
+              import { releaseVersions } from "./docs/src/versioning/versions.mjs";
+              try {
+                console.log(releaseVersions(process.argv[1].split("\n")).length);
+              } catch (error) {
+                if (!error.message.startsWith("No documented release tags")) throw error;
+                console.log(0);
+              }
+            ' "$(git tag --list 'v*')")"
+            if (( releases > 0 )); then
+              script=build:versions
+            fi
           fi
 
           version="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
@@ -76,7 +86,9 @@ jobs:
         uses: withastro/action@a8b97df764791eb61fbf3338ef713b0e61ae05c5 # v6.1.4
         with:
           build-cmd: pnpm run ${{ steps.plan.outputs.script }} && pnpm run check-links
-          # No Astro cache: a published build never reuses files another run wrote.
+          # No Astro cache, so optimized images and other built assets are made fresh
+          # each run. The action's setup-node still restores the pnpm package store,
+          # keyed on docs/pnpm-lock.yaml.
           cache: false
           # Kept by hand: the repo's one Node version, as in the hooks.
           node-version: "24.22.3"

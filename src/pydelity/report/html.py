@@ -1,40 +1,66 @@
 """``report.html``, the page that shows a run's results.
 
-It shows the run, its cost and review issues, the profile, the facts and the pages,
-with the survey's regions and the form fields drawn over each page image. It is static
-HTML with its stylesheet inlined, so it runs no JavaScript and loads nothing from
-elsewhere. Every string taken from the PDF, the settings or the model is HTML-escaped.
+It shows the run, its cost and review issues, the profile, the facts and the pages.
+Each extracted page shows its items and containers drawn over the page image, beside
+a list of its items. Other pages show the survey's regions and the form fields. It is
+static HTML with its stylesheet inlined, so it runs no JavaScript and loads nothing
+from elsewhere. Every string taken from the PDF, the settings or the model is
+HTML-escaped.
 """
 
 # Standard Library
 import html
 import re
 
-from collections import Counter
+from collections import Counter, defaultdict
+from collections.abc import Sequence
+from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 
 # Package Library
 from pydelity.costs.budget import format_usd
+from pydelity.extracting.schemas import (
+    Container,
+    Entry,
+    FieldContent,
+    Figure,
+    Item,
+    PageFile,
+    PageVerification,
+    Table,
+    TableCell,
+)
 from pydelity.pipeline.schemas import RunRecord
 from pydelity.report.schemas import PageImage, ReportManifest
-from pydelity.surveying.schemas import (
-    Facts,
-    PageFacts,
-    PdfFacts,
-    PdfSurvey,
-    ReviewIssue,
-)
+from pydelity.review import ReviewIssue
+from pydelity.surveying.schemas import Facts, ItemKind, PageFacts, PdfFacts, PdfSurvey
+from pydelity.surveying.validators import covering_range
 from pydelity.utils.files import write_text_atomic
+
+# Each step's heading in the review section, by the step's name in the review issues.
+_STEP_TITLES = {"extraction": "Page extraction", "survey": "Survey"}
+
+# What a page file's text comparison status means, for the page's findings.
+_TEXT_COMPARISON = {
+    "compared": "yes",
+    "garbled_text_layer": "no, the stored text is garbled",
+    "no_text_layer": "no, the page has no stored text",
+    "text_layer_mismatch": "no, the stored text shares too little with the items' text",
+}
 
 # The report's file name in the output folder.
 REPORT_FILE_NAME = "report.html"
 
 
-def _box(
-    *, bbox: tuple[float, float, float, float], kind: str, label: str, page: PageFacts
-) -> str:
-    """Draw a box over a page image, positioned in percent of the page.
+class _Html(str):
+    """Markup built in this module, which `_table` puts in a cell as it is."""
+
+    __slots__ = ()
+
+
+def _box(*, bbox: Sequence[float], kind: str, label: str, page: PageFacts) -> str:
+    """Draw a survey region or a form field over a page image.
 
     Parameters
     ----------
@@ -53,19 +79,75 @@ def _box(
         The box's HTML.
     """
 
+    style = _box_style(bbox, height_pt=page.height_pt, width_pt=page.width_pt)
+    return (
+        f'<div class="box {kind}" style="{style}">'
+        f'<span class="box-label">{_escape(label)}</span></div>'
+    )
+
+
+def _box_style(bbox: Sequence[float], *, height_pt: float, width_pt: float) -> str:
+    """Position a box over a page image, in percent of the page.
+
+    Parameters
+    ----------
+    bbox
+        The box in points on the displayed page, as ``(x0, y0, x1, y1)``.
+    height_pt
+        The displayed page's height in points.
+    width_pt
+        The displayed page's width in points.
+
+    Returns
+    -------
+    str
+        The box's ``style`` attribute, kept on the page.
+
+    Examples
+    --------
+    >>> _box_style([61.2, 79.2, 306.0, 396.0], height_pt=792.0, width_pt=612.0)
+    'left:10.00%;top:10.00%;width:40.00%;height:40.00%'
+    """
+
     def percent(value: float, size: float) -> float:
         """Turn a coordinate into a percentage of the page, kept on the page."""
 
         return min(max(value / size * 100, 0), 100)
 
-    left = percent(bbox[0], page.width_pt)
-    top = percent(bbox[1], page.height_pt)
-    width = percent(bbox[2], page.width_pt) - left
-    height = percent(bbox[3], page.height_pt) - top
-    style = f"left:{left:.2f}%;top:{top:.2f}%;width:{width:.2f}%;height:{height:.2f}%"
+    left = percent(bbox[0], width_pt)
+    top = percent(bbox[1], height_pt)
+    width = percent(bbox[2], width_pt) - left
+    height = percent(bbox[3], height_pt) - top
+    return f"left:{left:.2f}%;top:{top:.2f}%;width:{width:.2f}%;height:{height:.2f}%"
+
+
+def _container_box(container: Container, *, flagged: bool, page_file: PageFile) -> str:
+    """Draw a container over its page image, named by its number on the page.
+
+    Parameters
+    ----------
+    container
+        The container.
+    flagged
+        Whether a review issue names the container, which marks its box.
+    page_file
+        The container's page file, for the page's size.
+
+    Returns
+    -------
+    str
+        The box's HTML, with an anchor that review issues link to.
+    """
+
+    style = _box_style(
+        container.bbox, height_pt=page_file.height_pt, width_pt=page_file.width_pt
+    )
+    number = container.id.rsplit("-", 1)[-1]
+    flag = " flagged" if flagged else ""
+    mark = " !" if flagged else ""
     return (
-        f'<div class="box {kind}" style="{style}">'
-        f'<span class="box-label">{_escape(label)}</span></div>'
+        f'<div class="box container{flag}" id="box-{_escape(container.id)}" '
+        f'style="{style}"><span class="box-label">{_escape(number)}{mark}</span></div>'
     )
 
 
@@ -126,6 +208,35 @@ def _definitions(items: list[tuple[str, str]]) -> str:
     return f"<dl>{body}</dl>"
 
 
+def _entries_list(entries: list[Entry], *, attributes: str) -> str:
+    """Show a list item's entries, each with its printed marker and its nesting.
+
+    Parameters
+    ----------
+    entries
+        The entries, in reading order.
+    attributes
+        The direction and language attributes for the list.
+
+    Returns
+    -------
+    str
+        A ``ul`` element.
+    """
+
+    rows = "".join(
+        f'<li style="--level:{entry.level}">'
+        + (
+            f'<span class="marker">{_escape(entry.marker)}</span> '
+            if entry.marker
+            else ""
+        )
+        + f"{_escape(entry.text)}</li>"
+        for entry in entries
+    )
+    return f'<ul class="entries"{attributes}>{rows}</ul>'
+
+
 def _escape(value: object) -> str:
     """Escape text for HTML, quotes included.
 
@@ -141,6 +252,97 @@ def _escape(value: object) -> str:
     """
 
     return html.escape(str(value), quote=True)
+
+
+def _extracted_page_card(
+    page_file: PageFile,
+    *,
+    findings: list[tuple[str, str]],
+    image: PageImage,
+    issues: list[ReviewIssue],
+) -> str:
+    """Show an extracted page: its items drawn over its image, beside the item list.
+
+    Parameters
+    ----------
+    page_file
+        The page's page file.
+    findings
+        What was measured and found on the page.
+    image
+        The page's image.
+    issues
+        The review issues on this page, from every step.
+
+    Returns
+    -------
+    str
+        An ``article`` element.
+    """
+
+    by_item: defaultdict[str, list[ReviewIssue]] = defaultdict(list)
+    for issue in issues:
+        if issue.item_id is not None:
+            by_item[issue.item_id].append(issue)
+    boxes = [
+        _container_box(container, flagged=container.id in by_item, page_file=page_file)
+        for container in page_file.containers
+    ] + [
+        _item_box(item, flagged=item.id in by_item, number=number, page_file=page_file)
+        for number, item in enumerate(page_file.items, start=1)
+    ]
+    heading = _page_heading(page_file.page_index)
+    figure = (
+        f'<figure><div class="page-image"><img src="{_escape(image.file)}" '
+        f'alt="{heading} as displayed" width="{image.width_px}" '
+        f'height="{image.height_px}">{"".join(boxes)}</div>'
+        "<figcaption>Numbered boxes show the items in reading order, where the model "
+        "placed them. Dotted boxes show the containers. A box marked ! has review "
+        "issues. Select a box to go to its item.</figcaption></figure>"
+    )
+    entries = "".join(
+        _item_entry(item, issues=by_item.get(item.id, [])) for item in page_file.items
+    )
+    items = f'<ol class="items">{entries}</ol>' if entries else "<p>None.</p>"
+    item_ids = {item.id for item in page_file.items}
+    others = [issue for issue in issues if issue.item_id not in item_ids]
+    other_list = (
+        "<h4>Review issues about the page</h4>" + _issue_list(others) if others else ""
+    )
+    details = f"{_definitions(findings)}<h4>Items</h4>{items}{other_list}"
+    return (
+        f'<article class="page" id="page-{page_file.page_index}"><h3>{heading}</h3>'
+        f'<div class="page-layout">{figure}<div class="page-details">{details}</div>'
+        "</div></article>"
+    )
+
+
+def _extraction_findings(page_file: PageFile) -> list[tuple[str, str]]:
+    """List what page extraction found on a page.
+
+    Parameters
+    ----------
+    page_file
+        The page's page file.
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        Each finding's name and value.
+    """
+
+    findings = [
+        ("Items", str(len(page_file.items))),
+        ("Containers", str(len(page_file.containers))),
+        ("Verifier", _verifier_text(page_file.verification)),
+        (
+            "Text compared with the stored text",
+            _TEXT_COMPARISON.get(page_file.text_comparison, page_file.text_comparison),
+        ),
+    ]
+    if page_file.column_order is not None:
+        findings.append(("Column order", page_file.column_order.replace("_", " ")))
+    return findings
 
 
 def _facts_section(
@@ -193,6 +395,246 @@ def _facts_section(
     return _section("facts", "Measured facts", "".join(parts))
 
 
+def _field_content(field: FieldContent) -> str:
+    """Show a form field's type, prompt and value.
+
+    Parameters
+    ----------
+    field
+        The field's content.
+
+    Returns
+    -------
+    str
+        A ``dl`` element.
+    """
+
+    lines = [("Field type", str(field.field_type))]
+    if field.prompt is not None:
+        lines.append(("Prompt", field.prompt))
+    if field.checked is not None:
+        lines.append(("Marked", "yes" if field.checked else "no"))
+    if field.value is not None or field.checked is None:
+        lines.append(("Value", "empty" if field.value is None else field.value))
+    if field.options:
+        lines.append(("Options", ", ".join(field.options)))
+    if field.fillable_name is not None:
+        lines.append(("Fillable field", field.fillable_name))
+    return _definitions(lines)
+
+
+def _figure_content(figure: Figure) -> str:
+    """Show a figure's crop, its description and any text inside it.
+
+    Parameters
+    ----------
+    figure
+        The figure's content.
+
+    Returns
+    -------
+    str
+        The figure's HTML.
+    """
+
+    text = (
+        f'<p class="item-text" dir="auto">{_escape(figure.text)}</p>'
+        if figure.text
+        else ""
+    )
+    return (
+        f'<img class="crop" src="{_escape(figure.crop)}" '
+        f'alt="{_escape(figure.description)}" loading="lazy">'
+        f'<p dir="auto">{_escape(figure.description)}</p>{text}'
+    )
+
+
+def _issue_list(issues: list[ReviewIssue]) -> str:
+    """List review issues, each linked to the box it names when it names one.
+
+    Parameters
+    ----------
+    issues
+        The issues.
+
+    Returns
+    -------
+    str
+        A ``ul`` element.
+    """
+
+    rows = "".join(
+        f"<li>{_escape(issue.message)}"
+        + (f" ({_item_link(issue.item_id)})" if issue.item_id is not None else "")
+        + "</li>"
+        for issue in issues
+    )
+    return f"<ul>{rows}</ul>"
+
+
+def _item_box(item: Item, *, flagged: bool, number: int, page_file: PageFile) -> str:
+    """Draw an item's box over its page image, numbered in reading order.
+
+    Parameters
+    ----------
+    item
+        The item.
+    flagged
+        Whether a review issue names the item, which marks its box.
+    number
+        The item's position in reading order, from 1.
+    page_file
+        The item's page file, for the page's size.
+
+    Returns
+    -------
+    str
+        A link to the item's entry in the item list, drawn as the box, with an
+        anchor that review issues link to.
+    """
+
+    style = _box_style(
+        item.bbox, height_pt=page_file.height_pt, width_pt=page_file.width_pt
+    )
+    flag = " flagged" if flagged else ""
+    mark = " !" if flagged else ""
+    item_id = _escape(item.id)
+    return (
+        f'<a class="box item{flag}" id="box-{item_id}" href="#item-{item_id}" '
+        f'style="{style}" aria-label="Item {number}, {item_id}">'
+        f'<span class="box-label">{number}{mark}</span></a>'
+    )
+
+
+def _item_content(item: Item) -> str:
+    """Show an item's content: its text, entries, table, field or figure.
+
+    Parameters
+    ----------
+    item
+        The item.
+
+    Returns
+    -------
+    str
+        The content's HTML, with the item's language and its own writing direction
+        on text from the page.
+    """
+
+    language = "" if item.language is None else f' lang="{_escape(item.language)}"'
+    attributes = f' dir="auto"{language}'
+    parts: list[str] = []
+    if item.text is not None and item.kind == ItemKind.CODE:
+        parts.append(f"<pre{attributes}><code>{_escape(item.text)}</code></pre>")
+    elif item.text is not None:
+        parts.append(f'<p class="item-text"{attributes}>{_escape(item.text)}</p>')
+    if item.latex is not None:
+        parts.append(f'<p><code dir="ltr">{_escape(item.latex)}</code></p>')
+    if item.entries:
+        parts.append(_entries_list(item.entries, attributes=attributes))
+    if item.table is not None:
+        parts.append(_item_table(item.table, attributes=attributes))
+    if item.field is not None:
+        parts.append(_field_content(item.field))
+    if item.figure is not None:
+        parts.append(_figure_content(item.figure))
+    return "".join(parts)
+
+
+def _item_entry(item: Item, *, issues: list[ReviewIssue]) -> str:
+    """Show one item in the page's item list.
+
+    Parameters
+    ----------
+    item
+        The item.
+    issues
+        The review issues that name the item.
+
+    Returns
+    -------
+    str
+        An ``li`` element, with an anchor that the item's box links to.
+    """
+
+    item_id = _escape(item.id)
+    about = [str(item.kind), str(item.role), item.label]
+    if item.language is not None:
+        about.append(item.language)
+    meta = f'<a href="#box-{item_id}">{item_id}</a>, {_escape(", ".join(about))}'
+    if item.container is not None:
+        meta += f", in container {_item_link(item.container)}"
+    if item.caption_of is not None:
+        meta += f", caption of {_item_link(item.caption_of)}"
+    flags = (
+        '<div class="item-issues"><p>Review issues:</p>'
+        + _list([issue.message for issue in issues])
+        + "</div>"
+        if issues
+        else ""
+    )
+    return (
+        f'<li class="item" id="item-{item_id}"><p class="item-meta">{meta}</p>'
+        f"{_item_content(item)}{flags}</li>"
+    )
+
+
+def _item_link(item_id: str) -> str:
+    """Link to the box of an item or container.
+
+    Parameters
+    ----------
+    item_id
+        The item's or container's ID.
+
+    Returns
+    -------
+    str
+        An ``a`` element showing the ID.
+    """
+
+    escaped = _escape(item_id)
+    return f'<a class="ref" href="#box-{escaped}">{escaped}</a>'
+
+
+def _item_table(table: Table, *, attributes: str) -> str:
+    """Show a table item as an HTML table, with its spans and header rows.
+
+    Parameters
+    ----------
+    table
+        The table's content.
+    attributes
+        The direction and language attributes for the table.
+
+    Returns
+    -------
+    str
+        A ``table`` element.
+    """
+
+    def cell_html(cell: TableCell, *, header: bool) -> str:
+        """Write one cell, with its spans."""
+
+        tag = "th" if header else "td"
+        spans = (f' colspan="{cell.col_span}"' if cell.col_span > 1 else "") + (
+            f' rowspan="{cell.row_span}"' if cell.row_span > 1 else ""
+        )
+        scope = ' scope="col"' if header else ""
+        return f"<{tag}{scope}{spans}>{_escape(cell.text or '')}</{tag}>"
+
+    rows = [
+        "<tr>"
+        + "".join(cell_html(cell, header=number < table.header_rows) for cell in row)
+        + "</tr>"
+        for number, row in enumerate(table.rows)
+    ]
+    head = "".join(rows[: table.header_rows])
+    body = "".join(rows[table.header_rows :])
+    thead = f"<thead>{head}</thead>" if head else ""
+    return f'<table class="item-table"{attributes}>{thead}<tbody>{body}</tbody></table>'
+
+
 def _list(items: list[str]) -> str:
     """List plain-text items.
 
@@ -220,7 +662,7 @@ def _page_card(
     issues: list[ReviewIssue],
     survey: PdfSurvey | None,
 ) -> str:
-    """Show one page: its image with boxes drawn over it, and what was found on it.
+    """Show a page with no page file: its image with the survey's boxes drawn over it.
 
     Parameters
     ----------
@@ -251,9 +693,10 @@ def _page_card(
         for field in facts.form_fields or []
         if field.page_index == page.index
     ]
+    heading = _page_heading(page.index)
     figure = (
         f'<figure><div class="page-image"><img src="{_escape(image.file)}" '
-        f'alt="Page {page.index} as displayed" width="{image.width_px}" '
+        f'alt="{heading} as displayed" width="{image.width_px}" '
         f'height="{image.height_px}">{"".join(boxes)}</div>'
         "<figcaption>Solid boxes show the survey's regions where the model placed "
         "them, which can be off. Dashed boxes show the form fields, measured from the "
@@ -266,7 +709,7 @@ def _page_card(
         else ""
     )
     return (
-        f'<article class="page" id="page-{page.index}"><h3>Page {page.index}</h3>'
+        f'<article class="page" id="page-{page.index}"><h3>{heading}</h3>'
         f"{figure}{findings}{issue_list}</article>"
     )
 
@@ -281,7 +724,7 @@ def _page_findings(
     page
         The page's facts.
     facts
-        All the measured facts, for the repeated lines.
+        All the measured facts, for the repeated lines and the page count.
     survey
         The survey, if any, for the rotation and the regions.
 
@@ -304,14 +747,12 @@ def _page_findings(
         ),
     ]
     if survey is not None:
-        degrees = next(
-            (
-                turn.degrees
-                for turn in survey.profile.rotation
-                if turn.first_page_index <= page.index <= turn.last_page_index
-            ),
-            0,
+        turn = covering_range(
+            survey.profile.rotation,
+            page_count=len(facts.pages),
+            page_index=page.index,
         )
+        degrees = 0 if turn is None else turn.degrees
         findings.append(("Rotation to make it upright", f"{degrees} degrees clockwise"))
         labels = [
             r.label for r in survey.proposal.regions if r.page_index == page.index
@@ -320,6 +761,28 @@ def _page_findings(
     repeated = [line.id for line in facts.repeated_lines if page.index in line.pages]
     findings.append(("Repeated lines", ", ".join(repeated) or "none"))
     return findings
+
+
+def _page_heading(index: int) -> str:
+    """Name a page by its number and its index.
+
+    Parameters
+    ----------
+    index
+        The page's index.
+
+    Returns
+    -------
+    str
+        The page's name.
+
+    Examples
+    --------
+    >>> _page_heading(0)
+    'Page 1 (index 0)'
+    """
+
+    return f"Page {index + 1} (index {index})"
 
 
 def _page_text(index: int | None) -> str:
@@ -343,10 +806,11 @@ def _pages_section(
     *,
     facts: Facts,
     manifest: ReportManifest,
+    pages: list[PageFile],
     review: list[ReviewIssue],
     survey: PdfSurvey | None,
 ) -> str:
-    """Show every page as a card.
+    """Show every page as a card, with its items when it was extracted.
 
     Parameters
     ----------
@@ -354,6 +818,8 @@ def _pages_section(
         The measured facts.
     manifest
         The page images.
+    pages
+        The page files of the selected pages.
     review
         The run's review issues.
     survey
@@ -366,17 +832,33 @@ def _pages_section(
     """
 
     images = {image.index: image for image in manifest.pages}
-    cards = [
-        _page_card(
-            page,
-            facts=facts,
-            image=images[page.index],
-            issues=[issue for issue in review if issue.page_index == page.index],
-            survey=survey,
+    extracted = {page_file.page_index: page_file for page_file in pages}
+    cards = []
+    for page in facts.pages:
+        if page.index not in images:
+            continue
+        issues = [issue for issue in review if issue.page_index == page.index]
+        page_file = extracted.get(page.index)
+        if page_file is None:
+            cards.append(
+                _page_card(
+                    page,
+                    facts=facts,
+                    image=images[page.index],
+                    issues=issues,
+                    survey=survey,
+                )
+            )
+            continue
+        findings = _page_findings(page, facts=facts, survey=survey)
+        cards.append(
+            _extracted_page_card(
+                page_file,
+                findings=findings + _extraction_findings(page_file),
+                image=images[page.index],
+                issues=issues,
+            )
         )
-        for page in facts.pages
-        if page.index in images
-    ]
     return _section("pages", "Pages", "".join(cards))
 
 
@@ -430,7 +912,7 @@ def _profile_section(survey: PdfSurvey) -> str:
                 )
                 or "none",
             ),
-            ("Your instructions", profile.user_instructions or "none"),
+            ("Your survey instructions", survey.inputs.instructions or "none"),
         ]
     )
     notes = "<h3>Continuation notes</h3>" + _list(profile.continuation_notes)
@@ -481,7 +963,7 @@ def _repeated_lines_table(facts: Facts, *, survey: PdfSurvey | None) -> str:
 
 
 def _review_section(review: list[ReviewIssue]) -> str:
-    """Show the review issues, counted by check, then one by one.
+    """Show the review issues, counted by check, then by step and page.
 
     Parameters
     ----------
@@ -491,31 +973,57 @@ def _review_section(review: list[ReviewIssue]) -> str:
     Returns
     -------
     str
-        The section's HTML.
+        The section's HTML, with a heading for each step that has issues.
     """
 
     if not review:
         return _section("review", "Review issues", "<p>None.</p>")
     counts = Counter(issue.check for issue in review)
-    by_check = _definitions([(check, str(count)) for check, count in counts.items()])
-    issues = _table(
-        caption="Every issue",
-        headers=["Step", "Check", "Page", "Issue"],
-        rows=[
-            [issue.step, issue.check, _page_text(issue.page_index), issue.message]
-            for issue in review
-        ],
-    )
-    return _section("review", "Review issues", by_check + issues)
+    parts = [_definitions([(check, str(count)) for check, count in counts.items()])]
+    for step in dict.fromkeys(issue.step for issue in review):
+        # Issues about the whole PDF come first, then by page; the order is otherwise
+        # kept.
+        issues = sorted(
+            (issue for issue in review if issue.step == step),
+            key=lambda issue: -1 if issue.page_index is None else issue.page_index,
+        )
+        rows = [
+            [
+                issue.check,
+                _Html(
+                    "-"
+                    if issue.page_index is None
+                    else f'<a class="ref" href="#page-{issue.page_index}">'
+                    f"{issue.page_index + 1} (index {issue.page_index})</a>"
+                ),
+                _Html("-" if issue.item_id is None else _item_link(issue.item_id)),
+                issue.message,
+            ]
+            for issue in issues
+        ]
+        title = _STEP_TITLES.get(step, step)
+        parts.append(
+            f"<h3>{_escape(title)}</h3>"
+            + _table(
+                caption=None, headers=["Check", "Page", "Item", "Issue"], rows=rows
+            )
+        )
+    return _section("review", "Review issues", "".join(parts))
 
 
-def _run_header(record: RunRecord) -> str:
-    """Show which PDF the run processed, how it ended and with which model.
+def _run_header(
+    record: RunRecord, *, pages: list[PageFile], survey: PdfSurvey | None
+) -> str:
+    """Show which PDF the run processed, how it ended and with which models.
 
     Parameters
     ----------
     record
         The run's record.
+    pages
+        The page files of the selected pages, for the page extraction model.
+    survey
+        The survey, if any, for its model.
 
     Returns
     -------
@@ -524,9 +1032,12 @@ def _run_header(record: RunRecord) -> str:
     """
 
     pdf = record.pdf
-    items = [
-        ("Status", record.status),
-        ("Model", str(record.settings.get("model", "-"))),
+    items = [("Status", record.status)]
+    if survey is not None:
+        items.append(("Survey model", survey.inputs.model))
+    if pages:
+        items.append(("Page extraction model", pages[0].inputs.model))
+    items += [
         ("PDF", f"{pdf.path} ({pdf.page_count} pages, {pdf.bytes:,} bytes)"),
         ("SHA-256", pdf.sha256),
         ("Run", record.run_id),
@@ -586,17 +1097,18 @@ def _short_name(name: str) -> str:
     return re.sub(r"\[\d+\]$", "", name.rsplit(".", 1)[-1])
 
 
-def _table(*, caption: str, headers: list[str], rows: list[list[str]]) -> str:
+def _table(*, caption: str | None, headers: list[str], rows: list[list[str]]) -> str:
     """Build a table of plain-text cells.
 
     Parameters
     ----------
     caption
-        The table's caption.
+        The table's caption, or ``None`` for a table under its own heading.
     headers
         The column headings.
     rows
-        The cells, row by row.
+        The cells, row by row. A cell given as `_Html` is put in as it is; any other
+        cell is escaped.
 
     Returns
     -------
@@ -606,13 +1118,40 @@ def _table(*, caption: str, headers: list[str], rows: list[list[str]]) -> str:
 
     head = "".join(f'<th scope="col">{_escape(header)}</th>' for header in headers)
     body = "".join(
-        "<tr>" + "".join(f"<td>{_escape(cell)}</td>" for cell in row) + "</tr>"
+        "<tr>"
+        + "".join(
+            f"<td>{cell if isinstance(cell, _Html) else _escape(cell)}</td>"
+            for cell in row
+        )
+        + "</tr>"
         for row in rows
     )
-    return (
-        f"<table><caption>{_escape(caption)}</caption><thead><tr>{head}</tr></thead>"
-        f"<tbody>{body}</tbody></table>"
-    )
+    title = "" if caption is None else f"<caption>{_escape(caption)}</caption>"
+    return f"<table>{title}<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+
+
+def _verifier_text(verification: PageVerification) -> str:
+    """Say what the verifier made of a page.
+
+    Parameters
+    ----------
+    verification
+        The verifier's review of the page.
+
+    Returns
+    -------
+    str
+        ``passed``, or the problems it found and whether its correction was kept.
+    """
+
+    verdict = verification.verdict
+    if verdict.passed:
+        return "passed"
+    count = len(verdict.problems)
+    problems = f"{count} problem{'' if count == 1 else 's'}"
+    if verification.correction_applied:
+        return f"found {problems} and its correction was kept"
+    return f"found {problems}, listed for review"
 
 
 def _warnings_section(record: RunRecord) -> str:
@@ -638,28 +1177,36 @@ def _warnings_section(record: RunRecord) -> str:
     )
 
 
-def write_report(
-    *,
-    facts: PdfFacts | None,
-    manifest: ReportManifest,
-    output_folder: Path,
-    record: RunRecord,
-    survey: PdfSurvey | None,
-) -> Path:
+@dataclass(frozen=True)
+class ReportInputs:
+    """What a report is written from: the run's record and the files it has."""
+
+    facts: PdfFacts | None
+    """The facts, if the run measured or reused them."""
+
+    manifest: ReportManifest
+    """The page images."""
+
+    output_folder: Path
+    """The output folder, where the report is written."""
+
+    pages: list[PageFile]
+    """The page files of the selected pages, in page order."""
+
+    record: RunRecord
+    """The run's record, as written to ``run.json``."""
+
+    survey: PdfSurvey | None
+    """The survey, if the run made or reused one."""
+
+
+def write_report(inputs: ReportInputs) -> Path:
     """Write ``report.html`` atomically, with the data the run has.
 
     Parameters
     ----------
-    facts
-        The facts, if the run measured or reused them.
-    manifest
-        The page images.
-    output_folder
-        The output folder.
-    record
-        The run's record, as written to ``run.json``.
-    survey
-        The survey, if the run made or reused one.
+    inputs
+        The run's record, its files and the output folder.
 
     Returns
     -------
@@ -667,8 +1214,9 @@ def write_report(
         The report's path.
     """
 
+    record, survey = inputs.record, inputs.survey
     parts = [
-        _run_header(record),
+        _run_header(record, pages=inputs.pages, survey=survey),
         "<main>",
         _cost_section(record),
         _warnings_section(record),
@@ -676,12 +1224,14 @@ def write_report(
     ]
     if survey is not None:
         parts.append(_profile_section(survey))
-    if facts is not None:
+    if inputs.facts is not None:
+        facts = inputs.facts
         parts.append(_facts_section(facts.facts, summary=facts.summary, survey=survey))
         parts.append(
             _pages_section(
                 facts=facts.facts,
-                manifest=manifest,
+                manifest=inputs.manifest,
+                pages=inputs.pages,
                 review=record.review,
                 survey=survey,
             )
@@ -696,6 +1246,6 @@ def write_report(
         f"<title>{_escape(title)}</title>\n<style>\n{stylesheet}</style>\n</head>\n"
         f"<body>\n{''.join(parts)}\n</body>\n</html>\n"
     )
-    path = output_folder / REPORT_FILE_NAME
+    path = inputs.output_folder / REPORT_FILE_NAME
     write_text_atomic(path=path, text=document)
     return path

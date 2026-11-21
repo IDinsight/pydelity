@@ -75,7 +75,8 @@ What a survey was made from.
 
 - `facts_fingerprint` (string; required): The fingerprint of the
   `pdf_facts.json` the survey used.
-- `instructions` (string or null; required): The user's instructions, if any.
+- `instructions` (string or null; required): The user's survey instructions
+  (`advanced.survey.instructions`), if any.
 - `languages` (list of strings; required): The user's languages, in standard
   form.
 - `model` (string; required): The model, as `<provider>:<model-id>`.
@@ -91,16 +92,22 @@ What a survey was made from.
 
 A problem a person should review.
 
-- `check` (one of `labels`, `regions`, `rotation`, `page_numbering`,
-  `artifacts`, `writing_direction`, `languages` or one of `rotation_differs`,
-  `page_number_differs`; required): The check or comparison that found the
-  problem.
+- `check` (one of `labels`, `content`, `languages`, `boxes`, `containers`,
+  `captions`, `reading_order`, `artifacts`, `form_fields`, `text_dropped`,
+  `text_added` or one of `no_matching_label`, `verifier` or one of `labels`,
+  `regions`, `rotation`, `page_numbering`, `artifacts`, `writing_direction`,
+  `languages` or one of `rotation_differs`, `page_number_differs`; required):
+  What found the problem: a check, a comparison or another source. `step` says
+  whose, since two steps can have checks of the same name.
 - `details` (map of string to any value; required): The values the problem is
   about, such as `{"measured": 90, "profile": 0}`.
+- `item_id` (string or null; required): The item the problem is about, or `None`
+  when no single item applies.
 - `message` (string; required): What is wrong.
 - `page_index` (integer or null; required): The page the problem is on, or
   `None` when no single page applies.
-- `step` (one of `survey`; required): The step whose check found the problem.
+- `step` (one of `survey`, `extraction`; required): The step whose check found
+  the problem.
 
 ## `profile`
 
@@ -121,8 +128,6 @@ What later steps depend on: how the PDF's pages are laid out.
 - `start_markers` (list of objects
   ([`profile.start_markers[]`](#profilestart_markers)); required): Text that
   marks where a new unit of content starts.
-- `user_instructions` (string or null; required): The user's instructions for
-  this PDF, if any.
 - `writing_direction` (object
   ([`profile.writing_direction`](#profilewriting_direction)); required): The
   writing direction of the pages.
@@ -143,7 +148,7 @@ The model's answer that is not part of the profile.
 
 ## `checks[].failures[]`
 
-One problem a check found in the model's answer.
+One problem a check found in a model's answer.
 
 - `details` (map of string to any value; required): The proposed value and,
   where it applies, what it was checked against, such as

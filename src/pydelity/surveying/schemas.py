@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict
 
 # Package Library
 from pydelity.providers.profiles import Effort
+from pydelity.review import CheckFailure, ReviewIssue, SurveyCheckName
 
 # A page angle in degrees, counterclockwise.
 type Angle = Literal[0, 90, 180, 270]
@@ -33,22 +34,6 @@ type ArtifactPosition = Literal["top", "bottom", "left", "right", "middle"]
 
 # Where a line sits on the displayed page: the top or bottom band, or between them.
 type Band = Literal["top", "bottom", "middle"]
-
-# The survey's checks, C1 to C7 in order. The names are part of the ``run.json``
-# contract.
-type CheckName = Literal[
-    "labels",
-    "regions",
-    "rotation",
-    "page_numbering",
-    "artifacts",
-    "writing_direction",
-    "languages",
-]
-
-# The survey's comparisons of the accepted answer with the facts, whose differences
-# are review issues. The names are part of the ``run.json`` contract.
-type ComparisonName = Literal["rotation_differs", "page_number_differs"]
 
 # A writing direction: left to right, right to left, or top to bottom.
 type Direction = Literal["ltr", "rtl", "ttb"]
@@ -80,6 +65,23 @@ class _Output(BaseModel):
     model_config = ConfigDict(use_attribute_docstrings=True)
 
 
+class Artifact(_Output):
+    """Page furniture the model identified, such as a running header or a stamp."""
+
+    description: str
+    """What the artifact is, in a few words."""
+
+    id: str
+    """The artifact's identifier, such as ``A1``."""
+
+    position: ArtifactPosition
+    """Where the artifact sits on the displayed page."""
+
+    repeated_line_ids: list[str]
+    """The IDs of the measured repeated lines (``R1``, ``R2`` and so on) that are this
+    artifact; empty when no repeated line is."""
+
+
 class Bookmark(_Output):
     """One entry of the PDF's bookmarks (outline)."""
 
@@ -93,6 +95,22 @@ class Bookmark(_Output):
     """The bookmark's title."""
 
 
+class CheckResult(_Output):
+    """The result of one check on the accepted answer."""
+
+    attempts: int
+    """How many model answers were checked: 1 plus the retries used."""
+
+    failures: list[CheckFailure]
+    """The problems the check found in the accepted answer."""
+
+    name: SurveyCheckName
+    """The check."""
+
+    passed: bool
+    """Whether the accepted answer passed: ``failures`` is empty."""
+
+
 class DirectionFacts(_Output):
     """The writing direction measured on a page."""
 
@@ -103,6 +121,19 @@ class DirectionFacts(_Output):
 
     vertical_share: float
     """The share of the page's characters on lines in vertical writing mode."""
+
+
+class DirectionRange(_Output):
+    """Consecutive pages written in one direction."""
+
+    direction: Direction
+    """The writing direction on these pages."""
+
+    first_page_index: int
+    """The first page of the range (0-based)."""
+
+    last_page_index: int
+    """The last page of the range, inclusive."""
 
 
 class FormField(_Output):
@@ -140,56 +171,6 @@ class FormInfo(_Output):
     """Whether the form also carries an XFA form."""
 
 
-class ItemKind(StrEnum):
-    """The kind of content an item holds. Later steps handle each kind differently."""
-
-    CODE = "code"
-    """Code and other preformatted text, whose whitespace and line breaks matter."""
-
-    FIELD = "field"
-    """A form field with its label and value."""
-
-    FIGURE = "figure"
-    """An image, chart or diagram."""
-
-    FORMULA = "formula"
-    """A mathematical or chemical formula."""
-
-    LIST = "list"
-    """A list of items."""
-
-    TABLE = "table"
-    """A table."""
-
-    TEXT = "text"
-    """Running text."""
-
-
-class ItemRole(StrEnum):
-    """The role an item plays in the document. Later steps handle each differently."""
-
-    ARTIFACT = "artifact"
-    """Page furniture, such as running headers, footers and page numbers."""
-
-    ASIDE = "aside"
-    """Content beside the main flow, such as a sidebar or callout."""
-
-    BODY = "body"
-    """The main content."""
-
-    CAPTION = "caption"
-    """A caption of a figure or table."""
-
-    FOOTNOTE = "footnote"
-    """A footnote or endnote."""
-
-    HEADING = "heading"
-    """A heading."""
-
-    NAVIGATION = "navigation"
-    """A table of contents, index or other navigation aid."""
-
-
 class NumberingRange(_Output):
     """Consecutive measured pages whose printed numbers follow their page indexes."""
 
@@ -224,22 +205,6 @@ class OrientationFacts(_Output):
     """The angle most characters run at, or ``None`` without horizontal text."""
 
 
-class PdfIdentity(_Output):
-    """Which PDF the facts describe."""
-
-    bytes: int
-    """The file's size in bytes."""
-
-    name: str
-    """The file name."""
-
-    page_count: int
-    """The number of pages."""
-
-    sha256: str
-    """The SHA-256 hex digest of the file."""
-
-
 class PrintedNumber(_Output):
     """The page number printed on a page, or its page label."""
 
@@ -255,6 +220,59 @@ class PrintedNumber(_Output):
 
     value: int | None
     """The number's value, or ``None`` for a label that is not a number."""
+
+
+class TextFacts(_Output):
+    """How much text a page's text layer holds, and whether it is readable."""
+
+    chars: int
+    """Characters other than whitespace."""
+
+    control_chars: int
+    """Control characters among them."""
+
+    private_use_chars: int
+    """Private-use characters among them."""
+
+    quality: TextQuality
+    """``none`` without characters; ``garbled`` when control, private-use,
+    unassigned and replacement characters reach the garbled share; ``good``
+    otherwise."""
+
+    replacement_chars: int
+    """Replacement characters (U+FFFD) among them, for glyphs with no known
+    character."""
+
+    unassigned_chars: int
+    """Characters Unicode does not assign, among them."""
+
+
+class PageFacts(_Output):
+    """What the probe measured on one page."""
+
+    direction: DirectionFacts
+    """The writing direction."""
+
+    height_pt: float
+    """The displayed page's height in points."""
+
+    index: int
+    """The page's index."""
+
+    orientation: OrientationFacts
+    """Which way the text runs."""
+
+    printed_number: PrintedNumber | None
+    """The page number printed on the page, if one was found."""
+
+    rotation_attribute: int
+    """The page's rotation attribute in degrees, clockwise."""
+
+    text: TextFacts
+    """The text layer."""
+
+    width_pt: float
+    """The displayed page's width in points."""
 
 
 class ProbeError(_Output):
@@ -314,59 +332,6 @@ class StructureFacts(_Output):
     """Elements by standard type, after the tree's role map is applied."""
 
 
-class TextFacts(_Output):
-    """How much text a page's text layer holds, and whether it is readable."""
-
-    chars: int
-    """Characters other than whitespace."""
-
-    control_chars: int
-    """Control characters among them."""
-
-    private_use_chars: int
-    """Private-use characters among them."""
-
-    quality: TextQuality
-    """``none`` without characters; ``garbled`` when control, private-use,
-    unassigned and replacement characters reach the garbled share; ``good``
-    otherwise."""
-
-    replacement_chars: int
-    """Replacement characters (U+FFFD) among them, for glyphs with no known
-    character."""
-
-    unassigned_chars: int
-    """Characters Unicode does not assign, among them."""
-
-
-class PageFacts(_Output):
-    """What the probe measured on one page."""
-
-    direction: DirectionFacts
-    """The writing direction."""
-
-    height_pt: float
-    """The displayed page's height in points."""
-
-    index: int
-    """The page's index."""
-
-    orientation: OrientationFacts
-    """Which way the text runs."""
-
-    printed_number: PrintedNumber | None
-    """The page number printed on the page, if one was found."""
-
-    rotation_attribute: int
-    """The page's rotation attribute in degrees, clockwise."""
-
-    text: TextFacts
-    """The text layer."""
-
-    width_pt: float
-    """The displayed page's width in points."""
-
-
 class Facts(_Output):
     """Everything the probe measured.
 
@@ -402,95 +367,6 @@ class Facts(_Output):
     """What the structure tags cover."""
 
 
-class PdfFacts(_Output):
-    """The contents of ``pdf_facts.json``: the measured facts and their summary."""
-
-    facts: Facts
-    """The measured facts."""
-
-    fingerprint: str
-    """``sha256:`` fingerprint of what the facts depend on; a matching file is
-    reused."""
-
-    measured_at: datetime
-    """When the PDF was measured (UTC)."""
-
-    pdf: PdfIdentity
-    """Which PDF was measured."""
-
-    probe_version: int
-    """The version of the measurement rules."""
-
-    pydelity_version: str
-    """The pydelity version that measured the PDF."""
-
-    schema_version: str
-    """The version of this file's schema, ``"MAJOR.MINOR"``."""
-
-    summary: list[str]
-    """The facts as plain-text lines, for people and for the model."""
-
-
-class Artifact(_Output):
-    """Page furniture the model identified, such as a running header or a stamp."""
-
-    description: str
-    """What the artifact is, in a few words."""
-
-    id: str
-    """The artifact's identifier, such as ``A1``."""
-
-    position: ArtifactPosition
-    """Where the artifact sits on the displayed page."""
-
-    repeated_line_ids: list[str]
-    """The IDs of the measured repeated lines (``R1``, ``R2`` and so on) that are this
-    artifact; empty when no repeated line is."""
-
-
-class CheckFailure(_Output):
-    """One problem a check found in the model's answer."""
-
-    details: dict[str, object]
-    """The proposed value and, where it applies, what it was checked against, such as
-    ``{"proposed": 9, "page_count": 6}``."""
-
-    message: str
-    """What is wrong, starting with the check's name."""
-
-    page_index: int | None
-    """The page the problem is on, or ``None`` when no single page applies."""
-
-
-class CheckResult(_Output):
-    """The result of one check on the accepted answer."""
-
-    attempts: int
-    """How many model answers were checked: 1 plus the retries used."""
-
-    failures: list[CheckFailure]
-    """The problems the check found in the accepted answer."""
-
-    name: CheckName
-    """The check."""
-
-    passed: bool
-    """Whether the accepted answer passed: ``failures`` is empty."""
-
-
-class DirectionRange(_Output):
-    """Consecutive pages written in one direction."""
-
-    direction: Direction
-    """The writing direction on these pages."""
-
-    first_page_index: int
-    """The first page of the range (0-based)."""
-
-    last_page_index: int
-    """The last page of the range, inclusive."""
-
-
 class FractionBox(_Output):
     """A box on the displayed page, in fractions of its size from the top left."""
 
@@ -505,6 +381,56 @@ class FractionBox(_Output):
 
     y1: float
     """The bottom edge."""
+
+
+class ItemKind(StrEnum):
+    """The kind of content an item holds. Later steps handle each kind differently."""
+
+    CODE = "code"
+    """Code and other preformatted text, whose whitespace and line breaks matter."""
+
+    FIELD = "field"
+    """A form field with its label and value."""
+
+    FIGURE = "figure"
+    """An image, chart or diagram."""
+
+    FORMULA = "formula"
+    """A mathematical or chemical formula."""
+
+    LIST = "list"
+    """A list of items."""
+
+    TABLE = "table"
+    """A table."""
+
+    TEXT = "text"
+    """Running text."""
+
+
+class ItemRole(StrEnum):
+    """The role an item plays in the document. Later steps handle each differently."""
+
+    ARTIFACT = "artifact"
+    """Page furniture, such as running headers, footers and page numbers."""
+
+    ASIDE = "aside"
+    """Content beside the main flow, such as a sidebar or callout."""
+
+    BODY = "body"
+    """The main content."""
+
+    CAPTION = "caption"
+    """A caption of a figure or table."""
+
+    FOOTNOTE = "footnote"
+    """A footnote or endnote."""
+
+    HEADING = "heading"
+    """A heading."""
+
+    NAVIGATION = "navigation"
+    """A table of contents, index or other navigation aid."""
 
 
 class Label(_Output):
@@ -550,59 +476,49 @@ class PageNumberingRange(_Output):
     """How the numbers are written."""
 
 
-class ProposedRegion(_Output):
-    """An area of one page the model labels, with its box as page fractions."""
+class PdfIdentity(_Output):
+    """Which PDF the facts describe."""
 
-    bbox: FractionBox
-    """The area on the displayed page."""
+    bytes: int
+    """The file's size in bytes."""
 
-    label: str
-    """The label of the area's content."""
+    name: str
+    """The file name."""
 
-    note: str
-    """Why the area is worth marking; may be empty."""
+    page_count: int
+    """The number of pages."""
 
-    page_index: int
-    """The page (0-based)."""
-
-
-class Region(_Output):
-    """An area of one page the model labeled, with its box in points."""
-
-    bbox: tuple[float, float, float, float]
-    """The area on the displayed page, as ``[x0, y0, x1, y1]`` in points."""
-
-    label: str
-    """The label of the area's content."""
-
-    note: str
-    """Why the area is worth marking; may be empty."""
-
-    page_index: int
-    """The page (0-based)."""
+    sha256: str
+    """The SHA-256 hex digest of the file."""
 
 
-class ReviewIssue(_Output):
-    """A problem a person should review.
+class PdfFacts(_Output):
+    """The contents of ``pdf_facts.json``: the measured facts and their summary."""
 
-    It comes from a check that still failed on the accepted answer, or from a
-    difference between the accepted answer and the measured facts.
-    """
+    facts: Facts
+    """The measured facts."""
 
-    check: CheckName | ComparisonName
-    """The check or comparison that found the problem."""
+    fingerprint: str
+    """``sha256:`` fingerprint of what the facts depend on; a matching file is
+    reused."""
 
-    details: dict[str, object]
-    """The values the problem is about, such as ``{"measured": 90, "profile": 0}``."""
+    measured_at: datetime
+    """When the PDF was measured (UTC)."""
 
-    message: str
-    """What is wrong."""
+    pdf: PdfIdentity
+    """Which PDF was measured."""
 
-    page_index: int | None
-    """The page the problem is on, or ``None`` when no single page applies."""
+    probe_version: int
+    """The version of the measurement rules."""
 
-    step: Literal["survey"]
-    """The step whose check found the problem."""
+    pydelity_version: str
+    """The pydelity version that measured the PDF."""
+
+    schema_version: str
+    """The version of this file's schema, ``"MAJOR.MINOR"``."""
+
+    summary: list[str]
+    """The facts as plain-text lines, for people and for the model."""
 
 
 class RotationRange(_Output):
@@ -626,19 +542,6 @@ class StartMarker(_Output):
 
     text: str
     """The text, as printed."""
-
-
-class SurveySettings(_Output):
-    """The survey settings a survey's result depends on."""
-
-    check_retries: int
-    """How many times the model could answer again after failing the checks."""
-
-    effort: Effort
-    """How hard the model thought before answering."""
-
-    max_output_tokens: int
-    """The most tokens one model answer could contain, thinking included."""
 
 
 class WritingDirection(_Output):
@@ -672,11 +575,24 @@ class Profile(_Output):
     start_markers: list[StartMarker]
     """Text that marks where a new unit of content starts."""
 
-    user_instructions: str | None
-    """The user's instructions for this PDF, if any."""
-
     writing_direction: WritingDirection
     """The writing direction of the pages."""
+
+
+class Region(_Output):
+    """An area of one page the model labeled, with its box in points."""
+
+    bbox: tuple[float, float, float, float]
+    """The area on the displayed page, as ``[x0, y0, x1, y1]`` in points."""
+
+    label: str
+    """The label of the area's content."""
+
+    note: str
+    """Why the area is worth marking; may be empty."""
+
+    page_index: int
+    """The page (0-based)."""
 
 
 class Proposal(_Output):
@@ -695,43 +611,17 @@ class Proposal(_Output):
     """Areas of single pages the model labeled."""
 
 
-class SurveyAnswer(_Output):
-    """The model's answer to the survey: the profile and the rest of the proposal."""
+class SurveySettings(_Output):
+    """The survey settings a survey's result depends on."""
 
-    artifacts: list[Artifact]
-    """Page furniture. Every measured repeated line ID appears exactly once, here or
-    in ``non_artifact_lines``."""
+    check_retries: int
+    """How many times the model could answer again after failing the checks."""
 
-    continuation_notes: list[str]
-    """How content continues from one page to the next, such as text or tables that
-    run across a page break."""
+    effort: Effort
+    """How hard the model thought before answering."""
 
-    labels: list[Label]
-    """Names for the kinds of content in this PDF, each with one role."""
-
-    languages: list[str]
-    """BCP-47 tags of the languages the PDF's text is written in; at least one."""
-
-    non_artifact_lines: list[NonArtifactLine]
-    """Measured repeated lines that are content rather than page furniture."""
-
-    notes: list[str]
-    """Anything else about the layout that later steps should know."""
-
-    page_numbering: list[PageNumberingRange]
-    """Ranges of pages with their printed page numbers' style and offset."""
-
-    regions: list[ProposedRegion]
-    """Areas of single pages worth labeling."""
-
-    rotation: list[RotationRange]
-    """Ranges of pages whose content is not upright; other pages need no rotation."""
-
-    start_markers: list[StartMarker]
-    """Text that marks where a new unit of content starts."""
-
-    writing_direction: WritingDirection
-    """The writing direction of the pages."""
+    max_output_tokens: int
+    """The most tokens one model answer could contain, thinking included."""
 
 
 class SurveyInputs(_Output):
@@ -741,7 +631,7 @@ class SurveyInputs(_Output):
     """The fingerprint of the ``pdf_facts.json`` the survey used."""
 
     instructions: str | None
-    """The user's instructions, if any."""
+    """The user's survey instructions (``advanced.survey.instructions``), if any."""
 
     languages: list[str]
     """The user's languages, in standard form."""
@@ -795,3 +685,58 @@ class PdfSurvey(_Output):
 
     schema_version: str
     """The version of this file's schema, ``"MAJOR.MINOR"``."""
+
+
+class ProposedRegion(_Output):
+    """An area of one page the model labels, with its box as page fractions."""
+
+    bbox: FractionBox
+    """The area on the displayed page."""
+
+    label: str
+    """The label of the area's content."""
+
+    note: str
+    """Why the area is worth marking; may be empty."""
+
+    page_index: int
+    """The page (0-based)."""
+
+
+class SurveyAnswer(_Output):
+    """The model's answer to the survey: the profile and the rest of the proposal."""
+
+    artifacts: list[Artifact]
+    """Page furniture. Every measured repeated line ID appears exactly once, here or
+    in ``non_artifact_lines``."""
+
+    continuation_notes: list[str]
+    """How content continues from one page to the next, such as text or tables that
+    run across a page break."""
+
+    labels: list[Label]
+    """Names for the kinds of content in this PDF, each with one role."""
+
+    languages: list[str]
+    """BCP-47 tags of the languages the PDF's text is written in; at least one."""
+
+    non_artifact_lines: list[NonArtifactLine]
+    """Measured repeated lines that are content rather than page furniture."""
+
+    notes: list[str]
+    """Anything else about the layout that later steps should know."""
+
+    page_numbering: list[PageNumberingRange]
+    """Ranges of pages with their printed page numbers' style and offset."""
+
+    regions: list[ProposedRegion]
+    """Areas of single pages worth labeling."""
+
+    rotation: list[RotationRange]
+    """Ranges of pages whose content is not upright; other pages need no rotation."""
+
+    start_markers: list[StartMarker]
+    """Text that marks where a new unit of content starts."""
+
+    writing_direction: WritingDirection
+    """The writing direction of the pages."""

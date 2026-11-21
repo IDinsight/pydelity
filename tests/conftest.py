@@ -7,6 +7,7 @@ with the ``mock_providers`` fixture, which points the base URLs at it instead.
 """
 
 # Standard Library
+import json
 import socket
 import sys
 
@@ -25,10 +26,14 @@ from typer.testing import CliRunner, Result
 from pydelity.cli import app
 from pydelity.surveying.probe import probe_pdf
 from pydelity.surveying.schemas import Facts
-from tests.fixtures.mock_providers import MockProviders
+from tests.fixtures.mock_providers import MockProviders, read_page_answers
+
+# The canned answers for committed test PDFs, in files named after the PDF: the
+# survey's answer, and page extraction's answers by page and agent.
+_FIXTURES_DIR = Path(__file__).absolute().parent / "fixtures"
 
 # The committed test PDFs (see SOURCES.md there).
-_PDF_DIR = Path(__file__).absolute().parent / "fixtures" / "pdfs"
+_PDF_DIR = _FIXTURES_DIR / "pdfs"
 
 # The provider environment variables every test controls.
 _PROVIDER_VARIABLES = (
@@ -59,24 +64,6 @@ def _closed_port() -> int:
         return probe.getsockname()[1]
 
 
-@cache
-def _probed(name: str) -> Facts:
-    """Measure a committed test PDF once per test session.
-
-    Parameters
-    ----------
-    name
-        The PDF's file name in ``tests/fixtures/pdfs``.
-
-    Returns
-    -------
-    Facts
-        The probe's facts.
-    """
-
-    return probe_pdf(_PDF_DIR / name)
-
-
 @pytest.fixture(autouse=True)
 def _no_provider_access(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -100,6 +87,52 @@ def _no_provider_access(
     monkeypatch.chdir(tmp_path)
     yield
     logger.disable("pydelity")
+
+
+@cache
+def _probed(name: str) -> Facts:
+    """Measure a committed test PDF once per test session.
+
+    Parameters
+    ----------
+    name
+        The PDF's file name in ``tests/fixtures/pdfs``.
+
+    Returns
+    -------
+    Facts
+        The probe's facts.
+    """
+
+    return probe_pdf(_PDF_DIR / name)
+
+
+@pytest.fixture
+def canned_answers() -> Callable[[str], dict[str, object]]:
+    """Return a function that gives a test PDF's canned answers for the stand-in.
+
+    The survey's answer gives the profile whose labels the page answers use, and
+    every page answer passes page extraction's checks against it.
+
+    Returns
+    -------
+    Callable[[str], dict[str, object]]
+        Takes the PDF's file name in ``tests/fixtures/pdfs`` and returns
+        `MockProviders`' ``answers`` (the survey's answer) and ``page_answers`` (the
+        extraction and verifier answers for each page), as keyword arguments.
+    """
+
+    def answers(name: str) -> dict[str, object]:
+        """Read the canned answers for one committed test PDF."""
+
+        file_name = f"{Path(name).stem}.json"
+        survey = json.loads(
+            (_FIXTURES_DIR / "survey_answers" / file_name).read_text(encoding="utf-8")
+        )
+        pages = read_page_answers(_FIXTURES_DIR / "extraction_answers" / file_name)
+        return {"answers": [survey], "page_answers": pages}
+
+    return answers
 
 
 @pytest.fixture
