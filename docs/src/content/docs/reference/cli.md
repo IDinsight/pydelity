@@ -32,6 +32,7 @@ pydelity [OPTIONS] [pdf]
   cost, in US dollars.
 - `--overwrite`, `-o`: Redo steps whose outputs could be reused.
 - `--no-pause`, `-np`: Run every step without stopping after the survey.
+- `--verify`, `-vf`: Have a verifier review each step's answer, at extra cost.
 - `--yes`, `-y`: Go ahead without asking, even over max_cost (after its
   warning).
 - `--verbose`, `-v`: Also show progress and details, such as the settings in

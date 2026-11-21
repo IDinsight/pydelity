@@ -394,11 +394,12 @@ def estimate_extraction(
     Each page's input tokens are its request size divided by
     `PROMPT_CHARS_PER_TOKEN`, plus the provider's tokens per image. The expected cost
     is one extractor request, whose answer is `TYPICAL_PAGE_OUTPUT_TOKENS` plus the
-    page's text-layer characters divided by `TEXT_CHARS_PER_OUTPUT_TOKEN`, and one
-    verifier request, which reads that answer and gives
-    `TYPICAL_VERDICT_OUTPUT_TOKENS`. The maximum is the first request and every check
-    retry of each agent, each with ``max_output_tokens`` of output and the earlier
-    answers added to its input. Both ignore prompt caching, so they overestimate.
+    page's text-layer characters divided by `TEXT_CHARS_PER_OUTPUT_TOKEN`, and, when
+    page extraction's verifier is on, one verifier request, which reads that answer
+    and gives `TYPICAL_VERDICT_OUTPUT_TOKENS`. The maximum is the first request and
+    every check retry of each agent that runs, each with ``max_output_tokens`` of
+    output and the earlier answers added to its input. Both ignore prompt caching, so
+    they overestimate.
 
     Parameters
     ----------
@@ -419,6 +420,7 @@ def estimate_extraction(
     longest = settings.max_output_tokens
     attempts = settings.check_retries + 1
     image_tokens = config.extraction_model.profile.image_tokens
+    verify = config.verify_extraction
 
     expected: list[Decimal | None] = []
     maximum: list[Decimal | None] = []
@@ -426,56 +428,65 @@ def estimate_extraction(
         extractor_input = (
             math.ceil(page.extractor_chars / PROMPT_CHARS_PER_TOKEN) + image_tokens
         )
-        verifier_input = (
-            math.ceil(page.verifier_chars / PROMPT_CHARS_PER_TOKEN) + image_tokens
-        )
         answer = min(
             longest,
             TYPICAL_PAGE_OUTPUT_TOKENS
             + math.ceil(page.text_chars / TEXT_CHARS_PER_OUTPUT_TOKEN),
         )
-        verdict = min(longest, TYPICAL_VERDICT_OUTPUT_TOKENS)
-        expected += [
+        expected.append(
             _price(
                 config=config,
                 input_tokens=extractor_input,
                 model=model,
                 output_tokens=answer,
-            ),
+            )
+        )
+        maximum += [
+            _price(
+                config=config,
+                input_tokens=extractor_input + attempt * longest,
+                model=model,
+                output_tokens=longest,
+            )
+            for attempt in range(attempts)
+        ]
+        if not verify:
+            continue
+
+        verifier_input = (
+            math.ceil(page.verifier_chars / PROMPT_CHARS_PER_TOKEN) + image_tokens
+        )
+        expected.append(
             _price(
                 config=config,
                 input_tokens=verifier_input + answer,
                 model=model,
-                output_tokens=verdict,
-            ),
+                output_tokens=min(longest, TYPICAL_VERDICT_OUTPUT_TOKENS),
+            )
+        )
+        # The verifier also reads the extraction, at most one longest answer.
+        maximum += [
+            _price(
+                config=config,
+                input_tokens=verifier_input + (attempt + 1) * longest,
+                model=model,
+                output_tokens=longest,
+            )
+            for attempt in range(attempts)
         ]
-        for attempt in range(attempts):
-            # The verifier also reads the extraction, at most one longest answer.
-            maximum += [
-                _price(
-                    config=config,
-                    input_tokens=extractor_input + attempt * longest,
-                    model=model,
-                    output_tokens=longest,
-                ),
-                _price(
-                    config=config,
-                    input_tokens=verifier_input + (attempt + 1) * longest,
-                    model=model,
-                    output_tokens=longest,
-                ),
-            ]
 
     expected_usd, max_usd = _sum_or_none(expected), _sum_or_none(maximum)
     priced = expected_usd is not None and max_usd is not None
+    agents = 2 if verify else 1
     return StepEstimate(
         expected_usd=expected_usd if priced else None,
         max_usd=max_usd if priced else None,
         model=model,
         name="extraction",
         pages=len(pages),
-        requests_max=2 * attempts * len(pages),
+        requests_max=agents * attempts * len(pages),
         reused=not pages,
+        verifier=verify and bool(pages),
     )
 
 
@@ -568,6 +579,7 @@ def estimate_survey(
             pages=None,
             requests_max=0,
             reused=True,
+            verifier=False,
         )
 
     input_tokens = page_count * config.survey_model.profile.pdf_tokens_per_page
@@ -598,6 +610,7 @@ def estimate_survey(
         pages=None,
         requests_max=requests_max,
         reused=False,
+        verifier=False,
     )
 
 

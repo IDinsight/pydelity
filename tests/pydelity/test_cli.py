@@ -98,7 +98,7 @@ def test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment(
 
     The output goes to the default folder, named after the PDF. The run stops after
     the new survey and tells how to go on; the same command again reuses the survey
-    and extracts the pages.
+    and extracts the pages with no verifier, which its estimate leaves out too.
     """
 
     mock = mock_providers(**canned_answers(_SCAN))
@@ -128,7 +128,8 @@ def test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment(
     resumed = run_cli([str(pdf_path(_SCAN)), "--yes"])
 
     assert resumed.exit_code == ExitCode.COMPLETED, resumed.output
-    assert _sent(mock) == ["upload"] + ["model"] * 5
+    assert _sent(mock) == ["upload"] + ["model"] * 3
+    assert all(line.agent != "verifier" for line in pydelity.load(folder).ledger)
     record = _record(str(folder))
     assert record.status == "completed"
     assert [(step.name, step.status) for step in record.steps] == [
@@ -136,6 +137,7 @@ def test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment(
         ("extraction", "completed"),
     ]
     assert "Extraction cost estimate: about $" in resumed.stderr
+    assert "(2 pages, up to 6 requests to anthropic:claude-opus-5-5)" in resumed.stderr
     assert "Paused" not in resumed.stderr
 
 
@@ -414,17 +416,14 @@ def test_pages_and_no_pause_extract_only_those_pages_in_one_run(
     flawed = json.loads(json.dumps(page_answers[1]["extractor"]))
     flawed["items"][0]["label"] = "Not a label"
     mock = mock_providers(
-        answers=answers["answers"],
-        page_answers={
-            1: {"extractor": flawed, "verifier": page_answers[1]["verifier"]}
-        },
+        answers=answers["answers"], page_answers={1: {"extractor": flawed}}
     )
 
     result = run_cli([str(pdf_path(_SCAN)), "-y", "-d", "out", "-p", "2", "-np"])
 
     assert result.exit_code == ExitCode.COMPLETED, result.output
     agents = [(r.page_index, r.agent) for r in mock.requests if r.route == "model"]
-    assert agents == [(None, None)] + [(1, "extractor")] * 3 + [(1, "verifier")]
+    assert agents == [(None, None)] + [(1, "extractor")] * 3
     record = _record()
     assert record.status == "completed"
     assert [(step.name, step.status) for step in record.steps] == [
@@ -433,10 +432,10 @@ def test_pages_and_no_pause_extract_only_those_pages_in_one_run(
     ]
     assert "Paused" not in result.stderr
     assert "Extraction cost estimate: about $" in result.stderr
-    assert "(1 page, up to 6 requests to anthropic:claude-opus-5-5)" in result.stderr
+    assert "(1 page, up to 3 requests to anthropic:claude-opus-5-5)" in result.stderr
     assert (
         "Run completed: survey completed, extraction completed (1 page selected: 1 "
-        "extracted, 0 reused); cost $0.12 this run (survey $0.02, extraction $0.10)"
+        "extracted, 0 reused); cost $0.10 this run (survey $0.02, extraction $0.07)"
     ) in result.stderr
     assert (
         "extraction, page 2, item p0001-001: labels: item 'f1' has the label "
@@ -514,6 +513,41 @@ def test_the_removed_instructions_option_is_an_unknown_option(
     assert f"No such option: {option}" in output
     assert mock.requests == []
     assert not Path("out").exists()
+
+
+@pytest.mark.parametrize("option", ["--verify", "-vf"])
+def test_verify_adds_a_verifier_request_for_each_page_and_to_the_estimate(
+    canned_answers: Callable[[str], dict[str, object]],
+    mock_providers: Callable[..., MockProviders],
+    option: str,
+    pdf_path: Callable[[str], Path],
+    run_cli: Callable[..., Result],
+) -> None:
+    """``--verify`` and ``-vf`` turn page extraction's verifier on for the run.
+
+    The page gets a verifier request after its extraction, the estimate before
+    spending names the verifier and counts its requests, and the ledger and the page
+    file hold the verifier's review.
+    """
+
+    mock = mock_providers(**canned_answers(_SCAN))
+
+    result = run_cli(
+        [str(pdf_path(_SCAN)), "-y", "-d", "out", "-p", "2", "-np", option]
+    )
+
+    assert result.exit_code == ExitCode.COMPLETED, result.output
+    agents = [(r.page_index, r.agent) for r in mock.requests if r.route == "model"]
+    assert agents == [(None, None), (1, "extractor"), (1, "verifier")]
+    assert "Extraction with its verifier cost estimate: about $" in result.stderr
+    assert "(1 page, up to 6 requests to anthropic:claude-opus-5-5)" in result.stderr
+    loaded = pydelity.load("out")
+    assert [(line.page_index, line.agent) for line in loaded.ledger[1:]] == [
+        (1, "extractor"),
+        (1, "verifier"),
+    ]
+    (page,) = loaded.pages
+    assert page.verification is not None
 
 
 def test_without_a_terminal_or_yes_it_stops_before_spending(

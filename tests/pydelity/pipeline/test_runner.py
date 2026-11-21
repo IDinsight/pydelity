@@ -149,7 +149,7 @@ def test_a_rerun_with_unchanged_inputs_reuses_everything(
         output_dir="out",
     )
 
-    assert requests_after_first == 5
+    assert requests_after_first == 3
     assert _model_requests(mock) == requests_after_first
     assert first.facts is not None
     assert second.facts is not None
@@ -267,9 +267,9 @@ def test_run_json_records_each_step_its_pages_cost_and_review_issues(
 ) -> None:
     """``run.json`` holds a record per step, its pages, its cost and its issues.
 
-    A verifier problem about an item is a review issue naming the step, the page
-    and the item's ID. Each page request is a ledger line with its page and agent,
-    and a warning issued during page extraction names that step.
+    With the verifier on, a verifier problem about an item is a review issue naming
+    the step, the page and the item's ID. Each page request is a ledger line with
+    its page and agent, and a warning issued during page extraction names that step.
     """
 
     answers = canned_answers(_SCAN)
@@ -285,7 +285,7 @@ def test_run_json_records_each_step_its_pages_cost_and_review_issues(
     }
     mock_providers(answers=answers["answers"], page_answers=page_answers)
 
-    first = pydelity.run(pdf_path(_SCAN), output_dir="out", pause=False)
+    first = pydelity.run(pdf_path(_SCAN), output_dir="out", pause=False, verify=True)
 
     assert first.record is not None
     (issue,) = first.record.review
@@ -318,7 +318,7 @@ def test_run_json_records_each_step_its_pages_cost_and_review_issues(
     Path("out/pages/0000.json").write_text("{", encoding="utf-8")
 
     with pytest.warns(PydelityWarning, match="extracting page 1"):
-        second = pydelity.run(pdf_path(_SCAN), output_dir="out")
+        second = pydelity.run(pdf_path(_SCAN), output_dir="out", verify=True)
 
     assert second.record is not None
     (warning,) = second.record.warnings

@@ -7,10 +7,10 @@ warning and the page is extracted again.
 
 Pages to extract run several at a time, at most
 ``advanced.extraction.concurrent_pages`` at once. For each page, the extraction model
-reads the page, the verifier model reviews the reading, and Python assigns item IDs,
-maps boxes to points, and writes the figure crops and then the page file. When one page
-fails, the others are canceled and the first error ends the step; page files already
-written stay valid.
+reads the page. When page extraction's verifier is on, a second request to the same
+model reviews the reading. Python then assigns item IDs, maps boxes to points, and
+writes the figure crops and then the page file. When one page fails, the others are
+canceled and the first error ends the step; page files already written stay valid.
 """
 
 # Standard Library
@@ -102,7 +102,7 @@ PAGES_FOLDER_NAME = "pages"
 
 @dataclass(frozen=True)
 class _KeptAnswer:
-    """The answer a page file is built from, after the verifier's review.
+    """The answer a page file is built from, after the verifier's review if one ran.
 
     Attributes
     ----------
@@ -114,13 +114,13 @@ class _KeptAnswer:
     failures
         Each check's failures on it, in the order the checks run.
     verification
-        The verifier's review, for the page file.
+        The verifier's review, for the page file; ``None`` when no verifier ran.
     """
 
     answer: PageAnswer
     attempts: int
     failures: Mapping[ExtractionCheckName, list[CheckFailure]]
-    verification: PageVerification
+    verification: PageVerification | None
 
 
 @dataclass(frozen=True)
@@ -278,12 +278,14 @@ async def _extract_page(page: "PlannedPage", *, run: _StepRun) -> PageFile:
     page_input = PageInput(context=context, image=image, page_text=page_text)
 
     extracted = await ask_extractor(model=run.model, page=page_input)
-    verified = await ask_verifier(
-        answer=extracted.answer,
-        failures=extracted.failures,
-        model=run.model,
-        page=page_input,
-    )
+    verified = None
+    if run.model.verify:
+        verified = await ask_verifier(
+            answer=extracted.answer,
+            failures=extracted.failures,
+            model=run.model,
+            page=page_input,
+        )
     kept = _kept_answer(extracted=extracted, verified=verified)
 
     built = _page_items(kept.answer, context)
@@ -313,7 +315,7 @@ async def _extract_page(page: "PlannedPage", *, run: _StepRun) -> PageFile:
 
     logger.info(
         "Page {number} (index {index}): {items} items, {issues} review issues, "
-        "verifier {outcome}; {cost}",
+        "{outcome}; {cost}",
         cost=_cost_of_page(page_index=page_index, run=run),
         index=page_index,
         issues=len(page_file.issues),
@@ -397,7 +399,7 @@ def _item(
     )
 
 
-def _kept_answer(*, extracted: ModelPage, verified: ModelVerdict) -> _KeptAnswer:
+def _kept_answer(*, extracted: ModelPage, verified: ModelVerdict | None) -> _KeptAnswer:
     """Apply the verifier's verdict, keeping its correction when the checks allow.
 
     A correction is kept when it passes every check other than ``text_dropped`` and
@@ -409,15 +411,23 @@ def _kept_answer(*, extracted: ModelPage, verified: ModelVerdict) -> _KeptAnswer
     extracted
         The extraction model's kept answer.
     verified
-        The verifier's verdict on it.
+        The verifier's verdict on it, or ``None`` when no verifier ran.
 
     Returns
     -------
     _KeptAnswer
         The correction, with its check failures, when the verdict has one that is
         kept, and otherwise the extraction model's answer, with the verifier's
-        review.
+        review when one ran.
     """
+
+    if verified is None:
+        return _KeptAnswer(
+            answer=extracted.answer,
+            attempts=extracted.attempts,
+            failures=extracted.failures,
+            verification=None,
+        )
 
     corrected = verified.verdict.corrected
     correction_failures = verified.correction_failures
@@ -494,7 +504,7 @@ def _page_issues(
     context
         The page's context.
     kept
-        The kept answer and the verifier's review.
+        The kept answer and the verifier's review, if one ran.
 
     Returns
     -------
@@ -503,12 +513,15 @@ def _page_issues(
         with its items' IDs added, then the verifier's problems when its correction
         was not kept. Text differences are left out when the verifier passed the
         page or its correction was kept, since it judged the reading against the
-        image. They stay in the page file's check results.
+        image. On a page no verifier reviewed, every text difference is listed.
+        They all stay in the page file's check results.
     """
 
     listed = checks
     verification = kept.verification
-    if verification.verdict.passed or verification.correction_applied:
+    if verification is not None and (
+        verification.verdict.passed or verification.correction_applied
+    ):
         listed = [result for result in checks if result.name not in TEXT_CHECKS]
     issues = review_issues(listed, item_ids=built.ids)
     for issue in unmatched_labels(kept.answer, context):
@@ -519,10 +532,10 @@ def _page_issues(
         issues.append(
             issue.model_copy(update={"details": issue.details | {"item_ids": item_ids}})
         )
-    if not kept.verification.correction_applied:
+    if verification is not None and not verification.correction_applied:
         issues += [
             _verifier_issue(problem, context=context, ids=built.ids)
-            for problem in kept.verification.verdict.problems
+            for problem in verification.verdict.problems
         ]
     return issues
 
@@ -622,6 +635,48 @@ def _points_box(box: Sequence[int], *, context: PageContext) -> list[float]:
     )
 
 
+def _reusable_page(
+    saved: PageFile | None, *, config: Config, expected: str, quiet: bool
+) -> PageFile | None:
+    """Return a page's saved page file when it can be reused.
+
+    It can be reused when its fingerprint matches, ``overwrite`` is not set, and it
+    holds a verifier's review or page extraction's verifier is off. So a page
+    extracted without the verifier is extracted again once the verifier is turned
+    on, while a page the verifier reviewed is still reused after it is turned off.
+
+    Parameters
+    ----------
+    saved
+        The page's valid page file, or ``None`` when it has none.
+    config
+        The run's settings.
+    expected
+        The fingerprint of the page's current inputs.
+    quiet
+        Whether to leave out the log line for a page file passed over only because
+        no verifier reviewed it.
+
+    Returns
+    -------
+    PageFile | None
+        The page file to reuse, or ``None`` when the page is to be extracted.
+    """
+
+    if saved is None or saved.fingerprint != expected or config.overwrite:
+        return None
+    if saved.verification is None and config.verify_extraction:
+        if not quiet:
+            logger.info(
+                "Page {number} (index {index}): no verifier reviewed its page file, so "
+                "the page is extracted again with the verifier",
+                index=saved.page_index,
+                number=saved.page_index + 1,
+            )
+        return None
+    return saved
+
+
 def _saved_page(
     *, output_folder: Path, page_index: int, quiet: bool
 ) -> PageFile | None:
@@ -688,26 +743,29 @@ def _verifier_issue(
     )
 
 
-def _verifier_outcome(verification: PageVerification) -> str:
+def _verifier_outcome(verification: PageVerification | None) -> str:
     """Describe the verifier's review for the page's log line.
 
     Parameters
     ----------
     verification
-        The verifier's review.
+        The verifier's review, or ``None`` when no verifier ran.
 
     Returns
     -------
     str
-        ``passed``, ``corrected the extraction`` or such as ``found 2 problems``.
+        ``verifier passed``, ``verifier corrected the extraction``, such as
+        ``verifier found 2 problems``, or ``no verifier``.
     """
 
+    if verification is None:
+        return "no verifier"
     if verification.verdict.passed:
-        return "passed"
+        return "verifier passed"
     if verification.correction_applied:
-        return "corrected the extraction"
+        return "verifier corrected the extraction"
     count = len(verification.verdict.problems)
-    return f"found {count} problem{'' if count == 1 else 's'}"
+    return f"verifier found {count} problem{'' if count == 1 else 's'}"
 
 
 async def _write_page(
@@ -1030,8 +1088,9 @@ def plan_pages(
     """Decide which selected pages to extract and which page files to reuse.
 
     A page file is reused when it is valid, its fingerprint matches the page's
-    inputs and ``overwrite`` is not set. A damaged page file gives a warning, and
-    the plan is logged.
+    inputs, ``overwrite`` is not set, and it holds a verifier's review or page
+    extraction's verifier is off. A damaged page file gives a warning, and the plan
+    is logged.
 
     Parameters
     ----------
@@ -1059,13 +1118,7 @@ def plan_pages(
         saved = _saved_page(
             output_folder=output_folder, page_index=page_index, quiet=quiet
         )
-        reusable = (
-            saved
-            if saved is not None
-            and saved.fingerprint == expected
-            and not config.overwrite
-            else None
-        )
+        reusable = _reusable_page(saved, config=config, expected=expected, quiet=quiet)
         planned.append(PlannedPage(fingerprint=expected, inputs=inputs, saved=reusable))
 
     reused = sum(page.saved is not None for page in planned)

@@ -434,7 +434,10 @@ async def _extraction(
                 )
             await extract_pages(
                 model=StepModel(
-                    choice=config.extraction_model, model=model, settings=settings
+                    choice=config.extraction_model,
+                    model=model,
+                    settings=settings,
+                    verify=config.verify_extraction,
                 ),
                 on_written=written,
                 output_folder=config.output_folder,
@@ -560,7 +563,8 @@ def _load_part[ModelT: BaseModel](
 def _log_estimate(estimate: CostEstimate) -> None:
     """Log the cost estimate, the folder's spend so far and ``max_cost``.
 
-    The lines are marked with `SUMMARY_LOG_KEY`.
+    The lines are marked with `SUMMARY_LOG_KEY`. A step whose figures include its
+    verifier's requests is named with it, such as ``Extraction with its verifier``.
 
     Parameters
     ----------
@@ -570,17 +574,17 @@ def _log_estimate(estimate: CostEstimate) -> None:
 
     summary = logger.bind(**{SUMMARY_LOG_KEY: True})
     for step in estimate.steps:
+        name = step.name.capitalize() + (" with its verifier" if step.verifier else "")
         if step.reused:
             summary.info(
-                "{name}: the saved output would be reused, nothing to spend",
-                name=step.name.capitalize(),
+                "{name}: the saved output would be reused, nothing to spend", name=name
             )
         elif step.expected_usd is None or step.max_usd is None:
             summary.info(
                 "{name} cost estimate: unknown, no price is known for {model} "
                 "(at most {requests} requests)",
                 model=step.model,
-                name=step.name.capitalize(),
+                name=name,
                 requests=step.requests_max,
             )
         else:
@@ -591,7 +595,7 @@ def _log_estimate(estimate: CostEstimate) -> None:
                 expected=format_usd(step.expected_usd),
                 maximum=format_usd(step.max_usd),
                 model=step.model,
-                name=step.name.capitalize(),
+                name=name,
                 pages=pages,
                 requests=step.requests_max,
             )

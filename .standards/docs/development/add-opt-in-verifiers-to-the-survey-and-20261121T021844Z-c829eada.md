@@ -7,7 +7,7 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 
 `Cycle`: `add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada`
 `Mode`: `STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`IN_PROGRESS` `Verification Cadence`: `INCREMENTAL` `Current Increment`: `1`
+`IN_PROGRESS` `Verification Cadence`: `INCREMENTAL` `Current Increment`: `2`
 
 ## Implementation Contract
 
@@ -193,7 +193,7 @@ other 40 modules already followed the rule.
 
 ### DEV-002 — Verifier settings and the CLI switch
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-001` `Acceptance`:
 `AC-001, AC-002, AC-003, AC-004`
 
 **Goal**
@@ -234,11 +234,58 @@ override with `verify` on and off; both example files load without a
 `ConfigError`; the existing tests, with any failure from a replaced contract
 listed.
 
+Evidence, 2026-11-21, repo root, on `4a6bec7` plus the uncommitted DEV-002
+changes to `src/pydelity/config/schemas.py`, `src/pydelity/cli.py`,
+`examples/config.json` and `examples/config.yaml` (macOS arm64, Python 3.13.9,
+`.venv` with a strict editable install whose files link to `src/`).
+
+- Scratch script `dev002/check_settings.py` in the session scratchpad, run with
+  `.venv/bin/python -I check_settings.py <repo>`: 27 of 27 checks passed.
+  Defaults give `verify: false`, both overrides `null` and both resolved
+  properties false. `settings={"verify": True}` turns both on. Every combination
+  of `verify` (false, true) with `advanced.survey.verify` or
+  `advanced.extraction.verify` (false, true) sets that step from the override
+  and the other from `verify`; an explicit `null` follows `verify`. A JSON file
+  and a YAML file set them; a keyword overrides the file, and a nested
+  `advanced` keyword merges into the file's `advanced`. `verify: maybe` gives
+  the `ConfigError` line
+  `advanced.survey.verify: Input should be a valid boolean`. Both example files
+  load with `false`, `null`, `null`. Through Typer's `CliRunner` (with
+  `arun_with_questions` replaced by a stub that resolves the settings): no
+  option passes no `verify` keyword (both steps off), `--verify` and `-vf` pass
+  `verify=True` (both on), no option keeps a config file's `verify: true`,
+  `--help` lists `--verify` and `-vf`, and `--no-verify` is a usage error (exit
+  2).
+- `.venv/bin/ruff check scripts src tests` "All checks passed!";
+  `ruff format --check` "89 files already formatted";
+  `ty check scripts src tests` "All checks passed!"; `interrogate` 100.0%.
+- Tests: `.venv/bin/python -m pytest -q --numprocesses auto -p no:cacheprovider`
+  177 passed (the example-file completeness test in `test_loading.py` included);
+  doctests 27 passed, 1 skipped. No test fails from this step.
+- `compare.py`'s order check on the two changed modules reports only the
+  departures listed under DEV-001.
+- Reference pages: generated in a scratch copy of the tree and formatted with
+  Prettier 3.10.1, `cli.md` gains the `--verify`/`-vf` line and
+  `configuration.md` gains the three `verify` settings and the changed `effort`
+  and `instructions` wording. With the user's go-ahead, the pages were then
+  regenerated in the repo: `.venv/bin/python scripts/generate_reference_docs.py`
+  and `scripts/format_markdown.mjs` with the hook's Prettier 3.10.1 and Node
+  24.22.3 changed only `docs/src/content/docs/reference/cli.md` (1 line added)
+  and `configuration.md` (15 lines added, 5 removed), as in the scratch copy.
+
+**Implementation Notes**
+
+- The class docstrings of `SurveyConfig` and `ExtractionConfig` say their
+  settings apply to the step's requests and its verifier's alike, and `effort`
+  and `instructions` no longer speak of page extraction's "models". The YAML
+  example's comments follow the docstrings; the JSON example has no comments.
+- `--verify` sits after `--no-pause` in the option list.
+
 ---
 
 ### DEV-003 — Page extraction with an optional verifier
 
-`Status`: `PENDING` `Depends On`: `DEV-002` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-002` `Acceptance`:
 `AC-001, AC-005, AC-006, AC-018, AC-019, AC-020`
 
 **Goal**
@@ -290,6 +337,93 @@ against the stand-in provider on a test PDF with defaults, with
 without it (pages rerun, survey reused), checking the page files, review list,
 ledger lines and estimate figures; turning it off over verified pages reuses
 them; the existing tests with replaced-contract failures listed.
+
+Evidence, 2026-11-21, repo root, on `4a6bec7` plus the uncommitted DEV-002 and
+DEV-003 changes (macOS arm64, Python 3.13.9, `.venv`). DEV-003 changed
+`src/pydelity/extracting/extraction.py`, `extracting/llm.py`,
+`extracting/schemas.py`, `costs/budget.py`, `costs/schemas.py`,
+`pipeline/runner.py`, `report/html.py`, `scripts/smoke_installed_wheel.py` and
+the generated `docs/src/content/docs/reference/page-json.md`.
+
+- Scratch script `dev003/check_pages.py` in the session scratchpad, run with
+  `.venv/bin/python -I check_pages.py <repo>` against the stand-in
+  (`tests/fixtures/mock_providers.py`) on `irs_form_1040a_1965_scan.pdf` with
+  its canned survey and page answers, default model: 30 of 30 checks passed.
+  - Default settings: the requests are the upload, the survey and 2 extractor
+    requests; both page files have `verification: null`; `cost.jsonl` has no
+    `verifier` line; each page lists every failing check and no `verifier`
+    issue; both page log lines say `no verifier;`; no estimate line names a
+    verifier; `report.html` says `no verifier ran` twice.
+  - `advanced={"extraction": {"verify": True}}` on the same folder: the survey
+    is reused; both pages are extracted again with 2 extractor and 2 verifier
+    requests; each page logs
+    `no verifier reviewed its page file, so the page is extracted again with the verifier`;
+    the estimate line starts `Extraction with its verifier cost estimate`; 2
+    `verifier` ledger lines; the page log lines give the verifier's outcome;
+    pages the verifier passed list no text check.
+  - Verifier off again: no request, both pages reused with their verification.
+    `verify=True` over the verified pages: no request, both reused.
+    `verify=True` with `advanced.extraction.verify: false` on a new folder: no
+    verifier request.
+  - `estimate()` after a paused run with the survey saved: the survey's
+    `verifier` is false; extraction's `verifier` is false, then true with
+    `verify=True`; `requests_max` 6, then 12. With the verifier, the expected
+    and maximum cost equal those of the formula before this step (reproduced in
+    the script with `budget._price`), $0.454520 and $10.411560; without it, they
+    equal that formula's extractor terms, $0.227552 and $4.810656. A reused
+    extraction step has `verifier: false`.
+- Scratch script `dev003/check_text_differences.py`: 7 of 7 checks passed. A
+  3-page text PDF built with PyMuPDF as the tests' `_text_pdf` does, the tests'
+  label set, and an extraction that leaves out the page's last stored line. With
+  no verifier: 3 extractor requests and no verifier request; `text_dropped`
+  fails and is the page's one review issue, quoting the line; `verification` is
+  null; `text_comparison` is `compared`. With the verifier on and a passing
+  verdict: 3 extractor requests and 1 verifier request; `text_dropped` stays in
+  `checks` and the review list is empty.
+- `.venv/bin/ruff check scripts src tests` "All checks passed!";
+  `ruff format --check` "89 files already formatted" (after `ruff format` on
+  `extraction.py`); `ty check scripts src` "All checks passed!"; `interrogate`
+  100.0%; the module order check finds no new departure.
+- `ty check scripts src tests` reports 6 errors, all in
+  `tests/pydelity/extracting/test_extraction.py` lines 897–916, which read
+  `page.verification` attributes without allowing `None`.
+- Tests: 14 failed, 163 passed; doctests 27 passed, 1 skipped. Each failure
+  expects a verifier on every page by default, the contract this step replaces:
+  `tests/pydelity/costs/test_budget.py::test_the_estimate_covers_page_extraction_with_both_models_when_the_run_goes_on`
+  (`requests_max` 6, expected 12);
+  `tests/pydelity/extracting/test_extraction.py`:
+  `test_each_page_request_carries_one_upright_image_and_only_its_own_instructions[anthropic]`
+  and `[openai]`,
+  `test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues[passed]`,
+  `[correction_kept]` and `[correction_rejected]`,
+  `test_a_failed_page_stops_the_run_and_the_next_run_extracts_only_what_is_missing`,
+  `test_page_files_rerun_only_when_their_inputs_change`,
+  `test_a_page_file_naming_a_missing_crop_is_extracted_again` (no verifier
+  request or verdict); `tests/pydelity/pipeline/test_runner.py`:
+  `test_a_rerun_with_unchanged_inputs_reuses_everything` (3 requests, expected
+  5), `test_run_json_records_each_step_its_pages_cost_and_review_issues` (no
+  verifier issue);
+  `tests/pydelity/report/test_html.py::test_report_draws_extracted_items_numbered_with_links_from_their_issues`
+  (no verifier issue to flag the item); `tests/pydelity/test_cli.py`:
+  `test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment` and
+  `test_pages_and_no_pause_extract_only_those_pages_in_one_run` (no verifier
+  request).
+- Reference pages: `generate_reference_docs.py` and `format_markdown.mjs` change
+  `page-json.md` only (the `issues` and `verification` descriptions),
+  regenerated as for DEV-002 so CI's stale-page check passes.
+- Not run: the wheel smoke test (it needs `uv build` and PyPI downloads; CI's
+  wheel jobs run it), Python 3.14.
+
+**Implementation Notes**
+
+- `_reusable_page` holds the reuse rule, so `plan_pages` stays simple. The page
+  log line's outcome now carries the word `verifier` itself, so a page with no
+  verifier says `no verifier`.
+- The extractor-only maximum lists each page's extractor attempts before its
+  verifier attempts; the sums are unchanged.
+- Left for DEV-011: `review.py` (two comments) and `extracting/schemas.py`
+  (module docstring) still say "verifier model", as do the generator's check
+  texts.
 
 ---
 
@@ -561,7 +695,9 @@ describe 0.2.0 as built.
 `src/pydelity/extracting/prompts.py`, `src/pydelity/extracting/text_layer.py`
 (docstrings), `scripts/generate_reference_docs.py` (the hand-written check
 texts: the survey checks page gains `verifier`, and the extraction checks page's
-wording no longer calls the verifier a model or says it reviews every page),
+wording no longer calls the verifier a model or says it reviews every page), any
+other docstring or comment that still calls the verifier a model (such as in
+`src/pydelity/review.py` and `src/pydelity/extracting/schemas.py`),
 `pyproject.toml` (`description`), the generated pages under
 `docs/src/content/docs/reference/`.
 
@@ -679,3 +815,35 @@ separate increment.
 - Limitations: Python 3.14 not run locally; the wheel smoke test and `uv`
   recipes not run (see DEV-001's evidence).
 - Next after the return: DEV-002, then DEV-003 (Increment 2).
+
+### Increment 1 return
+
+Tester returned Increment 1 `VERIFIED` (verification report, **Increment
+Assessments**, E1–E11, including CI on Python 3.14.4). Reconciled on `4a6bec7`:
+`src/pydelity/`, `scripts/`, `docs/`, `examples/` and `pyproject.toml` are
+unchanged since `0f4c949`; `tests/` changed only by Tester's reorder (`ac9e4cb`,
+`7bd7f90`). Rerun on `4a6bec7`: tests 177 passed; `ruff check`,
+`ruff format --check` (89 files) and `ty check` clean; `compare.py 126f52f` exit
+0 with the listed departures only. `Current Increment` moves to 2.
+
+### Checkpoint: Increment 2
+
+- Ready: DEV-002 and DEV-003 are `DONE`, with their self-check evidence under
+  each step. Claim: the settings `verify`, `advanced.survey.verify` and
+  `advanced.extraction.verify` and the CLI option `--verify`/`-vf` resolve as
+  the design's decision 1 says, and page extraction follows decisions 2–4 and 9
+  for pages (`AC-001` to `AC-006` and `AC-018` to `AC-020` for page extraction).
+- Not yet built: the survey's verifier, its estimate and its reuse rule
+  (Increment 3), so the survey parts of `AC-001`, `AC-005` and `AC-006` are not
+  claimed. With `verify` on, the survey still runs without a verifier.
+- Assessed content: `4a6bec7` plus the uncommitted changes to the 15 files
+  listed under DEV-002 and DEV-003
+  (`git diff HEAD -- src scripts examples docs`, 263 insertions and 108
+  deletions, SHA-256 starting `f710dcdbc349c854`). If the user commits it before
+  Tester runs, the commits hold the same content.
+- Tests of the replaced contract: 14 tests fail and `ty` reports 6 errors in
+  `tests/pydelity/extracting/test_extraction.py`, all listed under DEV-003. They
+  expect a verifier on every page by default.
+- Limitations: the wheel smoke test (its `EXPECTED_REQUESTS` now has the upload
+  and 3 model requests) and Python 3.14 were not run locally.
+- Next after the return: DEV-004 to DEV-007 (Increment 3).

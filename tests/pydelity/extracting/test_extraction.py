@@ -21,7 +21,7 @@ import pytest
 import pydelity
 
 from pydelity.errors import ExtractionError, ProviderError, PydelityWarning
-from pydelity.extracting.schemas import AnswerItem
+from pydelity.extracting.schemas import AnswerItem, PageFile
 from tests.fixtures.mock_providers import MockProviders, RecordedRequest
 
 # A code item's text, with indentation and a line break to keep.
@@ -308,9 +308,7 @@ def test_a_failed_page_stops_the_run_and_the_next_run_extracts_only_what_is_miss
 
     pdf = _blank_pdf(pages=3)
     figure = _figure_page(answer_item)
-    page_answers = {
-        index: {"extractor": figure, "verifier": _PASSED} for index in range(3)
-    }
+    page_answers = {index: {"extractor": figure} for index in range(3)}
     survey = _survey_answer(profile_labels, artifacts=[])
     mock_providers(
         answers=[survey],
@@ -335,12 +333,7 @@ def test_a_failed_page_stops_the_run_and_the_next_run_extracts_only_what_is_miss
 
     assert result.record is not None
     assert result.record.status == "completed"
-    assert sorted(_page_requests(retry)) == [
-        (1, "extractor"),
-        (1, "verifier"),
-        (2, "extractor"),
-        (2, "verifier"),
-    ]
+    assert sorted(_page_requests(retry)) == [(1, "extractor"), (2, "extractor")]
     assert [page.page_index for page in result.pages] == [0, 1, 2]
 
 
@@ -384,7 +377,7 @@ def test_a_page_file_naming_a_missing_crop_is_extracted_again(
     pdf = _blank_pdf(pages=1)
     mock = mock_providers(
         answers=[_survey_answer(profile_labels, artifacts=[])],
-        page_answers={0: {"extractor": _figure_page(answer_item), "verifier": _PASSED}},
+        page_answers={0: {"extractor": _figure_page(answer_item)}},
     )
     pydelity.extract(pdf, output_dir="out")
     crop = Path("out/figures/p0000-001.png")
@@ -399,9 +392,59 @@ def test_a_page_file_naming_a_missing_crop_is_extracted_again(
     with pytest.warns(PydelityWarning, match=r"figures/p0000-001\.png, which is miss"):
         pydelity.extract(pdf, output_dir="out")
 
-    assert _page_requests(mock)[3:] == [(0, "extractor"), (0, "verifier")]
+    assert _page_requests(mock)[2:] == [(0, "extractor")]
     assert crop.read_bytes().startswith(b"\x89PNG")
     assert not any(leftover.exists() for leftover in leftovers)
+
+
+def test_a_page_no_verifier_reviewed_keeps_its_extraction_and_lists_each_difference(
+    answer_item: Callable[..., AnswerItem],
+    log_messages: list[tuple[str, str]],
+    mock_providers: Callable[..., MockProviders],
+    profile_labels: list[dict[str, object]],
+) -> None:
+    """With the verifier off, a page keeps its extraction and lists both text checks.
+
+    The extraction leaves out the page's last line and adds a line the page does not
+    have, so it fails both text checks on every attempt. After the check retries the
+    extraction is kept and no verifier request is made. Both differences are review
+    issues, the page file holds no verification, the ledger has no verifier line,
+    and the page's log line says no verifier ran.
+    """
+
+    lines = _TEXT_LINES[0]
+    added = "Bring a packed lunch."
+    pdf = _text_pdf()
+    mock = mock_providers(
+        answers=[_survey_answer(profile_labels)],
+        page_answers={
+            0: {"extractor": _text_answer(answer_item, lines=[*lines[:2], added])}
+        },
+    )
+
+    (page,) = pydelity.extract(pdf, output_dir="out", pages="1")
+
+    assert _page_requests(mock)[1:] == [(0, "extractor")] * 3
+    assert [item.text for item in page.items] == [_HEADER, *lines[:2], added]
+    failed = {check.name for check in page.checks if not check.passed}
+    assert failed == {"text_added", "text_dropped"}
+    issues = {issue.check: issue.message for issue in page.issues}
+    assert set(issues) == {"text_added", "text_dropped"}
+    assert added in issues["text_added"]
+    assert lines[2] in issues["text_dropped"]
+    assert page.verification is None
+    stored = json.loads(Path("out/pages/0000.json").read_text(encoding="utf-8"))
+    assert stored["verification"] is None
+    ledger = pydelity.load("out").ledger
+    assert [line.agent for line in ledger if line.step == "extraction"] == [
+        "extractor"
+    ] * 3
+    (logged,) = [
+        text
+        for _, text in log_messages
+        if "review issues" in text and "index 0" in text
+    ]
+    assert ", 2 review issues, no verifier; " in logged
 
 
 def test_an_answer_becomes_a_page_file_with_ids_points_and_links(
@@ -503,12 +546,7 @@ def test_an_answer_becomes_a_page_file_with_ids_points_and_links(
     pdf = _blank_pdf(pages=1)
     mock_providers(
         answers=[_survey_answer(profile_labels, artifacts=[])],
-        page_answers={
-            0: {
-                "extractor": _answer(*items, containers=[container]),
-                "verifier": _PASSED,
-            }
-        },
+        page_answers={0: {"extractor": _answer(*items, containers=[container])}},
     )
 
     (page,) = pydelity.extract(pdf, output_dir="out")
@@ -579,8 +617,7 @@ def test_an_inconsistent_survey_still_gives_every_page_a_context(
     mock_providers(
         answers=[survey],
         page_answers={
-            index: {"extractor": _figure_page(answer_item), "verifier": _PASSED}
-            for index in range(3)
+            index: {"extractor": _figure_page(answer_item)} for index in range(3)
         },
     )
 
@@ -613,11 +650,12 @@ def test_each_page_request_carries_one_upright_image_and_only_its_own_instructio
 ) -> None:
     """Each page request sends one page image, no PDF and no stored text lines.
 
-    The page's running header is named as page furniture. Page extraction's
-    instructions go to the extraction model and the verifier only, and the
-    survey's to the survey only. Anthropic requests ask for the answer as JSON in
-    the instructions; OpenAI requests ask for a JSON-schema answer and send the
-    image at its original detail.
+    With the verifier on, the page's running header is named as page furniture in
+    both of the page's requests. Page extraction's instructions go to the
+    extraction model and the verifier only, and the survey's to the survey only.
+    Anthropic requests ask for the answer as JSON in the instructions; OpenAI
+    requests ask for a JSON-schema answer and send the image at its original
+    detail.
     """
 
     model = {"anthropic": "anthropic:claude-opus-5-5", "openai": "openai:gpt-6.2-astra"}
@@ -641,6 +679,7 @@ def test_each_page_request_carries_one_upright_image_and_only_its_own_instructio
         model=model[provider],
         output_dir="out",
         pages="1",
+        verify=True,
     )
 
     survey, extractor, verifier = [
@@ -710,8 +749,7 @@ def test_no_more_pages_run_at_once_than_the_limit(
         answers=[_survey_answer(profile_labels, artifacts=[])],
         delay_seconds=0.2,
         page_answers={
-            index: {"extractor": _figure_page(answer_item), "verifier": _PASSED}
-            for index in range(5)
+            index: {"extractor": _figure_page(answer_item)} for index in range(5)
         },
     )
 
@@ -741,8 +779,7 @@ def test_page_files_rerun_only_when_their_inputs_change(
     mock = mock_providers(
         answers=[_survey_answer(profile_labels, artifacts=[])],
         page_answers={
-            index: {"extractor": _figure_page(answer_item), "verifier": _PASSED}
-            for index in range(3)
+            index: {"extractor": _figure_page(answer_item)} for index in range(3)
         },
     )
     instructions: dict[str, object] = {
@@ -771,12 +808,12 @@ def test_page_files_rerun_only_when_their_inputs_change(
     widened = requests_for(advanced=instructions, pages="1-3")
     overwritten = requests_for(advanced=instructions, overwrite=True, pages="1-3")
 
-    both_pages = [(0, "extractor"), (0, "verifier"), (1, "extractor"), (1, "verifier")]
+    both_pages = [(0, "extractor"), (1, "extractor")]
     assert first == [*both_pages, (None, None)]
     assert instructions_changed == both_pages
     assert unchanged == []
-    assert widened == [(2, "extractor"), (2, "verifier")]
-    assert overwritten == [*both_pages, (2, "extractor"), (2, "verifier"), (None, None)]
+    assert widened == [(2, "extractor")]
+    assert overwritten == [*both_pages, (2, "extractor"), (None, None)]
 
 
 def test_the_same_answer_gives_the_same_items_and_containers_again(
@@ -812,7 +849,7 @@ def test_the_same_answer_gives_the_same_items_and_containers_again(
     )
     mock_providers(
         answers=[_survey_answer(profile_labels, artifacts=[])],
-        page_answers={0: {"extractor": answer, "verifier": _PASSED}},
+        page_answers={0: {"extractor": answer}},
     )
 
     def written() -> tuple[str, bytes]:
@@ -844,14 +881,14 @@ def test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues(
 ) -> None:
     """A verdict keeps the extraction or its correction, and decides what is listed.
 
-    The extraction leaves out the page's last line, so it fails the dropped-text
-    check on every attempt, each retry saying the model may keep what the image
-    shows. A passing verdict keeps it and lists no text difference. A correction
-    that fails only a text check, here by adding a line, is sent back to the
-    verifier with the same note and then kept, with nothing listed. A correction
-    with a label not in the profile is rejected: the extraction is kept, and its
-    text difference and the verifier's problem, naming the item's ID, are listed.
-    The check results keep every failure either way.
+    With the verifier on, the extraction leaves out the page's last line, so it
+    fails the dropped-text check on every attempt, each retry saying the model may
+    keep what the image shows. A passing verdict keeps it and lists no text
+    difference. A correction that fails only a text check, here by adding a line,
+    is sent back to the verifier with the same note and then kept, with nothing
+    listed. A correction with a label not in the profile is rejected: the
+    extraction is kept, and its text difference and the verifier's problem, naming
+    the item's ID, are listed. The check results keep every failure either way.
     """
 
     lines = _TEXT_LINES[0]
@@ -883,7 +920,7 @@ def test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues(
         page_answers={0: {"extractor": extraction, "verifier": verdict}},
     )
 
-    (page,) = pydelity.extract(pdf, output_dir="out", pages="1")
+    (page,) = pydelity.extract(pdf, output_dir="out", pages="1", verify=True)
 
     agents = [agent for _, agent in _page_requests(mock)[1:]]
     verifier_requests = 1 if outcome == "passed" else 3
@@ -892,6 +929,7 @@ def test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues(
     assert all(_TEXT_NOTE in json.dumps(r.body) for r in extractor_retries)
     failed = {check.name for check in page.checks if not check.passed}
     verification = page.verification
+    assert verification is not None
     if outcome == "passed":
         assert (page.items[-1].text, failed) == (lines[1], {"text_dropped"})
         assert verification.correction_applied is False
@@ -921,3 +959,61 @@ def test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues(
             ("verifier", "p0000-003"),
         ]
         assert lines[2] in page.issues[0].message
+
+
+def test_turning_the_verifier_on_extracts_again_only_pages_it_has_not_reviewed(
+    answer_item: Callable[..., AnswerItem],
+    log_messages: list[tuple[str, str]],
+    mock_providers: Callable[..., MockProviders],
+    profile_labels: list[dict[str, object]],
+) -> None:
+    """Page files made without the verifier are made again once it is turned on.
+
+    The survey is reused, and a log line says why each page is extracted again.
+    Turning the verifier off keeps the reviewed page files, and turning it on again
+    sends nothing. The page files' fingerprints stay the same throughout.
+    """
+
+    pdf = _blank_pdf(pages=2)
+    mock = mock_providers(
+        answers=[_survey_answer(profile_labels, artifacts=[])],
+        page_answers={
+            index: {"extractor": _figure_page(answer_item), "verifier": _PASSED}
+            for index in range(2)
+        },
+    )
+    verified: dict[str, object] = {"extraction": {"verify": True}}
+
+    def extract(
+        advanced: dict[str, object],
+    ) -> tuple[list[PageFile], list[tuple[int | None, str | None]]]:
+        """Extract with these settings; return the pages and the model requests."""
+
+        before = len(_page_requests(mock))
+        pages = pydelity.extract(pdf, advanced=advanced, output_dir="out")
+        return pages, sorted(_page_requests(mock)[before:], key=str)
+
+    unreviewed, first = extract({})
+    reviewed, turned_on = extract(verified)
+    kept, turned_off = extract({})
+    _, turned_on_again = extract(verified)
+
+    assert first == [(0, "extractor"), (1, "extractor"), (None, None)]
+    assert turned_on == [
+        (0, "extractor"),
+        (0, "verifier"),
+        (1, "extractor"),
+        (1, "verifier"),
+    ]
+    assert (turned_off, turned_on_again) == ([], [])
+    assert [page.verification for page in unreviewed] == [None, None]
+    assert all(page.verification is not None for page in reviewed)
+    assert kept == reviewed
+    assert [page.fingerprint for page in reviewed] == [
+        page.fingerprint for page in unreviewed
+    ]
+    assert [text for _, text in log_messages if "no verifier reviewed" in text] == [
+        f"Page {index + 1} (index {index}): no verifier reviewed its page file, so "
+        "the page is extracted again with the verifier"
+        for index in range(2)
+    ]

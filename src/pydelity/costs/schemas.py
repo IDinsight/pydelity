@@ -31,8 +31,8 @@ class StepEstimate(_Record):
     """The cost estimate for one step."""
 
     expected_usd: Money | None
-    """The likely cost: one request per agent (and per page, for a page step) with a
-    typical answer; ``None`` when unpriced."""
+    """The likely cost: one request per agent that runs (and per page, for a page
+    step) with a typical answer; ``None`` when unpriced."""
 
     max_usd: Money | None
     """The most the step can cost: every allowed retry, each with the longest answer
@@ -53,6 +53,10 @@ class StepEstimate(_Record):
 
     reused: bool
     """Whether the step's saved output will be reused, so it costs nothing."""
+
+    verifier: bool
+    """Whether ``expected_usd``, ``max_usd`` and ``requests_max`` include the step's
+    verifier requests; ``False`` for a reused step."""
 
 
 class CostEstimate(_Record):

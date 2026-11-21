@@ -7,7 +7,8 @@
       "instructions": null,
       "max_output_tokens": 32000,
       "model": null,
-      "request_timeout_seconds": 600
+      "request_timeout_seconds": 600,
+      "verify": null
     },
     "models": {
       "anthropic:your-model-id": {
@@ -23,7 +24,8 @@
       "effort": "high",
       "instructions": null,
       "max_output_tokens": 32000,
-      "request_timeout_seconds": 900
+      "request_timeout_seconds": 900,
+      "verify": null
     },
     "uploads": {
       "expiry_hours": null
@@ -36,5 +38,6 @@
   "overwrite": false,
   "pages": null,
   "pause": true,
-  "pdf": "document.pdf"
+  "pdf": "document.pdf",
+  "verify": false
 }

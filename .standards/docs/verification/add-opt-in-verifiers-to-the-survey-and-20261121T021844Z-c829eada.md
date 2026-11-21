@@ -7,7 +7,7 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 
 `Cycle`: `add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada`
 `Mode`: `VERIFY` `Status`: `IN_PROGRESS` `User Style`: `tony`
-`Assessment Purpose`: `INCREMENT` `Assessment Target`: `Increment 1`
+`Assessment Purpose`: `INCREMENT` `Assessment Target`: `Increment 2`
 
 ## Assessed Inputs
 
@@ -15,57 +15,64 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
   `.standards/docs/scope/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
   (last changed in `49448e5`, SHA-256 `dd6ea5291602d518…`), design
   `.standards/docs/specs/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
-  (`126f52f`, `846800debae3d32f…`; decision 13, **Module order**, the `AC-041`
-  and `AC-042` technical criteria), development plan
+  (`126f52f`, `846800debae3d32f…`; decisions 1–4 and 9, **Settings**, **Example
+  config files**, **CLI**, **Page extraction without a verifier**, **Page
+  file**, **Cost estimate**, **HTML report**, and the technical criteria of
+  `AC-001` to `AC-006` and `AC-018` to `AC-020`), development plan
   `.standards/docs/development/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
-  (`d149079`, `9d036812eb736d5b…`), `.standards/CONTEXT.md` (`0573e11`,
-  `09045f457b2df4c1…`), user style `.standards/user-styles/tester/tony.md`
-  (`797def3`, `e64ef290173c7c32…`). Current acceptance set: `AC-001` to
-  `AC-042`, none retired.
-- Assignment: Increment 1 (`DEV-001`; `AC-041`, `AC-042`) from the plan's
-  **Verification Increments** and **Checkpoint: Increment 1**: assess
-  Developer's reorder of `src/pydelity/` and `scripts/`, reorder `tests/`, and
-  confirm both against `126f52f`, the commit before the reorder.
-- Source assessed: `0f4c949`
-  (`refactor: put each module's definitions in the agreed order`), whose
-  `git diff 126f52f 0f4c949 -- src scripts` (16 files, 667 insertions, 668
-  deletions) has SHA-256 `0f21ce5c770d636c…`, the same content as the plan's
-  checkpoint claim. `docs/` and `tests/` are unchanged from `126f52f` in that
-  commit.
-- Tests assessed: this assessment's reorder of 16 test modules, which the user
-  committed as `ac9e4cb` (with this report and `STATE.md`; `7bd7f90` changes
-  only this report). `git diff 0f4c949 7bd7f90 -- tests` (1705 insertions, 1706
-  deletions) has SHA-256 `60f9212d56eab4d4…`, the content assessed in E8 and E9.
-  `7bd7f90` is the head of draft pull request 11
-  (`https://github.com/IDinsight/pydelity/pull/11`), 0 commits behind `main`.
+  (staged on `4a6bec7`; `DEV-002`, `DEV-003`, **Checkpoint: Increment 2**),
+  `.standards/CONTEXT.md` (`0573e11`, `09045f457b2df4c1…`), user style
+  `.standards/user-styles/tester/tony.md` (`797def3`, `e64ef290173c7c32…`).
+  Scope, design, context and style are unchanged since Increment 1, so this is
+  an initial assessment of new outcomes (`VERIFY`). Current acceptance set:
+  `AC-001` to `AC-042`, none retired.
+- Assignment: Increment 2 (`DEV-002`, `DEV-003`; `AC-001` to `AC-006`, `AC-018`
+  to `AC-020`) from the plan's **Verification Increments** and **Checkpoint:
+  Increment 2**: the settings `verify`, `advanced.survey.verify`,
+  `advanced.extraction.verify` and `--verify`/`-vf` resolve as decision 1 says,
+  and page extraction runs with or without its verifier as decisions 2–4 and 9
+  say. The survey parts of `AC-001`, `AC-005` and `AC-006` are Increment 3's.
+- Source assessed: `4a6bec7` plus the staged, uncommitted changes to 15 files
+  under `src/`, `scripts/`, `examples/` and `docs/`
+  (`git diff --cached -- src scripts examples docs`, 263 insertions, 108
+  deletions, SHA-256 `f710dcdbc349c854…`), the content the plan's checkpoint
+  claims.
+- Tests assessed: this assessment's changes to 7 test modules, uncommitted
+  (`git diff -- tests`, 394 insertions, 87 deletions, SHA-256
+  `e3a5c176d5dd1e4b…`). Increment 1's tests reorder is in `4a6bec7`.
 - Environment: macOS 26.6.2 arm64, Python 3.13.9 (`.venv`, strict editable
   install), PyMuPDF 2.1, Pydantic 2.14.3, pytest 9.2.0 with pytest-randomly and
-  pytest-xdist, ruff 0.17.5, ty 0.0.105, interrogate 1.7.0. Python 3.14 is not
-  installed (`/opt/homebrew/bin` has 3.11–3.13; uv has no managed Pythons), so
-  the 3.14 evidence is CI's: ubuntu-latest, CPython 3.14.4 (E10).
-- Session: started as a Tester invocation with no Developer conversation in it.
-  The client cannot certify session freshness; this assessment is built from the
-  persisted records and the repository.
+  pytest-xdist, ruff 0.17.5, ty 0.0.105, interrogate 1.7.0, Prettier 3.10.1 with
+  Node 24.22.3 from `~/.cache/prek`. Python 3.14 is not installed locally; CI
+  runs it.
+- Session: the same Tester chat as Increment 1, with no Developer conversation
+  in it. The client cannot certify session freshness; this assessment is built
+  from the persisted records and the repository.
 - Project references loaded: `NONE` (`.standards/project-references/tester/`
-  does not exist).
+  does not exist). Shipped reference loaded:
+  `.claude/skills/tester/references/llm-api-testing.md` (the change calls
+  provider APIs; the stand-in in `tests/fixtures/mock_providers.py` is the
+  seam).
 
 ## Acceptance Evidence
 
-| AC / technical criterion                                                                                                                                                                                                                                                                         | Tests or checks                                                                                            | Disposition and evidence                                                                                                                                                     |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AC-041` / move only: same non-blank lines, top-level statements, class members, field and member order                                                                                                                                                                                          | `ordercheck.py compare 126f52f` on the 56 modules of `src/pydelity/` and `scripts/`; `comments.py 126f52f` | Verified: 56 files, 0 problems; no class had its methods reordered; every definition keeps the comment lines directly above it. See E2, E3.                                  |
-| `AC-041` / every module follows **Module order** except the listed departures                                                                                                                                                                                                                    | `ordercheck.py order`; `expected.py` (both constructions); `strict.py`                                     | Verified: departures in exactly the 14 modules the plan lists, each needed (strict order raises `NameError`) and no wider than needed. See E4, E5.                           |
-| `AC-041` / pytest, doctests, ruff check, ruff format --check, ty, interrogate as before, on Python 3.13                                                                                                                                                                                          | Existing suite and linters on `0f4c949` with `tests/` unchanged                                            | Verified on 3.13: 177 passed (random-order parallel and serial), same 177 test IDs; 27 doctests passed, 1 skipped, same 28 IDs; every linter as on `126f52f`. See E1, E6.    |
-| `AC-041` / the same on Python 3.14                                                                                                                                                                                                                                                               | CI "Test (Python 3.14)" on pull request 11; `ty` and `ruff` targeting 3.14                                 | Verified: CPython 3.14.4, 177 passed; doctests 27 passed, 1 skipped; the 3.14-target static results equal `126f52f`'s. See E10, E11.                                         |
-| `AC-041` / reference pages change only by constants order                                                                                                                                                                                                                                        | `generate_reference_docs.py` in a copy of `0f4c949`, then Prettier 3.10.1                                  | Verified: the 11 generated pages are identical to the committed ones. See E7.                                                                                                |
-| `AC-042` / move only, as for `AC-041`                                                                                                                                                                                                                                                            | `ordercheck.py compare 126f52f` and `comments.py` on the 32 modules of `tests/`                            | Verified: 32 files, 0 problems; only `MockProviders` had methods reordered; comments stay with their definitions; blank lines differ only where Ruff's import rule asks. E8. |
-| `AC-042` / every module follows **Module order** except the listed departures                                                                                                                                                                                                                    | `ordercheck.py order`; `expected.py`; `strict.py`                                                          | Verified: departures in 2 modules, listed below, each needed. See E8.                                                                                                        |
-| `AC-042` / the suite runs the same tests with the same results; linters as before, on Python 3.13                                                                                                                                                                                                | Existing suite and linters after the test reorder                                                          | Verified on 3.13: 177 passed (random-order parallel and serial), same 177 IDs; doctests unchanged; ruff, format, ty, interrogate as before. See E9.                          |
-| `AC-042` / the same on Python 3.14                                                                                                                                                                                                                                                               | As for `AC-041`, with the tests reorder in `7bd7f90`                                                       | Verified: the same CI run tested `7bd7f90`'s content. See E10, E11.                                                                                                          |
-| `AC-001`, `AC-002`, `AC-003`, `AC-004`, `AC-005`, `AC-006`, `AC-007`, `AC-008`, `AC-009`, `AC-010`, `AC-011`, `AC-012`, `AC-013`, `AC-014`, `AC-015`, `AC-016`, `AC-017`, `AC-018`, `AC-019`, `AC-020`, `AC-021`, `AC-022`, `AC-023`, `AC-024`, `AC-025`, `AC-028`, `AC-030`, `AC-033`, `AC-034` | Increments 2–4 and `DEV-011`                                                                               | `AWAITING_IMPLEMENTATION`: `DEV-002`–`DEV-011` are `PENDING`.                                                                                                                |
-| `AC-026`, `AC-027`, `AC-029`, `AC-031`                                                                                                                                                                                                                                                           | Tests written at Increments 2–4; CI, build and release checks at full verification                         | `AWAITING_IMPLEMENTATION`: they depend on `DEV-002`–`DEV-011`; Tester assesses them at the later increments and full verification.                                           |
-| `AC-032`, `AC-035`, `AC-036`, `AC-037`, `AC-038`                                                                                                                                                                                                                                                 | Documentation evidence                                                                                     | Pending a later role: Documenter, with documentation-record evidence for each AC.                                                                                            |
-| `AC-039`, `AC-040`                                                                                                                                                                                                                                                                               | The user's review of real runs                                                                             | Pending a later role: the user's accepted real runs on Anthropic and OpenAI, after the build.                                                                                |
+| AC / technical criterion                                                                                                                                                                                                                         | Tests or checks                                                                                                                                                                                                                                                                                                                                   | Disposition and evidence                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AC-001` / no setting: both properties false, no verifier request, no `verifier` ledger line (page extraction)                                                                                                                                   | `test_loading.py::test_each_step_s_verifier_follows_verify_unless_its_own_setting_is_set[default]`; `test_extraction.py::test_a_page_no_verifier_reviewed_keeps_its_extraction_and_lists_each_difference`; `test_cli.py::test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment`                                                         | Verified for page extraction: both properties false; default runs send extractor requests only and the ledger has no `verifier` line. E13–E15. The survey part is `AWAITING_IMPLEMENTATION` (Increment 3, `DEV-004`–`DEV-006`).                                                                                                               |
+| `AC-002` / `verify: true` in JSON or YAML, `--verify`/`-vf`, `verify=True` make both properties true                                                                                                                                             | `test_loading.py::test_verify_turns_on_both_steps_verifiers_from_a_file_or_a_keyword`; `test_cli.py::test_verify_adds_a_verifier_request_for_each_page_and_to_the_estimate[--verify]`, `[-vf]`                                                                                                                                                    | Verified: JSON file, YAML file and keyword give both properties true; both CLI forms turn page extraction's verifier on end to end. E13–E15. The survey reading `verify_survey` is `DEV-006`'s (Increment 3).                                                                                                                                 |
+| `AC-003` / an override sets its step either way, the other follows `verify`, `null` follows; file and nested keyword                                                                                                                             | `test_loading.py::test_each_step_s_verifier_follows_verify_unless_its_own_setting_is_set` rows `survey-on-in-file`, `both-off-file-and-keyword`, `extraction-on`; `test_extraction.py::test_turning_the_verifier_on_extracts_again_only_pages_it_has_not_reviewed`                                                                                | Verified: each step's override on while `verify` is off and off while it is on, in a file and by a nested keyword that keeps the file's other `advanced` settings. E13–E15.                                                                                                                                                                   |
+| `AC-004` / both example files hold the three settings at their defaults and load                                                                                                                                                                 | `test_loading.py::test_example_config_holds_every_setting_at_its_default[config.json]`, `[config.yaml]` (reused); inspection of both files                                                                                                                                                                                                        | Verified: both pass (key sets equal the models' fields, values equal the defaults, no `ConfigError`); the YAML comments say what each setting does, that `null` follows `verify` and that a verifier adds cost. E14, E19.                                                                                                                     |
+| `AC-005` / a step's `verifier` and its figures include the verifier exactly when it runs: CLI estimate, plan-time check, `estimate()`, `aestimate()` (page extraction)                                                                           | `test_budget.py::test_the_estimate_covers_page_extraction_and_its_verifier_only_when_it_runs`, `::test_the_check_before_spending_counts_the_verifier_only_when_it_runs`, `::test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing`; `test_api.py::test_async_estimate_gives_what_estimate_gives_and_raises_alike`; the CLI tests above | Verified for page extraction: `requests_max` 6 and 12 for 2 pages, 3 and 6 for 1, `verifier` false and true, higher expected and maximum cost with the verifier; the plan-time projection equals each estimate; reused steps say `false`; the CLI line names the verifier. E13–E15. The survey part is `AWAITING_IMPLEMENTATION` (`DEV-007`). |
+| `AC-006` / a page file with `verification: null` is not reused while the verifier is on, one with a verification is reused while it is off, no fingerprint includes the switch, changing only `advanced.extraction.verify` never runs the survey | `test_extraction.py::test_turning_the_verifier_on_extracts_again_only_pages_it_has_not_reviewed`; `::test_page_files_rerun_only_when_their_inputs_change`; `test_runner.py::test_a_rerun_with_unchanged_inputs_reuses_everything`                                                                                                                 | Verified for page extraction: turning it on reruns both pages with a log line each and no survey request; off reuses the reviewed files; on again sends nothing; fingerprints equal; unverified files are reused while off. E13–E15. The survey part is `AWAITING_IMPLEMENTATION` (`DEV-006`).                                                |
+| `AC-018` / with `verify_extraction` off, extractor requests only, the extractor's answer kept                                                                                                                                                    | `test_extraction.py::test_a_page_no_verifier_reviewed_keeps_its_extraction_and_lists_each_difference`; the default-run tests in `test_extraction.py`, `test_runner.py`, `test_cli.py`, `test_html.py`                                                                                                                                             | Verified: 3 extractor attempts with their retries, the last answer kept, no verifier request (the stand-in has no verifier answer, so one would fail the run). E13–E15.                                                                                                                                                                       |
+| `AC-019` / no verifier: every failing check, `text_dropped` and `text_added` included, is a review issue; with a verifier the rules are unchanged                                                                                                | Same no-verifier test; `test_extraction.py::test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues[passed]`, `[correction_kept]`, `[correction_rejected]` with the verifier on                                                                                                                                                        | Verified: both text checks are issues quoting the dropped and the added line; with the verifier on, the three verdict outcomes list what they listed before. E13–E15.                                                                                                                                                                         |
+| `AC-020` / `verification` null exactly when no verifier ran; the report and the log line then say so                                                                                                                                             | Same no-verifier test (page file, log line); `test_html.py::test_a_page_no_verifier_reviewed_says_so_in_the_report`; `::test_report_draws_extracted_items_numbered_with_links_from_their_issues` with the verifier on                                                                                                                             | Verified: `"verification": null` in the file, `no verifier;` in the page's log line, `Verifier` / `no verifier ran` on both pages' cards; with the verifier on, the file holds the verdict and the card its outcome. E13–E15.                                                                                                                 |
+| `AC-041` / move only, **Module order** with the listed departures, checks as before (Python 3.13 and 3.14)                                                                                                                                       | Increment 1 evidence; `ordercheck.py order` on the 17 modules this increment changed                                                                                                                                                                                                                                                              | Verified (Increment 1, E1–E7, E10–E11). The changed modules still follow **Module order** with only the listed departures. E18.                                                                                                                                                                                                               |
+| `AC-042` / the same for `tests/`                                                                                                                                                                                                                 | Increment 1 evidence; `ordercheck.py order` on the 7 test modules changed here                                                                                                                                                                                                                                                                    | Verified (Increment 1, E8–E11). New tests sit in their alphabetical places; no new departure. E18.                                                                                                                                                                                                                                            |
+| `AC-007`, `AC-008`, `AC-009`, `AC-010`, `AC-011`, `AC-012`, `AC-013`, `AC-014`, `AC-015`, `AC-016`, `AC-017`, `AC-021`, `AC-022`, `AC-023`, `AC-024`, `AC-025`, `AC-028`, `AC-030`, `AC-033`, `AC-034`                                           | Increments 3–4 and `DEV-011`                                                                                                                                                                                                                                                                                                                      | `AWAITING_IMPLEMENTATION`: `DEV-004`–`DEV-011` are `PENDING`.                                                                                                                                                                                                                                                                                 |
+| `AC-026`, `AC-027`, `AC-029`, `AC-031`                                                                                                                                                                                                           | Tests written at each increment; CI, build and release checks at full verification                                                                                                                                                                                                                                                                | `AWAITING_IMPLEMENTATION`: the tests for items 2 and 4 cover page extraction so far (above); the survey's verifier and the fixes come with `DEV-004`–`DEV-011`.                                                                                                                                                                               |
+| `AC-032`, `AC-035`, `AC-036`, `AC-037`, `AC-038`                                                                                                                                                                                                 | Documentation evidence                                                                                                                                                                                                                                                                                                                            | Pending a later role: Documenter, with documentation-record evidence for each AC.                                                                                                                                                                                                                                                             |
+| `AC-039`, `AC-040`                                                                                                                                                                                                                               | The user's review of real runs                                                                                                                                                                                                                                                                                                                    | Pending a later role: the user's accepted real runs on Anthropic and OpenAI, after the build.                                                                                                                                                                                                                                                 |
 
 ### Test module order departures
 
@@ -83,152 +90,154 @@ above the definition that reads it, as in the package's departures.
 
 ## Increment Assessments
 
-| Increment | Outcome and acceptance scope                                                                                     | Assessed inputs / evidence                                                                         | Disposition |
-| --------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------- |
-| 1         | `src/pydelity/`, `scripts/` and `tests/` follow **Module order** with the listed departures (`AC-041`, `AC-042`) | `0f4c949`; tests diff `60f9212d56eab4d4…` (committed in `ac9e4cb`); E1–E9 on 3.13, E10–E11 on 3.14 | VERIFIED    |
+| Increment | Outcome and acceptance scope                                                                                                                             | Assessed inputs / evidence                                                                                      | Disposition |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------- |
+| 1         | `src/pydelity/`, `scripts/` and `tests/` follow **Module order** with the listed departures (`AC-041`, `AC-042`)                                         | `0f4c949`; tests diff `60f9212d56eab4d4…` (committed in `ac9e4cb`); E1–E9 on 3.13, E10–E11 on 3.14              | VERIFIED    |
+| 2         | Verifier settings and `--verify`/`-vf`; page extraction with or without its verifier (`AC-001` to `AC-006` and `AC-018` to `AC-020` for page extraction) | `4a6bec7` + staged diff `f710dcdbc349c854…`; tests diff `e3a5c176d5dd1e4b…`; E12–E19; smoke script defect below | BLOCKED     |
 
 ## Scenario Budget
 
-| Source file                                                | Reused coverage                                                       | Active-change allocations | User additions |
-| ---------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------- | -------------- |
-| The 16 reordered modules of `src/pydelity/` and `scripts/` | The existing suite (177 tests, 28 doctest items) as regression checks | 0                         | NONE           |
+| Source file                                                                                 | Reused coverage                                                                                                                                                                                                                                                                                                                                  | Active-change allocations                                                                                                                                                                                                                                                                                                                             | User additions |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| The 16 reordered modules of `src/pydelity/` and `scripts/` (Increment 1)                    | The existing suite as regression checks                                                                                                                                                                                                                                                                                                          | 0                                                                                                                                                                                                                                                                                                                                                     | NONE           |
+| `src/pydelity/config/schemas.py`                                                            | Example-file completeness test (2 rows)                                                                                                                                                                                                                                                                                                          | 5 of 5: the 4 rows of `test_each_step_s_verifier_follows_verify_unless_its_own_setting_is_set`; `test_verify_turns_on_both_steps_verifiers_from_a_file_or_a_keyword`                                                                                                                                                                                  | NONE           |
+| `src/pydelity/cli.py`                                                                       | `test_pages_and_no_pause_extract_only_those_pages_in_one_run` (updated to the default)                                                                                                                                                                                                                                                           | 3: `test_verify_adds_a_verifier_request_for_each_page_and_to_the_estimate` (2 rows); `test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment` (expanded: no verifier request or ledger line, estimate count)                                                                                                                                 | NONE           |
+| `src/pydelity/pipeline/runner.py`                                                           | `test_a_rerun_with_unchanged_inputs_reuses_everything` (updated); `test_run_json_records_each_step_its_pages_cost_and_review_issues` (verifier on)                                                                                                                                                                                               | 4: the 3 CLI scenarios above (estimate lines, the switch reaching page extraction); `test_the_check_before_spending_counts_the_verifier_only_when_it_runs`                                                                                                                                                                                            | NONE           |
+| `src/pydelity/costs/budget.py`                                                              | —                                                                                                                                                                                                                                                                                                                                                | 5 of 5: `test_the_estimate_covers_page_extraction_and_its_verifier_only_when_it_runs` (verifier off, verifier on); `test_the_check_before_spending_counts_the_verifier_only_when_it_runs`; `test_async_estimate_gives_what_estimate_gives_and_raises_alike` (expanded); `test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing` (expanded) | NONE           |
+| `src/pydelity/costs/schemas.py`                                                             | —                                                                                                                                                                                                                                                                                                                                                | 3: the estimate test's two partitions; the reused-step expansion                                                                                                                                                                                                                                                                                      | NONE           |
+| `src/pydelity/extracting/extraction.py`                                                     | The 3 verdict rows and both provider rows of the request test (verifier on); `test_page_files_rerun_only_when_their_inputs_change`, `test_a_failed_page_stops_the_run_and_the_next_run_extracts_only_what_is_missing`, `test_a_page_file_naming_a_missing_crop_is_extracted_again` (updated); 4 tests whose unused verifier answers were removed | 3: `test_a_page_no_verifier_reviewed_keeps_its_extraction_and_lists_each_difference`; `test_turning_the_verifier_on_extracts_again_only_pages_it_has_not_reviewed` (turning on redoes unreviewed pages; turning off keeps reviewed ones)                                                                                                              | NONE           |
+| `src/pydelity/extracting/schemas.py`                                                        | As for `extraction.py`                                                                                                                                                                                                                                                                                                                           | 2: the same no-verifier test (`verification: null` written); the reuse test (read back and reused)                                                                                                                                                                                                                                                    | NONE           |
+| `src/pydelity/extracting/llm.py`                                                            | As for `extraction.py`                                                                                                                                                                                                                                                                                                                           | 2: the no-verifier test; the reuse test's turned-on run                                                                                                                                                                                                                                                                                               | NONE           |
+| `src/pydelity/report/html.py`                                                               | `test_report_draws_extracted_items_numbered_with_links_from_their_issues` (verifier on)                                                                                                                                                                                                                                                          | 1: `test_a_page_no_verifier_reviewed_says_so_in_the_report`                                                                                                                                                                                                                                                                                           | NONE           |
+| `scripts/smoke_installed_wheel.py`, `examples/config.json`, `examples/config.yaml`, `docs/` | Example-file completeness test; smoke replay and page regeneration in the scratchpad (E16, E17)                                                                                                                                                                                                                                                  | 0                                                                                                                                                                                                                                                                                                                                                     | NONE           |
 
-The reorder adds no behavior, so no scenario is added. The tests reorder moves
-existing tests only and creates or removes none (same 177 IDs). The scratch
-tools below are not tests and are not in the repository.
+A test updated only to the new default, or run with the verifier on to keep its
+existing scenario, uses that scenario's existing allocation. An update that
+asserts new behavior counts as an allocation. `config/schemas.py` and
+`costs/budget.py` are at the ceiling of five; their survey parts in Increment 3
+(`DEV-006`, `DEV-007`) need new allowance only if they add scenarios charged to
+these files. The suite has 188 test IDs: the 177 of Increment 1, less the
+replaced extraction estimate test, plus 12 new.
 
 ## Execution Evidence
 
 Working directory: repo root unless noted. Tools: `.venv/bin`. Scratch tools and
-logs live in this session's scratchpad (`tools/ordercheck.py`,
-`tools/expected.py`, `tools/strict.py`, `tools/comments.py`, `tools/reorder.py`,
-`logs/`), not in the repo. 2026-11-21.
+logs live in this session's scratchpad (`tools/`, `logs/`), not in the repo.
+2026-11-21.
 
-- **E1 — Baseline on `126f52f`.** `git archive 126f52f` extracted to the
-  scratchpad; in that copy with `PYTHONPATH=<copy>/src`:
-  `python -m pytest -q --numprocesses auto -p no:cacheprovider` exit 1, 176
-  passed, 1 failed, 65 warnings. The one failure is
-  `test_package_loads_from_installed_tree_not_src`, which fails by design when
-  `src` is on the path; it passes on the real checkout (E6), and its source is
-  unchanged by the reorder. `--collect-only -p no:randomly`: 177 test IDs (saved
-  sorted). `pytest -q --doctest-modules src`: 27 passed, 1 skipped, 28 IDs.
-  `ruff check scripts src tests` "All checks passed!";
-  `ruff format --check scripts src tests` "89 files already formatted";
-  `ty check scripts src tests` "All checks passed!";
-  `interrogate scripts src tests` 100.0%. All exit 0.
-- **E2 — Move-only comparison, package and scripts.**
-  `ordercheck.py compare 126f52f <the 56 .py files of src/pydelity and scripts>`
-  exit 0: for each file, the same multiset of non-blank lines, the same multiset
-  of top-level statements (`ast.dump`, with methods compared as a multiset), the
-  same classes and members, and the same order of every non-method member
-  (fields, enum members, validators, docstrings). Raw `ast.dump` multisets are
-  also equal (no method moved). Negative controls on mutated copies of
-  `costs/schemas.py` (swapped fields, changed text, dropped line) are each
-  reported.
-- **E3 — Comments stay attached.** `comments.py 126f52f` on all 88 modules of
-  `src/pydelity/`, `scripts/` and `tests/`: 0 definitions whose directly-above
-  comment lines changed. A negative control with swapped comments is reported.
-- **E4 — Order check.** `ordercheck.py order` on `src/pydelity/` and `scripts/`
-  reports departures in exactly the 14 modules under **Order departures** in the
-  plan, with the same items. Positive control: on the `126f52f` copy it flags 22
-  modules, which include all 16 the reorder changed.
-- **E5 — Departures are needed and no wider than needed.** `strict.py` executes
-  each departure module with its blocks in strict **Module order**: all 12 of
-  `cli.py`, `config/schemas.py`, `costs/schemas.py`, `errors.py`,
-  `extracting/rendering.py`, `extracting/schemas.py`,
-  `extracting/validators.py`, `pipeline/runner.py`, `pipeline/schemas.py`,
-  `providers/profiles.py`, `surveying/schemas.py` and `surveying/validators.py`
-  raise `NameError` for the dependency the plan names; `surveying/probe.py` (no
-  departure) imports. `expected.py` derives the order from **Module order** plus
-  eager dependencies: with dependencies moved above their readers it matches
-  every schema module, `cli.py`, `rendering.py` and `runner.py`; with a reading
-  constant moved below its dependency it matches `extracting/validators.py`,
-  `surveying/validators.py` and `providers/profiles.py`. The remaining
-  departures are runtime statements: `__init__.py`'s `_logger.disable` (last)
-  and `smoke_installed_wheel.py`'s `REPO_ROOT` and `sys.path.insert` before the
-  `tests.fixtures` import.
-- **E6 — Checks on `0f4c949`, tests unchanged.**
-  `pytest -q --numprocesses auto -p no:cacheprovider` exit 0, 177 passed, 65
-  warnings; `pytest -q -p no:cacheprovider -p no:randomly` exit 0, 177 passed;
-  collected IDs equal to E1's; doctests 27 passed, 1 skipped, IDs equal; ruff,
-  format (89 files), ty and interrogate (100.0%) as in E1. `pydelity --help`
-  exit 0, `scripts/check_env_template.py` exit 0,
-  `scripts/smoke_installed_wheel.py --help` exit 0.
-- **E7 — Reference pages.** In a `git archive 0f4c949` copy:
-  `python scripts/generate_reference_docs.py` (11 pages), then Prettier 3.10.1
-  from `~/.cache/prek` (`prettier --write` on the pages); `diff -r` with the
-  committed `docs/src/content/docs/reference/`: identical `.md` files. (The
-  checkout also holds an empty, untracked `.claude/.cc-writes` folder there from
-  the agent client; not part of the generator.)
-- **E8 — Tests reorder.** `tools/reorder.py` splits each test module into blocks
-  (decorators, comment lines directly above, attribute docstrings, indented
-  trailing comments), refuses any non-blank line outside a block, sorts by
-  **Module order** with the dependency rule above, sorts methods in classes
-  whose methods follow their other members, and keeps the
-  `if __name__ == "__main__":` block last. It changed 16 modules; the other 16
-  already followed the rule and were left byte-identical. Then
-  `ruff format tests` (no change) and
-  `ruff check --fix --select I001 tests/pydelity/extracting/test_validators.py`,
-  which removed one blank line after the imports now that a constant follows
-  them. Afterwards: `ordercheck.py compare 126f52f` on the 32 test modules exit
-  0 (only `tests/fixtures/mock_providers.py` reordered methods, in
-  `MockProviders`); blank-line counts per file equal to `126f52f` except that
-  one line; `ordercheck.py order` reports only the departures listed above;
-  `strict.py` raises `NameError` for `mock_providers.py` (`Provider`) and
-  `test_loading.py` (`_REPO_ROOT`), and `test_api.py` (no departure) imports.
-  The only autouse fixture is `_no_provider_access` in `tests/conftest.py`, so
-  fixture setup order cannot change.
-- **E9 — Checks after the tests reorder.**
-  `pytest -q --numprocesses auto -p no:cacheprovider` exit 0, 177 passed, 65
-  warnings (as in E6); `pytest -q -p no:cacheprovider -p no:randomly` exit 0,
-  177 passed; collected 177 IDs equal to E1's; doctests 27 passed, 1 skipped,
-  IDs equal; `ruff check` "All checks passed!", `ruff format --check` "89 files
-  already formatted", `ty check` "All checks passed!", `interrogate` 100.0%.
-- **E10 — CI on pull request 11.** `gh pr checks 11 --repo IDinsight/pydelity`
-  and `gh run view --job <id> --log` (read-only `gh` calls run outside the
-  sandbox, whose proxy fails `gh`'s certificate check). Run `44907613193`, event
-  `pull_request`, head `7bd7f90`, checked out as merge commit `0b17fdd` of
-  `7bd7f90` into `c7582e7`; the branch is 0 commits behind `main`
-  (`gh api .../compare/main...7bd7f90`: ahead 57, behind 0), so the merge holds
-  `7bd7f90`'s content. All checks pass: "Test (Python 3.14)" job `136856437295`
-  ("Using CPython 3.14.4"; tests "177 passed"; doctests "27 passed, 1 skipped");
-  "Lint and test (Python 3.13)" job `136856437680` (CPython 3.13.18; every lint
-  recipe, including "STANDARDS check passed.", ruff "All checks passed!", ty
-  "All checks passed!", interrogate 100.0%; tests "177 passed"; doctests "27
-  passed, 1 skipped"); "Wheel install" on macos-latest, ubuntu-latest and
-  windows-latest; "Build the docs"; "TruffleHog secret scan"; "Lint and test".
-  "Publish to GitHub Pages" is skipped, as for pull requests.
-- **E11 — Static checks targeting 3.14.** Ruff and ty do not run on the
-  interpreter, so the project's configured runs (target `py313`) already give
-  E9's results under 3.14. As an extra check, on `7bd7f90` and on the `126f52f`
-  copy: `ty check --python-version 3.14 scripts src tests` "All checks passed!"
-  on both; `ruff check --target-version py314` reports the same 11 `UP037`
-  (quoted annotations that 3.13 needs) on both;
-  `ruff format --check --target-version py314` "2 files would be reformatted" on
-  both. The reorder changes none of these results. Interrogate counts
-  docstrings, which the reorder does not change (E2).
-- **Not run locally.** Python 3.14 (CI ran it, E10). The `just` recipes through
-  `uv` (uv cannot write its cache in the sandbox; the `.venv/bin` tools are the
-  pinned versions the recipes run, and CI ran the recipes, E10). The wheel smoke
-  test (CI's wheel-install jobs ran it, E10).
-- **Developer evidence.** The plan's `DEV-001` self-checks agree with E1–E7;
-  they were not used as evidence.
+- **E1–E11 — Increment 1.** As recorded for Increment 1: the baseline on
+  `126f52f` (E1); move-only comparison of the package, scripts and tests (E2,
+  E3, E8); **Module order** and departures (E4, E5, E8); checks on `0f4c949` and
+  after the tests reorder (E6, E9); reference pages (E7); CI run `44907613193`
+  on pull request 11 with Python 3.14.4 and every other check passing (E10);
+  static checks targeting 3.14 (E11). They assess `0f4c949` and `7bd7f90` and
+  stay valid for `AC-041` and `AC-042`; the source changes since then add
+  behavior and are assessed below.
+- **E12 — The checkpoint as handed over.** `git diff --cached` SHA-256
+  `f710dcdbc349c854…`, equal to the plan's claim. With the tests unchanged:
+  `pytest -q --numprocesses auto -p no:cacheprovider` 14 failed, 163 passed, the
+  14 tests the plan lists under `DEV-003`; `ty check scripts src tests` 6
+  diagnostics, all in `tests/pydelity/extracting/test_extraction.py`. Each
+  failure expected a verifier on every page by default.
+- **E13 — Tests changed.** In `test_extraction.py`: the default-run tests expect
+  extractor requests only and queue no verifier answer, so a verifier request
+  would fail the run; the request test and the verdict test run with
+  `verify=True`; two new tests (no verifier; turning the verifier on and off).
+  In `test_runner.py`: the rerun test expects 3 model requests; the `run.json`
+  test runs with the verifier on. In `test_html.py`: the item test runs with the
+  verifier on; one new test for `no verifier ran`. In `test_budget.py`: the
+  extraction estimate test replaced by one covering the verifier off and on; one
+  new plan-time test; the reuse test runs with the verifier on and checks
+  `verifier: false` on reused steps. In `test_api.py`: `aestimate` compared with
+  `estimate` with the verifier on. In `test_cli.py`: the two default runs expect
+  no verifier request (summary cost `$0.10`, extraction `$0.07`, which the
+  ledger's three extractor lines of `$0.024` give); one new test with two rows
+  for `--verify` and `-vf`. In `test_loading.py`: two new tests, one with four
+  rows.
+- **E14 — Suite and linters on the assessed content.**
+  `pytest -q --numprocesses auto -p no:cacheprovider` exit 0, 188 passed, 65
+  warnings; `pytest -q -p no:cacheprovider -p no:randomly` exit 0, 188 passed
+  (`logs/inc2_pytest_parallel.log`, `logs/inc2_pytest_serial.log`); 188 test IDs
+  (`logs/inc2_test_ids.txt`); doctests 27 passed, 1 skipped; `ruff check` "All
+  checks passed!"; `ruff format --check` "89 files already formatted";
+  `ty check scripts src tests` "All checks passed!"; `interrogate` 100.0%.
+- **E15 — The tests catch the defects they target.** `tools/mutate.py` copies
+  `src/`, `tests/`, `examples/` and `pyproject.toml` to the scratchpad, applies
+  one change to the copy's source, and runs the named tests there with
+  `PYTHONPATH` set to the copy (`logs/inc2_mutations.log`, exit 0). All 13
+  changes are caught: an override read with `or`, the survey reading page
+  extraction's override (`test_each_step_s_verifier...`); reuse ignoring the
+  verification (`test_turning_the_verifier_on...`); reuse always needing one
+  (`test_page_files_rerun...`, `test_a_rerun_with_unchanged_inputs...`); text
+  checks dropped with no verifier, the verifier always running, the log line
+  saying `verifier passed` (`test_a_page_no_verifier_reviewed...`); the estimate
+  always pricing the verifier (both estimate tests); a reused step claiming
+  `verifier` (`test_estimate_writes_nothing...`); the report saying `passed`
+  (`test_a_page_no_verifier_reviewed_says_so...`); the CLI dropping `--verify`,
+  the estimate line omitting the verifier, the runner ignoring the switch
+  (`test_verify_adds...`, `test_turning_the_verifier_on...`). The unmutated copy
+  passes the 14 targeted tests.
+- **E16 — Smoke script's expected requests.** `tools/smoke_requests.py` imports
+  `scripts/smoke_installed_wheel.py` and runs its API run in-process with the
+  editable install, for both providers, against the stand-in with the script's
+  answer files: each run completes and sends exactly `EXPECTED_REQUESTS` (one
+  upload, then the survey and one extractor request per page). The check's name
+  at line 302 still says "one upload and 5 model requests" (see **Open Findings
+  and Dependencies**). The installed-wheel run itself is not replayed.
+- **E17 — Reference pages.** `git checkout-index -a` into the scratchpad (the
+  staged content), `python scripts/generate_reference_docs.py` there with
+  `PYTHONPATH` set to the copy (11 pages), Prettier 3.10.1 on the pages, then
+  `diff -r` with the repo's `docs/src/content/docs/reference/`: identical `.md`
+  files (the repo also has the client's empty, untracked `.claude` folder
+  there).
+- **E18 — Module order of changed modules.** `tools/ordercheck.py order` on the
+  10 changed modules of `src/` and `scripts/` and the 7 changed test modules:
+  only the departures listed under `DEV-001` and in this report.
+- **E19 — Inspection.** The `Config.verify`, `SurveyConfig.verify` and
+  `ExtractionConfig.verify` docstrings, the `--verify`/`-vf` help text, the
+  example files (values, positions after `pdf` and last in each section, YAML
+  comments), `_log_estimate`'s `with its verifier`, `_verifier_outcome` and
+  `_verifier_text` match **Settings**, **Example config files**, **CLI**, **Page
+  extraction without a verifier** and **HTML report**.
+- **Not run locally.** The wheel smoke test (it needs `uv build` and PyPI
+  downloads; CI's wheel-install jobs run it, and `AC-028` is assessed at full
+  verification). Python 3.14 (CI). The `just` recipes through `uv` (uv cannot
+  write its cache in the sandbox; the `.venv/bin` tools are the versions they
+  run).
+- **Developer evidence.** The plan's `DEV-002` and `DEV-003` self-checks agree
+  with E12–E19; they were not used as evidence.
 
 ## Open Findings and Dependencies
 
-- None for Increment 1. No defect, unrun check or blocking question remains.
+- **Smoke script check name.** `scripts/smoke_installed_wheel.py` line 302 names
+  the request check "one upload and 5 model requests, all to the stand-in",
+  while `EXPECTED_REQUESTS` (line 96), changed by `DEV-003`, is one upload and 3
+  model requests. The check itself is right (E16); its printed name, which CI's
+  wheel jobs show, is wrong. Reproducer:
+  `grep -n "5 model requests" scripts/smoke_installed_wheel.py`. Owner:
+  Developer (`IMPLEMENTATION`). Required correction: the check's name says what
+  it checks. It blocks the Increment 2 checkpoint, not its acceptance evidence.
 - Later-role dependencies, unchanged: `AC-032`, `AC-035`, `AC-036`, `AC-037` and
   `AC-038` (Documenter, documentation-record evidence); `AC-039` and `AC-040`
   (the user's accepted real runs).
 
 ## Resume or Handoff
 
-Increment 1 is `VERIFIED` (E1–E11) and returned to Developer with a
-`CHECKPOINT`. The report stays `IN_PROGRESS` until full verification.
+Increment 1 is `VERIFIED`. Increment 2's acceptance evidence is complete for
+page extraction (E12–E19), and the increment is `BLOCKED` on the smoke script
+defect above, routed to Developer with a `FAILURE` handoff (recovery frame 1).
+The report stays `IN_PROGRESS`.
 
-Next Tester action: assess Increment 2 (`DEV-002`, `DEV-003`; `AC-001` to
-`AC-006`, `AC-018` to `AC-020`) when Developer hands it over, with `REVERIFY` if
-the inputs above change. Tests of replaced contracts are expected to fail at
-that checkpoint until Tester updates them, as the plan notes. Remaining
-acceptance work: `AC-001` to `AC-040` with Increments 2–4, `DEV-011` and full
-verification.
+### Suspended Assignment 1
+
+`Recovery Frame`: `1` `Recovery Reason`:
+`The wheel smoke script names its request check "one upload and 5 model requests" but now expects one upload and 3 model requests (scripts/smoke_installed_wheel.py line 302).`
+`Purpose`: `INCREMENT` `Target`: `Increment 2` `Assessed Inputs`:
+`4a6bec7 plus staged diff f710dcdbc349c854; tests diff e3a5c176d5dd1e4b`
+`Next Action`:
+`Check that the source diff changed only the smoke script's check name, replay E16 with the corrected script, rerun the suite and linters, then mark Increment 2 VERIFIED and return it to Developer with a CHECKPOINT.`
+
+Remaining acceptance work after Increment 2: the survey parts of `AC-001`,
+`AC-005` and `AC-006`, and `AC-007` to `AC-017` (Increment 3); `AC-021` to
+`AC-025` (Increment 4); `AC-026` to `AC-031`, `AC-033`, `AC-034` with `DEV-011`
+and full verification.

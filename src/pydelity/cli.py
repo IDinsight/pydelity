@@ -259,6 +259,15 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
             show_default=False,
         ),
     ] = None,
+    verify: Annotated[
+        bool | None,
+        typer.Option(
+            "--verify",
+            "-vf",
+            help="Have a verifier review each step's answer, at extra cost.",
+            show_default=False,
+        ),
+    ] = None,
     yes: Annotated[
         bool,
         typer.Option(
@@ -310,6 +319,8 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
         Whether to redo steps whose outputs could be reused.
     no_pause
         Whether to run every step without stopping after the survey.
+    verify
+        Whether a verifier reviews each step's answer.
     yes
         Whether to go ahead without asking.
     verbose
@@ -338,6 +349,7 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
         "overwrite": overwrite,
         "pages": pages,
         "pause": False if no_pause else None,
+        "verify": verify,
     }
     settings = {name: value for name, value in given.items() if value is not None}
     try:

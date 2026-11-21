@@ -196,6 +196,32 @@ def _parse(path: Path) -> _Links:
     return parser
 
 
+def test_a_page_no_verifier_reviewed_says_so_in_the_report(
+    canned_answers: Callable[[str], dict[str, object]],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+) -> None:
+    """With the verifier off, each page's details say that no verifier ran."""
+
+    answers = canned_answers("irs_form_1040a_1965_scan.pdf")
+    page_answers = answers["page_answers"]
+    assert isinstance(page_answers, dict)
+    mock_providers(
+        answers=answers["answers"],
+        page_answers={
+            index: {"extractor": by_agent["extractor"]}
+            for index, by_agent in page_answers.items()
+        },
+    )
+
+    pydelity.run(
+        pdf_path("irs_form_1040a_1965_scan.pdf"), output_dir="out", pause=False
+    )
+
+    html = Path("out/report.html").read_text(encoding="utf-8")
+    assert html.count("<dt>Verifier</dt><dd>no verifier ran</dd>") == 2
+
+
 def test_item_boxes_take_only_the_box_styles_and_the_item_list_keeps_its_own(
     canned_answers: Callable[[str], dict[str, object]],
     mock_providers: Callable[..., MockProviders],
@@ -287,7 +313,8 @@ def test_report_draws_extracted_items_numbered_with_links_from_their_issues(
     """An extracted page shows its items' numbered boxes, containers and item list.
 
     Each box links to the item's entry, which shows its content and, for a figure,
-    the crop. A review issue about an item marks its box and links to it.
+    the crop. A review issue about an item, here the verifier's, marks its box and
+    links to it, and the page's details give the verifier's outcome.
     """
 
     def item(**fields: object) -> dict[str, object]:
@@ -353,6 +380,7 @@ def test_report_draws_extracted_items_numbered_with_links_from_their_issues(
         output_dir="out",
         pages="1",
         pause=False,
+        verify=True,
     )
 
     report = Path("out/report.html")

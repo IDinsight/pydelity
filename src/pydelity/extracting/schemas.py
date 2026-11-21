@@ -566,8 +566,9 @@ class PageFile(_Output):
     issues: list[ReviewIssue]
     """The page's review issues: checks still failing on the kept answer, content no
     label fits, and verifier problems that were not corrected. Text differences
-    from the stored text are listed only when the page keeps the extraction and the
-    verifier did not pass it. The ``checks`` list keeps them either way."""
+    from the stored text are listed unless the verifier passed the page or its
+    correction was kept, so on a page no verifier reviewed every one is listed. The
+    ``checks`` list keeps them either way."""
 
     items: list[Item]
     """The page's items, in reading order."""
@@ -591,8 +592,8 @@ class PageFile(_Output):
     """Whether the items' text was compared with the page's text layer, and if not,
     why."""
 
-    verification: PageVerification
-    """The verifier's review."""
+    verification: PageVerification | None
+    """The verifier's review; ``None`` when no verifier reviewed the page."""
 
     width_pt: float
     """The displayed page's width in points."""

@@ -218,7 +218,7 @@ def _int_as_page(value: object) -> object:
 class ExtractionConfig(BaseModel):
     """Settings for page extraction.
 
-    They apply to the extraction model and to the verifier model alike.
+    They apply to page extraction's requests and to its verifier's requests alike.
     """
 
     model_config = ConfigDict(extra="forbid", use_attribute_docstrings=True)
@@ -231,11 +231,11 @@ class ExtractionConfig(BaseModel):
     """How many pages are extracted at the same time."""
 
     effort: Literal["low", "medium", "high"] = "high"
-    """How hard the models think before answering."""
+    """How hard the model thinks before answering."""
 
     instructions: Annotated[str, AfterValidator(_blank_as_unset)] | None = None
     """What is particular, different or nuanced about this PDF, in your own words, for
-    page extraction's models. Blank text counts as unset."""
+    page extraction's model and its verifier. Blank text counts as unset."""
 
     max_output_tokens: Annotated[int, Field(gt=0)] = 32_000
     """The most tokens one model answer may contain, thinking included."""
@@ -246,6 +246,9 @@ class ExtractionConfig(BaseModel):
 
     request_timeout_seconds: Annotated[float, Field(gt=0)] = 600
     """How long to wait for one model request before it counts as failed."""
+
+    verify: bool | None = None
+    """Whether a verifier reviews each page's extraction; ``verify`` if unset."""
 
 
 class ModelPrices(BaseModel):
@@ -270,7 +273,10 @@ class ModelPrices(BaseModel):
 
 
 class SurveyConfig(BaseModel):
-    """Settings for the survey step."""
+    """Settings for the survey step.
+
+    They apply to the survey's requests and to its verifier's requests alike.
+    """
 
     model_config = ConfigDict(extra="forbid", use_attribute_docstrings=True)
 
@@ -282,13 +288,16 @@ class SurveyConfig(BaseModel):
 
     instructions: Annotated[str, AfterValidator(_blank_as_unset)] | None = None
     """What is particular, different or nuanced about this PDF, in your own words, for
-    the survey's model. Blank text counts as unset."""
+    the survey's model and its verifier. Blank text counts as unset."""
 
     max_output_tokens: Annotated[int, Field(gt=0)] = 32_000
     """The most tokens one model answer may contain, thinking included."""
 
     request_timeout_seconds: Annotated[float, Field(gt=0)] = 900
     """How long to wait for one model request before it counts as failed."""
+
+    verify: bool | None = None
+    """Whether a verifier reviews the survey's answer; ``verify`` if unset."""
 
 
 class UploadsConfig(BaseModel):
@@ -373,6 +382,13 @@ class Config(BaseModel):
     pdf: Annotated[Path, AfterValidator(_check_pdf)]
     """The PDF to process."""
 
+    verify: bool = False
+    """Whether a verifier reviews each step's answer.
+
+    The verifier is a second request to the step's model, which checks the answer
+    against the PDF and may correct it. Each verifier request adds cost.
+    """
+
     @property
     def extraction_model(self) -> ModelChoice:
         """The page extraction model.
@@ -399,6 +415,26 @@ class Config(BaseModel):
         """The survey model: ``model``, else the survey's default."""
 
         return parse_model(self.model or DEFAULT_SURVEY_MODEL)
+
+    @property
+    def verify_extraction(self) -> bool:
+        """Whether page extraction's verifier runs.
+
+        It is ``advanced.extraction.verify`` when set, else ``verify``.
+        """
+
+        override = self.advanced.extraction.verify
+        return self.verify if override is None else override
+
+    @property
+    def verify_survey(self) -> bool:
+        """Whether the survey's verifier runs.
+
+        It is ``advanced.survey.verify`` when set, else ``verify``.
+        """
+
+        override = self.advanced.survey.verify
+        return self.verify if override is None else override
 
 
 class ProviderEnv(BaseSettings):

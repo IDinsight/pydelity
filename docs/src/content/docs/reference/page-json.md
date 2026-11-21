@@ -32,8 +32,9 @@ The contents of `pages/<NNNN>.json`: one page's items and their checks.
 - `issues` (list of objects ([`issues[]`](#issues)); required): The page's
   review issues: checks still failing on the kept answer, content no label fits,
   and verifier problems that were not corrected. Text differences from the
-  stored text are listed only when the page keeps the extraction and the
-  verifier did not pass it. The `checks` list keeps them either way.
+  stored text are listed unless the verifier passed the page or its correction
+  was kept, so on a page no verifier reviewed every one is listed. The `checks`
+  list keeps them either way.
 - `items` (list of objects ([`items[]`](#items)); required): The page's items,
   in reading order.
 - `page_index` (integer; required): The page (0-based).
@@ -48,8 +49,8 @@ The contents of `pages/<NNNN>.json`: one page's items and their checks.
 - `text_comparison` (one of `compared`, `no_text_layer`, `garbled_text_layer`,
   `text_layer_mismatch`; required): Whether the items' text was compared with
   the page's text layer, and if not, why.
-- `verification` (object ([`verification`](#verification)); required): The
-  verifier's review.
+- `verification` (object ([`verification`](#verification)) or null; required):
+  The verifier's review; `None` when no verifier reviewed the page.
 - `width_pt` (number; required): The displayed page's width in points.
 - `writing_direction` (one of `ltr`, `rtl`, `ttb`; required): The page's writing
   direction.

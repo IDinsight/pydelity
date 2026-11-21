@@ -90,9 +90,10 @@ if pydelity.load(output_dir) != result:
 # The survey answer the stand-in gives, written for the test PDF below.
 ANSWER_PATH = REPO_ROOT / "tests/fixtures/survey_answers/irs_form_1040a_1965_scan.json"
 
-# The requests each run sends, as (route, status): the survey's upload and its model
-# request, then an extractor and a verifier request for each of the PDF's 2 pages.
-EXPECTED_REQUESTS = [("upload", 200)] + [("model", 200)] * 5
+# The requests each run sends with the default settings, which run no verifier, as
+# (route, status): the survey's upload and its model request, then an extractor request
+# for each of the PDF's 2 pages.
+EXPECTED_REQUESTS = [("upload", 200)] + [("model", 200)] * 3
 
 # The most seconds the wheel's installation may take, downloads included.
 INSTALL_TIMEOUT_SECONDS = 1800

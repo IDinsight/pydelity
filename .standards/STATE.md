@@ -30,12 +30,19 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `CHECKPOINT` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
-`Increment 1 verified: package, scripts and tests reordered (AC-041, AC-042) on Python 3.13 and 3.14; Developer selects the next increment.`
+`Kind`: `FAILURE` `From`: `TESTING` `FailureType`: `IMPLEMENTATION` `Reason`:
+`The wheel smoke script names its request check "one upload and 5 model requests" but now expects one upload and 3 model requests (scripts/smoke_installed_wheel.py line 302).`
 
 ## Recovery
 
-`Active`: `false`
+`Active`: `true`
+
+### Frame 1
+
+`From`: `TESTING` `Owner`: `DEVELOPING` `FailureType`: `IMPLEMENTATION`
+`Reason`:
+`The wheel smoke script names its request check "one upload and 5 model requests" but now expects one upload and 3 model requests (scripts/smoke_installed_wheel.py line 302).`
+`ResumeAt`: `TESTING` `RerunThrough`: `NONE`
 
 ## Outstanding Obligations
 

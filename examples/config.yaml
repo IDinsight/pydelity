@@ -4,18 +4,18 @@
 
 # Settings most runs never need to change.
 advanced:
-  # Settings for page extraction. They apply to the extraction model and to the
-  # verifier model alike.
+  # Settings for page extraction. They apply to page extraction's requests and to its
+  # verifier's requests alike.
   extraction:
     # How many times a model may answer again after failing page extraction's
     # checks, from 0 to 5.
     check_retries: 2
     # How many pages are extracted at the same time, from 1 to 32.
     concurrent_pages: 8
-    # How hard the models think before answering: low, medium or high.
+    # How hard the model thinks before answering: low, medium or high.
     effort: high
     # What is particular, different or nuanced about this PDF, in your own words,
-    # for page extraction's models; none if null.
+    # for page extraction's model and its verifier; none if null.
     instructions: null
     # The most tokens one model answer may contain, thinking included.
     max_output_tokens: 32000
@@ -24,6 +24,9 @@ advanced:
     model: null
     # How many seconds to wait for one model request before it counts as failed.
     request_timeout_seconds: 600
+    # Whether a verifier reviews each page's extraction, at extra cost; verify if
+    # null.
+    verify: null
   # Prices for models, in US dollars per million tokens, by <provider>:<model-id>.
   # An entry replaces the price pydelity would look up for that model. This entry is
   # a placeholder for a model that does not exist: change it or remove it.
@@ -40,7 +43,8 @@ advanced:
   # How many times a request to the provider is retried after a temporary failure,
   # from 0 to 10.
   provider_retries: 2
-  # Settings for the survey step.
+  # Settings for the survey step. They apply to the survey's requests and to its
+  # verifier's requests alike.
   survey:
     # How many times the model may answer again after failing the survey's checks,
     # from 0 to 5.
@@ -48,12 +52,14 @@ advanced:
     # How hard the model thinks before answering: low, medium or high.
     effort: high
     # What is particular, different or nuanced about this PDF, in your own words,
-    # for the survey's model; none if null.
+    # for the survey's model and its verifier; none if null.
     instructions: null
     # The most tokens one model answer may contain, thinking included.
     max_output_tokens: 32000
     # How many seconds to wait for one model request before it counts as failed.
     request_timeout_seconds: 900
+    # Whether a verifier reviews the survey's answer, at extra cost; verify if null.
+    verify: null
   # Settings for PDFs uploaded to the provider.
   uploads:
     # How many hours the provider keeps an uploaded PDF; the provider's maximum if
@@ -87,3 +93,8 @@ pause: true
 
 # The PDF to process. A PDF given on the command line wins over this one.
 pdf: document.pdf
+
+# Whether a verifier reviews each step's answer. The verifier is a second request to
+# the step's model, which checks the answer against the PDF and may correct it. Each
+# verifier request adds cost. Each step's verify setting under advanced overrides it.
+verify: false

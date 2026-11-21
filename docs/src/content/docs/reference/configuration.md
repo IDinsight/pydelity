@@ -39,6 +39,11 @@ All the settings for a pydelity run.
 - `pause` (boolean; default `true`): Whether to stop after a step that wrote new
   output, so it can be checked before the next step is paid for.
 - `pdf` (path; required): The PDF to process.
+- `verify` (boolean; default `false`): Whether a verifier reviews each step's
+  answer.
+
+  The verifier is a second request to the step's model, which checks the answer
+  against the PDF and may correct it. Each verifier request adds cost.
 
 ## `advanced`
 
@@ -65,16 +70,18 @@ Settings for page extraction.
 - `concurrent_pages` (integer; at least 1; at most 32; default `8`): How many
   pages are extracted at the same time.
 - `effort` (one of `low`, `medium`, `high`; default `"high"`): How hard the
-  models think before answering.
+  model thinks before answering.
 - `instructions` (string or null; default `null`): What is particular, different
-  or nuanced about this PDF, in your own words, for page extraction's models.
-  Blank text counts as unset.
+  or nuanced about this PDF, in your own words, for page extraction's model and
+  its verifier. Blank text counts as unset.
 - `max_output_tokens` (integer; more than 0; default `32000`): The most tokens
   one model answer may contain, thinking included.
 - `model` (string or null; default `null`): The model for page extraction, as
   `<provider>:<model-id>`; `model`, or else page extraction's default, if unset.
 - `request_timeout_seconds` (number; more than 0; default `600`): How long to
   wait for one model request before it counts as failed.
+- `verify` (boolean or null; default `null`): Whether a verifier reviews each
+  page's extraction; `verify` if unset.
 
 ## `advanced.models.<provider>:<model-id>`
 
@@ -96,12 +103,14 @@ Settings for the survey step.
 - `effort` (one of `low`, `medium`, `high`; default `"high"`): How hard the
   model thinks before answering.
 - `instructions` (string or null; default `null`): What is particular, different
-  or nuanced about this PDF, in your own words, for the survey's model. Blank
-  text counts as unset.
+  or nuanced about this PDF, in your own words, for the survey's model and its
+  verifier. Blank text counts as unset.
 - `max_output_tokens` (integer; more than 0; default `32000`): The most tokens
   one model answer may contain, thinking included.
 - `request_timeout_seconds` (number; more than 0; default `900`): How long to
   wait for one model request before it counts as failed.
+- `verify` (boolean or null; default `null`): Whether a verifier reviews the
+  survey's answer; `verify` if unset.
 
 ## `advanced.uploads`
 

@@ -1130,20 +1130,23 @@ def _table(*, caption: str | None, headers: list[str], rows: list[list[str]]) ->
     return f"<table>{title}<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
 
 
-def _verifier_text(verification: PageVerification) -> str:
+def _verifier_text(verification: PageVerification | None) -> str:
     """Say what the verifier made of a page.
 
     Parameters
     ----------
     verification
-        The verifier's review of the page.
+        The verifier's review of the page, or ``None`` when no verifier ran.
 
     Returns
     -------
     str
-        ``passed``, or the problems it found and whether its correction was kept.
+        ``passed``, the problems it found and whether its correction was kept, or
+        ``no verifier ran``.
     """
 
+    if verification is None:
+        return "no verifier ran"
     verdict = verification.verdict
     if verdict.passed:
         return "passed"

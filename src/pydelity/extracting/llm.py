@@ -215,11 +215,14 @@ class StepModel:
         gets its own ledger wrapper of it.
     settings
         Page extraction's settings.
+    verify
+        Whether the verifier reviews each page's extraction.
     """
 
     choice: ModelChoice
     model: LedgerModel
     settings: ExtractionConfig
+    verify: bool
 
 
 async def ask_extractor(*, model: StepModel, page: PageInput) -> ModelPage:

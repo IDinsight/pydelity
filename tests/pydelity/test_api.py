@@ -99,17 +99,24 @@ def test_aextract_runs_the_survey_first_and_load_reads_the_page_files(
 def test_async_estimate_gives_what_estimate_gives_and_raises_alike(
     pdf_path: Callable[[str], Path],
 ) -> None:
-    """`aestimate` returns the same estimate as `estimate`, and the same error."""
+    """`aestimate` returns the same estimate as `estimate`, and the same error.
 
-    synced = pydelity.estimate(pdf_path(_SCAN), max_cost="1")
+    Both cover page extraction with its verifier when the run goes on with the
+    verifier on.
+    """
+
+    synced = pydelity.estimate(pdf_path(_SCAN), max_cost="1", pause=False, verify=True)
     with pytest.raises(ConfigError) as sync_error:
         pydelity.estimate(pdf_path(_SCAN), languages=["zz"])
 
-    awaited = asyncio.run(pydelity.aestimate(pdf_path(_SCAN), max_cost="1"))
+    awaited = asyncio.run(
+        pydelity.aestimate(pdf_path(_SCAN), max_cost="1", pause=False, verify=True)
+    )
     with pytest.raises(ConfigError) as async_error:
         asyncio.run(pydelity.aestimate(pdf_path(_SCAN), languages=["zz"]))
 
     assert awaited == synced
+    assert (awaited.steps[1].name, awaited.steps[1].verifier) == ("extraction", True)
     assert str(async_error.value) == str(sync_error.value)
 
 

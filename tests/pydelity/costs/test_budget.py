@@ -349,8 +349,9 @@ def test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing(
     """`estimate` sends nothing and writes nothing; after a full run it costs zero.
 
     Before the first run, the survey would pause the run, so only the survey is
-    estimated. After a run through both steps, the survey and every page file are
-    reused. The estimate also reports the folder's spend so far.
+    estimated. After a run through both steps with the verifier on, the survey and
+    every page file are reused, so no step's figures include a verifier. The
+    estimate also reports the folder's spend so far.
     """
 
     mock = mock_providers(**canned_answers(_SCAN))
@@ -366,14 +367,16 @@ def test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing(
     assert before.max_usd is not None
     assert 0 < before.expected_usd < before.max_usd
 
-    run = pydelity.run(pdf_path(_SCAN), output_dir="out", pause=False)
+    run = pydelity.run(pdf_path(_SCAN), output_dir="out", pause=False, verify=True)
     requests_after_run = len(mock.requests)
-    after = pydelity.estimate(pdf_path(_SCAN), max_cost="0.0001", output_dir="out")
+    after = pydelity.estimate(
+        pdf_path(_SCAN), max_cost="0.0001", output_dir="out", verify=True
+    )
 
     assert len(mock.requests) == requests_after_run
-    assert [(step.name, step.reused) for step in after.steps] == [
-        ("survey", True),
-        ("extraction", True),
+    assert [(step.name, step.reused, step.verifier) for step in after.steps] == [
+        ("survey", True, False),
+        ("extraction", True, False),
     ]
     assert (after.expected_usd, after.max_usd, after.over_max_cost) == (0, 0, False)
     assert run.record is not None
@@ -456,34 +459,94 @@ def test_requests_running_at_once_are_held_to_max_cost_together(
     assert warning.spent_usd == 0
 
 
-def test_the_estimate_covers_page_extraction_with_both_models_when_the_run_goes_on(
+def test_the_check_before_spending_counts_the_verifier_only_when_it_runs(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """The run's check against ``max_cost`` uses the estimate it would run with.
+
+    A run through both steps projects the estimate without the verifier's requests,
+    and the same run with the verifier on projects the estimate with them. Both
+    stop before any upload or request.
+    """
+
+    mock = mock_providers(answers=[survey_answer()])
+    projected: list[Decimal] = []
+    estimated: list[Decimal | None] = []
+
+    for verify in (False, True):
+        estimate = pydelity.estimate(
+            pdf_path(_SCAN), output_dir="out", pause=False, verify=verify
+        )
+        with (
+            pytest.raises(BudgetExceededError),
+            pytest.warns(PydelityWarning, match="could go over max_cost"),
+        ):
+            pydelity.run(
+                pdf_path(_SCAN),
+                max_cost="0.0001",
+                output_dir="out",
+                pause=False,
+                verify=verify,
+            )
+        record = pydelity.load("out").record
+        assert record is not None
+        (warning,) = record.warnings
+        projected.append(Decimal(str(warning.details["projected_usd"])))
+        estimated.append(estimate.expected_usd)
+
+    assert mock.requests == []
+    assert projected == estimated
+    assert projected[0] < projected[1]
+
+
+def test_the_estimate_covers_page_extraction_and_its_verifier_only_when_it_runs(
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
     survey_answer: Callable[..., dict],
 ) -> None:
     """Without the pause, the estimate adds the selected pages' extraction.
 
-    Each page counts its extraction and verifier requests with their check retries,
-    and the run's figures are the two steps' sums.
+    Each page counts its extraction requests with their check retries, and its
+    verifier requests only when the verifier is on, which the step's estimate
+    says. The run's figures are the two steps' sums.
     """
 
     mock = mock_providers(answers=[survey_answer()])
 
-    whole = pydelity.estimate(pdf_path(_SCAN), output_dir="out", pause=False)
-    one_page = pydelity.estimate(
-        pdf_path(_SCAN), output_dir="out", pages=2, pause=False
-    )
+    estimates = [
+        pydelity.estimate(pdf_path(_SCAN), output_dir="out", pause=False),
+        pydelity.estimate(pdf_path(_SCAN), output_dir="out", pause=False, verify=True),
+        pydelity.estimate(pdf_path(_SCAN), output_dir="out", pages=2, pause=False),
+        pydelity.estimate(
+            pdf_path(_SCAN), output_dir="out", pages=2, pause=False, verify=True
+        ),
+    ]
 
     assert mock.requests == []
-    survey, extraction = whole.steps
-    assert (survey.name, extraction.name) == ("survey", "extraction")
-    assert (extraction.pages, extraction.requests_max) == (2, 12)
-    assert extraction.model == "anthropic:claude-opus-5-5"
-    assert extraction.expected_usd is not None
-    assert extraction.max_usd is not None
-    assert 0 < extraction.expected_usd < extraction.max_usd
-    assert survey.expected_usd is not None
-    assert survey.max_usd is not None
-    assert whole.expected_usd == survey.expected_usd + extraction.expected_usd
-    assert whole.max_usd == survey.max_usd + extraction.max_usd
-    assert (one_page.steps[1].pages, one_page.steps[1].requests_max) == (1, 6)
+    for estimate in estimates:
+        survey, extraction = estimate.steps
+        assert (survey.name, extraction.name) == ("survey", "extraction")
+        assert extraction.model == "anthropic:claude-opus-5-5"
+        assert extraction.expected_usd is not None
+        assert extraction.max_usd is not None
+        assert 0 < extraction.expected_usd < extraction.max_usd
+        assert survey.expected_usd is not None
+        assert survey.max_usd is not None
+        assert estimate.expected_usd == survey.expected_usd + extraction.expected_usd
+        assert estimate.max_usd == survey.max_usd + extraction.max_usd
+    steps = [estimate.steps[1] for estimate in estimates]
+    assert [(step.pages, step.requests_max, step.verifier) for step in steps] == [
+        (2, 6, False),
+        (2, 12, True),
+        (1, 3, False),
+        (1, 6, True),
+    ]
+    for without, with_verifier in (steps[:2], steps[2:]):
+        assert without.expected_usd is not None
+        assert without.max_usd is not None
+        assert with_verifier.expected_usd is not None
+        assert with_verifier.max_usd is not None
+        assert without.expected_usd < with_verifier.expected_usd
+        assert without.max_usd < with_verifier.max_usd

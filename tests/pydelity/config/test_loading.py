@@ -179,6 +179,48 @@ def test_each_step_resolves_its_own_model(
     assert config.advanced.extraction.effort == "high"
 
 
+@pytest.mark.parametrize(
+    ("file_text", "settings", "expected"),
+    [
+        (None, {}, (False, False)),
+        ("verify: false\nadvanced:\n  survey:\n    verify: true\n", {}, (True, False)),
+        (
+            "verify: true\nadvanced:\n  survey:\n    verify: false\n",
+            {"advanced": {"extraction": {"verify": False}}},
+            (False, False),
+        ),
+        (None, {"advanced": {"extraction": {"verify": True}}}, (False, True)),
+    ],
+    ids=["default", "survey-on-in-file", "both-off-file-and-keyword", "extraction-on"],
+)
+def test_each_step_s_verifier_follows_verify_unless_its_own_setting_is_set(
+    expected: tuple[bool, bool],
+    file_text: str | None,
+    pdf_path: Callable[[str], Path],
+    settings: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """A step's ``verify`` under ``advanced`` turns its verifier on or off alone.
+
+    With no setting, both verifiers are off. A step's own setting decides for that
+    step whatever ``verify`` is, and the other step follows ``verify``. It can be
+    set in a config file or by a nested ``advanced`` keyword, which keeps the file's
+    other ``advanced`` settings. ``expected`` is whether the survey's verifier and
+    page extraction's verifier run.
+    """
+
+    config_file = None
+    if file_text is not None:
+        config_file = tmp_path / "run.yaml"
+        config_file.write_text(file_text, encoding="utf-8")
+
+    config = resolve_config(
+        config=config_file, pdf=pdf_path("irs_form_w9.pdf"), settings=settings
+    )
+
+    assert (config.verify_survey, config.verify_extraction) == expected
+
+
 def test_every_invalid_setting_is_named_in_one_error_before_any_request(
     mock_providers: Callable[..., MockProviders], survey_answer: Callable[..., dict]
 ) -> None:
@@ -312,3 +354,40 @@ def test_the_removed_instructions_setting_is_unknown_before_any_request(
         "- instructions: not a setting pydelity knows",
     ]
     assert mock.requests == []
+
+
+def test_verify_turns_on_both_steps_verifiers_from_a_file_or_a_keyword(
+    pdf_path: Callable[[str], Path], tmp_path: Path
+) -> None:
+    """``verify`` is off by default and can be turned on in a file or as a keyword.
+
+    Set to true in a JSON file, a YAML file or the ``verify`` keyword, it turns on
+    both the survey's verifier and page extraction's verifier, whose own settings
+    stay unset.
+    """
+
+    pdf = pdf_path("irs_form_w9.pdf")
+    json_file = tmp_path / "run.json"
+    json_file.write_text(json.dumps({"verify": True}), encoding="utf-8")
+    yaml_file = tmp_path / "run.yaml"
+    yaml_file.write_text("verify: true\n", encoding="utf-8")
+
+    default = resolve_config(pdf=pdf)
+    turned_on = [
+        resolve_config(config=json_file, pdf=pdf),
+        resolve_config(config=yaml_file, pdf=pdf),
+        resolve_config(pdf=pdf, settings={"verify": True}),
+    ]
+
+    assert (
+        default.verify,
+        default.advanced.survey.verify,
+        default.advanced.extraction.verify,
+    ) == (False, None, None)
+    for config in turned_on:
+        assert config.verify is True
+        assert (config.advanced.survey.verify, config.advanced.extraction.verify) == (
+            None,
+            None,
+        )
+        assert (config.verify_survey, config.verify_extraction) == (True, True)
