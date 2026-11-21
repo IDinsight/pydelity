@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
-`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -30,8 +30,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `CHECKPOINT` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
-`Increment 3 ready: every request names its agent and the survey runs with or without its verifier (DEV-004 to DEV-007; survey parts of AC-001, AC-005, AC-006, and AC-007 to AC-017); Tester assesses it.`
+`Kind`: `CHECKPOINT` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
+`Increment 3 verified: every request names its agent and the survey runs with or without its verifier (AC-007 to AC-017, and the survey parts of AC-001, AC-005 and AC-006); Developer selects the next increment.`
 
 ## Recovery
 
