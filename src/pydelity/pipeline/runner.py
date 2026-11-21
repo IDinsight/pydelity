@@ -484,26 +484,36 @@ async def _finish(
     return record
 
 
-def _load_pages(folder: Path) -> list[PageFile]:
-    """Read every page file in an output folder for `load_run`.
+def _load_pages(folder: Path, *, sha256: str | None) -> list[PageFile]:
+    """Read the page files of the folder's PDF for `load_run`.
+
+    A page file made from another PDF is left out before its figure images are
+    checked.
 
     Parameters
     ----------
     folder
         The output folder.
+    sha256
+        The SHA-256 of the PDF in ``pdf_facts.json``, or ``None`` when the folder has
+        no facts, so which PDF it holds is unknown.
 
     Returns
     -------
     list[PageFile]
-        The page files in ``pages/``, in page order; empty when there are none.
+        The page files in ``pages/`` made from that PDF, in page order; empty when
+        there are none or ``sha256`` is ``None``.
 
     Raises
     ------
     OutputError
-        If a page file is not valid JSON, does not match its schema, has another
-        major schema version, or names a figure image that is missing.
+        If a page file is not valid JSON, does not match its schema or has another
+        major schema version, or a page file of that PDF names a figure image that
+        is missing.
     """
 
+    if sha256 is None:
+        return []
     indexes = sorted(
         int(path.stem)
         for path in (folder / PAGES_FOLDER_NAME).glob("*.json")
@@ -513,7 +523,7 @@ def _load_pages(folder: Path) -> list[PageFile]:
     for index in indexes:
         path = page_file_path(output_folder=folder, page_index=index)
         page = _load_part(model_type=PageFile, path=path, version=PAGE_SCHEMA_VERSION)
-        if page is None:
+        if page is None or page.inputs.pdf_sha256 != sha256:
             continue
         for item in page.items:
             if item.figure is not None and not (folder / item.figure.crop).is_file():
@@ -1316,15 +1326,17 @@ def load_run(output_dir: Path) -> RunResult:
     -------
     RunResult
         The folder's ``run.json``, ``pdf_facts.json``, ``pdf_survey.json``,
-        ``cost.jsonl`` and every page file in ``pages/``, in page order. A part is
-        ``None``, or empty, when its files are absent.
+        ``cost.jsonl``, and the page files in ``pages/`` made from the PDF in
+        ``pdf_facts.json``, in page order. A part is ``None``, or empty, when its
+        files are absent; the pages are empty without ``pdf_facts.json``.
 
     Raises
     ------
     OutputError
         If the folder does not exist, holds none of those files, or holds one that
         is not valid JSON, does not match its schema or has another major schema
-        version, or a page file names a figure image that is missing.
+        version, or a page file of the folder's PDF names a figure image that is
+        missing.
     """
 
     folder = output_dir.resolve()
@@ -1357,7 +1369,7 @@ def load_run(output_dir: Path) -> RunResult:
         facts=facts,
         ledger=ledger.entries,
         output_dir=folder,
-        pages=_load_pages(folder),
+        pages=_load_pages(folder, sha256=None if facts is None else facts.pdf.sha256),
         record=record,
         survey=survey,
     )

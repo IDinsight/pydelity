@@ -7,7 +7,7 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 
 `Cycle`: `add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada`
 `Mode`: `STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`IN_PROGRESS` `Verification Cadence`: `INCREMENTAL` `Current Increment`: `3`
+`IN_PROGRESS` `Verification Cadence`: `INCREMENTAL` `Current Increment`: `4`
 
 ## Implementation Contract
 
@@ -912,7 +912,7 @@ every ledger line by step, the verifier's included.
 
 ### DEV-008 — `load()` returns only the folder's PDF's page files
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`: `AC-021`
+`Status`: `DONE` `Depends On`: `DEV-001` `Acceptance`: `AC-021`
 
 **Goal**
 
@@ -936,6 +936,42 @@ returns.
 Ruff, ty and interrogate; a scratchpad folder holding two PDFs' page files, one
 with a missing crop, loaded with and without `pdf_facts.json`; the existing
 tests.
+
+**Evidence**
+
+Evidence, 2026-11-21, repo root, on `83faebb` plus the uncommitted DEV-008
+changes to `src/pydelity/pipeline/runner.py`, `pipeline/schemas.py`,
+`src/pydelity/api.py` (the public `load` docstring, which repeated the old
+wording) and the generated `docs/src/content/docs/reference/python-api.md`
+(macOS arm64, Python 3.13.9, `.venv`).
+
+- Scratch script `dev008/check_load.py` in the session scratchpad, run with
+  `.venv/bin/python -I check_load.py <repo>`, on a folder from a stand-in run of
+  `irs_form_1040a_1965_scan.pdf` (pages 0 and 1): 10 of 10 checks passed.
+  - Added page files 3 and 5, with `inputs.pdf_sha256` set to another PDF's and
+    each holding a figure item. Page 3's image exists and page 5's is missing.
+    `load()` returns pages 0 and 1, with no error.
+  - A figure image missing from one of this PDF's own page files still raises
+    `OutputError` naming it, and a page file that is not valid JSON
+    (`pages/0007.json`) raises `OutputError`.
+  - With `pdf_facts.json` removed, each of those folders loads with no pages and
+    `facts: None`, while `run.json` and `pdf_survey.json` still load. With facts
+    naming another PDF, no page is returned.
+  - A run in the mixed folder still returns its own selected pages, 0 and 1.
+- `ruff check` "All checks passed!"; `ruff format --check scripts src tests` "89
+  files already formatted"; `ty check scripts src tests` "All checks passed!";
+  `interrogate` 100.0%; doctests 28 passed, 1 skipped; the module order check
+  finds no new departure.
+- Tests: 200 passed.
+- Reference pages: `python-api.md` changes only in `load`'s return and error
+  text.
+
+**Implementation Notes**
+
+- `_load_pages` takes the facts' `sha256`, or `None` without `pdf_facts.json`,
+  and returns no pages for `None` without reading `pages/`. So a page file that
+  is not valid JSON raises only when the folder has facts.
+- `load_run` passes the facts it already reads; nothing else reads them again.
 
 ---
 
@@ -1220,3 +1256,17 @@ on `50aca23`: tests 188 passed; `ruff check` and `ty check` clean.
 - Limitations: the wheel smoke test and Python 3.14 were not run locally; no
   real model ran.
 - Next after the return: DEV-008 to DEV-010 (Increment 4).
+
+### Increment 3 return
+
+Tester returned Increment 3 `VERIFIED` (verification report, E22–E31; no open
+defect), with its test updates in `83faebb`. Reconciled on `83faebb`:
+
+- since `e9914c0` (DEV-007), `src/`, `scripts/`, `examples/`, `docs/` and
+  `pyproject.toml` are unchanged;
+- `787cecc` changes only STANDARDS records, and `83faebb` only `tests/`.
+
+Rerun on `83faebb`: tests 200 passed; `ruff check`, `ruff format --check` (89
+files), `ty check scripts src tests` and `check` clean. The report's **Scenario
+Budget** has no allowance left for `pipeline/runner.py`, which DEV-008 changes.
+`Current Increment` moves to 4.

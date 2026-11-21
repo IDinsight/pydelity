@@ -194,8 +194,9 @@ class RunResult(BaseModel):
     """The output folder."""
 
     pages: list[PageFile]
-    """Page files, in page order: a run's selected pages that have one, or, read
-    back with `pydelity.load`, every page file in ``pages/``."""
+    """Page files, in page order. A run returns its selected pages that have one.
+    `pydelity.load` returns the page files made from the PDF in ``pdf_facts.json``,
+    and none when the folder has no ``pdf_facts.json``."""
 
     record: RunRecord | None
     """The contents of ``run.json``."""

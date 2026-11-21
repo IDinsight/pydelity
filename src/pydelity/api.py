@@ -571,15 +571,17 @@ def load(output_dir: str | os.PathLike[str]) -> RunResult:
     -------
     RunResult
         The folder's ``run.json``, ``pdf_facts.json``, ``pdf_survey.json``,
-        ``cost.jsonl`` and every page file in ``pages/``, in page order. A part is
-        ``None``, or empty, when its files are absent.
+        ``cost.jsonl``, and the page files in ``pages/`` made from the PDF in
+        ``pdf_facts.json``, in page order. A part is ``None``, or empty, when its
+        files are absent; the pages are empty without ``pdf_facts.json``.
 
     Raises
     ------
     OutputError
         If the folder does not exist, holds none of those files, or holds one that
         is not valid JSON, does not match its schema or has another major schema
-        version, or a page file names a figure image that is missing.
+        version, or a page file of the folder's PDF names a figure image that is
+        missing.
     """
 
     return load_run(Path(output_dir))
