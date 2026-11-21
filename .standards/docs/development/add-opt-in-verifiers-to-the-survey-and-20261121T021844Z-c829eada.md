@@ -820,7 +820,7 @@ changes to `src/pydelity/surveying/survey.py`, `surveying/schemas.py`,
 
 ### DEV-007 — The survey verifier in estimates
 
-`Status`: `PENDING` `Depends On`: `DEV-003, DEV-005` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-003, DEV-005` `Acceptance`:
 `AC-005, AC-015, AC-016`
 
 **Goal**
@@ -852,6 +852,61 @@ Ruff, ty and interrogate; a scratchpad script comparing `estimate()` with the
 survey verifier off and on and checking the arithmetic by hand; a stand-in run
 with `max_cost` below the verified estimate, answered no and yes; the existing
 tests.
+
+**Evidence**
+
+Evidence, 2026-11-21, repo root, on `7804c97` plus the uncommitted DEV-007
+changes to `src/pydelity/costs/budget.py`, `pipeline/runner.py` and the
+generated `docs/src/content/docs/reference/cost-jsonl.md` (macOS arm64, Python
+3.13.9, `.venv`). `pipeline/schemas.py` needed no change: `RunCost.by_step` sums
+every ledger line by step, the verifier's included.
+
+- Scratch script `dev007/check_estimates.py` in the session scratchpad, run with
+  `.venv/bin/python -I check_estimates.py <repo>` against the stand-in on
+  `irs_form_1040a_1965_scan.pdf`: 21 of 21 checks passed.
+  - `estimate()` with the survey's verifier off gives `verifier: false`,
+    `requests_max` 3, expected $0.235352 and at most $2.530056. With
+    `advanced.survey.verify: true` it gives `verifier: true`, `requests_max` 6,
+    expected $0.466232 and at most $5.454696. Both equal a price worked out by
+    hand in the script, from the prompts built again and `price_usage`:
+    - expected adds one verifier request reading the PDF, the verifier's prompt
+      (an empty `SurveyAnswer`, plus `SurveyVerdict`'s schema) and 8,000 tokens
+      of answer, giving 6,000;
+    - maximum adds 3 requests of `max_output_tokens`, with `(attempt + 1)`
+      longest answers in their input.
+  - `aestimate()` and the global `verify=True` give the same survey estimate.
+    With `pause=False`, the survey's estimate is the same and page extraction's
+    has no verifier. A reused survey costs 0, with `verifier: false`.
+  - A verified run's estimate line reads "Survey with its verifier cost
+    estimate: ... (up to 6 requests ...)". Its ledger has a `surveyor` and a
+    `verifier` line; `run.json`'s `cost.by_step.survey` and the step's
+    `cost_usd` equal both lines' sum ($0.048), and the survey's log line says
+    "for 2 requests".
+  - With `max_cost` $0.3508, between the two expected costs, only the verified
+    estimate is over `max_cost`:
+    - Python without `allow_over_max_cost` raises `BudgetExceededError` before
+      any model request; with it, the survey and its verifier run.
+    - The CLI with `--verify --max-cost` asks "Go ahead, even though this run
+      could go over max_cost?". Answered `n`, it exits 3 with no model request;
+      answered `y`, it exits 0 after 2 model requests.
+- The DEV-004, DEV-005 and DEV-006 scratch checks still pass (9 of 9, 42 of 42,
+  51 of 51).
+- `ruff check` "All checks passed!"; `ruff format --check scripts src tests` "89
+  files already formatted"; `ty check scripts src` "All checks passed!";
+  `interrogate` 100.0%; doctests 28 passed, 1 skipped; the module order check
+  finds no new departure.
+- Tests: 176 passed and the same 12 failed as under DEV-006; no test calls
+  `estimate_survey`.
+- `cost-jsonl.md` gains `TYPICAL_SURVEY_VERDICT_OUTPUT_TOKENS` = `6000`.
+
+**Implementation Notes**
+
+- `estimate_survey` gains `verifier_chars` and prices the verifier as
+  `estimate_extraction` prices the page verifier, with the answer it reads and
+  its verdict each capped at `max_output_tokens`.
+- `_prompt_chars` in `pipeline/runner.py` returns the survey's and the
+  verifier's prompt sizes, so every estimate path (`_survey_estimate`) gets
+  both.
 
 ---
 
@@ -1133,3 +1188,35 @@ since `384204a`, `src/`, `scripts/`, `examples/`, `docs/` and `pyproject.toml`
 changed only by that fix; the later commit changes only STANDARDS records. Rerun
 on `50aca23`: tests 188 passed; `ruff check` and `ty check` clean.
 `Current Increment` moves to 3.
+
+### Checkpoint: Increment 3
+
+- Ready: DEV-004 to DEV-007 are `DONE`, with their self-check evidence under
+  each step. Claim: every request names its agent, and the survey runs with or
+  without its verifier as decisions 2–10 say for the survey. That covers:
+  - the request's content and the reuse of its attachment;
+  - check retries on corrections and the kept answer;
+  - the review list, `pdf_survey.json` and the report;
+  - ledger lines, estimates and spend control;
+  - the stop on a failed verifier request. This covers the survey parts of
+    `AC-001`, `AC-005` and `AC-006`, and `AC-007` to `AC-017`.
+- Assessed content: `50aca23..7804c97` (`dbc6aed` DEV-004, `e4d479f` DEV-005,
+  `7804c97` DEV-006), plus the uncommitted DEV-007 changes to
+  `src/pydelity/costs/budget.py`, `src/pydelity/pipeline/runner.py` and
+  `docs/src/content/docs/reference/cost-jsonl.md`. Those are
+  `git diff HEAD -- src scripts examples docs`: 122 insertions and 38 deletions,
+  SHA-256 starting `11022516909a4f82`. If the user commits them before Tester
+  runs, the commit holds the same content.
+- Tests of the replaced contract: 12 tests fail, all listed under DEV-006.
+  `ty check tests` reports one error, the `build_survey` call in
+  `test_survey.py`. Ten of the failures pass the global `verify=True`, which now
+  runs the survey's verifier too. They need the stand-in to route a request
+  whose user message has the line `The survey answer to review:` to a queued
+  survey verdict (the design's **Test seams**), or the per-step
+  `advanced.extraction.verify`.
+- The scratch checks drove the survey verifier through the stand-in by queuing
+  verdicts after the survey answer, since survey requests are sequential. They
+  live only in this session's scratchpad and are not part of the deliverable.
+- Limitations: the wheel smoke test and Python 3.14 were not run locally; no
+  real model ran.
+- Next after the return: DEV-008 to DEV-010 (Increment 4).

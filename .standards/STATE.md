@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
-`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
+`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -17,8 +17,7 @@
 `.standards/docs/specs/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
 `Development`:
 `.standards/docs/development/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-006 is done; continue with DEV-007 (the survey verifier in estimates).`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
@@ -31,8 +30,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `CHECKPOINT` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
-`Increment 2 verified: the verify settings, --verify/-vf and page extraction with or without its verifier (AC-001 to AC-006 and AC-018 to AC-020 for pages), with the smoke script fix; Developer selects the next increment.`
+`Kind`: `CHECKPOINT` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
+`Increment 3 ready: every request names its agent and the survey runs with or without its verifier (DEV-004 to DEV-007; survey parts of AC-001, AC-005, AC-006, and AC-007 to AC-017); Tester assesses it.`
 
 ## Recovery
 
