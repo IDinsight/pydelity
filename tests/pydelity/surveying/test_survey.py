@@ -20,8 +20,8 @@ from typer.testing import Result
 import pydelity
 
 from pydelity.config.loading import resolve_config
-from pydelity.errors import SurveyError
-from pydelity.surveying.prompts import survey_pdf
+from pydelity.errors import ExitCode, SurveyError
+from pydelity.surveying.prompts import survey_pdf, verify_survey
 from pydelity.surveying.schemas import (
     Facts,
     ItemKind,
@@ -31,7 +31,8 @@ from pydelity.surveying.schemas import (
     SurveyAnswer,
 )
 from pydelity.surveying.survey import build_survey
-from tests.fixtures.mock_providers import MockProviders
+from pydelity.surveying.validators import retry_message, run_checks
+from tests.fixtures.mock_providers import MockProviders, RecordedRequest
 
 # The 8-page test PDF whose text runs sideways and whose page labels are 23 to 30.
 _CAPS = "caps_english_hl_pages_28_35.pdf"
@@ -149,6 +150,90 @@ def _model_requests(mock: MockProviders) -> list[str]:
         for request in mock.requests
         if request.route == "model"
     ]
+
+
+def _user_text(request: RecordedRequest) -> str:
+    """Return the text of an Anthropic request's first user message.
+
+    Parameters
+    ----------
+    request
+        A model request to the Anthropic stand-in.
+
+    Returns
+    -------
+    str
+        The message's text, without the PDF.
+    """
+
+    messages = request.body["messages"]
+    assert isinstance(messages, list)
+    message = messages[0]
+    (text,) = [part["text"] for part in message["content"] if part["type"] == "text"]
+    return text
+
+
+def test_a_failed_verifier_request_stops_the_run_and_leaves_the_saved_survey(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    run_cli: Callable[..., Result],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """A verifier request the provider rejects fails the run with exit code 1.
+
+    The command shows the provider's message. The survey made earlier without a
+    verifier stays as it was, though the new survey answer differs from it.
+    ``run.json`` records the survey step as failed, and the ledger keeps the paid
+    survey request.
+    """
+
+    heading = {
+        "description": "Titles.",
+        "kinds": ["text"],
+        "name": "Heading",
+        "role": "heading",
+    }
+    mock = mock_providers(answers=[survey_answer(), survey_answer(labels=[heading])])
+    pydelity.run(pdf_path(_SCAN), output_dir="out")
+    saved = Path("out/pdf_survey.json").read_bytes()
+    before = len(mock.requests)
+
+    result = run_cli([str(pdf_path(_SCAN)), "-d", "out", "-y", "--verify"])
+
+    assert result.exit_code == ExitCode.FAILED, result.output
+    assert "No survey verdict (mock provider)" in result.stderr
+    sent = [(r.agent, r.status) for r in mock.requests[before:]]
+    assert sent == [("surveyor", 200), ("verifier", 400)]
+    assert Path("out/pdf_survey.json").read_bytes() == saved
+    loaded = pydelity.load("out")
+    assert loaded.record is not None
+    assert (loaded.record.status, loaded.record.steps[0].status) == ("failed", "failed")
+    assert [line.agent for line in loaded.ledger] == ["surveyor", "surveyor"]
+
+
+def test_a_verifier_that_gives_no_usable_verdict_fails_the_survey(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """A verifier answer that is not a verdict raises `SurveyError` naming it."""
+
+    mock = mock_providers(
+        answers=[survey_answer()], survey_verdicts=["The survey looks fine to me."]
+    )
+
+    with pytest.raises(
+        SurveyError, match=r"^The verifier gave no usable verdict on the survey: "
+    ):
+        pydelity.survey(
+            pdf_path(_SCAN),
+            advanced={"survey": {"check_retries": 0, "verify": True}},
+            model="openai:gpt-6.2-astra",
+            output_dir="out",
+        )
+
+    agents = [request.agent for request in mock.requests if request.route == "model"]
+    assert agents == ["surveyor", "verifier"]
 
 
 def test_an_answer_that_fails_a_check_is_sent_back_with_each_failure(
@@ -349,7 +434,9 @@ def test_profile_owns_other_dedupes_kinds_and_converts_region_boxes(
     ]
     answer = SurveyAnswer.model_validate(survey_answer(labels=labels, regions=regions))
 
-    survey = build_survey(answer=answer, attempts=1, config=config, facts=facts)
+    survey = build_survey(
+        answer=answer, attempts=1, config=config, facts=facts, verification=None
+    )
 
     profile = survey.profile
     assert [label.name for label in profile.labels] == ["Heading", "Box", "other"]
@@ -373,10 +460,13 @@ def test_profile_owns_other_dedupes_kinds_and_converts_region_boxes(
     assert survey.inputs.facts_fingerprint == facts.fingerprint
 
 
-def test_prompt_schema_and_vocabulary_name_no_document_type() -> None:
-    """The prompt, the answer and output field names and the item enums are neutral.
+def test_prompt_schema_and_vocabulary_name_no_document_type(
+    survey_answer: Callable[..., dict],
+) -> None:
+    """The prompts, the answer and output field names and the item enums are neutral.
 
-    None of them uses a word that names a document type or a domain.
+    None of them, the verifier's prompt and verdict included, uses a word that names
+    a document type or a domain.
     """
 
     prompts = survey_pdf(
@@ -386,6 +476,13 @@ def test_prompt_schema_and_vocabulary_name_no_document_type() -> None:
         page_count=2,
         repeated_lines=[],
     )
+    verifier = verify_survey(
+        answer=SurveyAnswer.model_validate(survey_answer()),
+        differences=[],
+        failures={},
+        instructions=None,
+        survey_message=prompts.user_message,
+    )
     names = (
         _field_names(SurveyAnswer.model_json_schema())
         | _field_names(PdfSurvey.model_json_schema())
@@ -394,6 +491,7 @@ def test_prompt_schema_and_vocabulary_name_no_document_type() -> None:
     vocabulary = [kind.value for kind in ItemKind] + [role.value for role in ItemRole]
     texts = {
         "prompt": f"{prompts.system_message}\n{prompts.user_message}",
+        "verifier prompt": f"{verifier.system_message}\n{verifier.user_message}",
         "field names": " ".join(name.replace("_", " ") for name in sorted(names)),
         "vocabulary": " ".join(vocabulary),
     }
@@ -448,6 +546,267 @@ def test_request_sends_the_facts_as_hints_with_every_repeated_line(
     )
     assert "Margin notes are content." in system
     assert "answer with what you read" in system
+
+
+def test_the_verifier_request_carries_the_survey_s_file_text_failures_and_differences(
+    facts_of: Callable[[str], Facts],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+    survey_verdict: Callable[..., dict],
+) -> None:
+    """The verifier reviews the accepted answer on the survey's own upload.
+
+    Its request names the survey request's file, so the run makes one upload. Its
+    text is the survey's, then the answer, the check it still fails and its
+    differences from the facts. Its instructions hold the review list and the
+    survey's rules, then the user's survey instructions. Each request is a survey
+    ledger line of its own agent, and the survey's cost is their sum.
+    """
+
+    facts = facts_of(_CAPS)
+    answer = _caps_answer(
+        facts,
+        survey_answer,
+        languages=["en", "zz"],
+        rotation=[{"degrees": 90, "first_page_index": 0, "last_page_index": 3}],
+    )
+    mock = mock_providers(answers=[answer], survey_verdicts=[survey_verdict()])
+
+    result = pydelity.run(
+        pdf_path(_CAPS),
+        advanced={
+            "survey": {
+                "check_retries": 0,
+                "instructions": "Margin notes are content.",
+                "verify": True,
+            }
+        },
+        output_dir="out",
+    )
+
+    assert [request.route for request in mock.requests] == ["upload", "model", "model"]
+    surveyor, verifier = mock.requests[1:]
+    assert (surveyor.agent, verifier.agent) == ("surveyor", "verifier")
+    assert verifier.file_ids == surveyor.file_ids != []
+    survey_text = _user_text(surveyor)
+    text = _user_text(verifier)
+    assert text.startswith(f"{survey_text}\n\nThe survey answer to review:\n")
+    reviewed, rest = text.removeprefix(survey_text).split(
+        "\n\nChecks it still fails:\n"
+    )
+    failing, differences = rest.split("\n\nDifferences from the measured facts:\n")
+    assert json.loads(reviewed.split(":\n", 1)[1]) == (
+        SurveyAnswer.model_validate(answer).model_dump(mode="json")
+    )
+    (failure,) = failing.splitlines()
+    assert failure.startswith("- languages: ")
+    assert "zz" in failure
+    lines = differences.splitlines()
+    assert len(lines) == 4
+    assert all(
+        line.startswith("- rotation_differs: ") and f"page index {page}" in line
+        for line, page in zip(lines, range(4, 8), strict=True)
+    )
+    system = json.dumps(verifier.body["system"], ensure_ascii=False)
+    markers = [
+        "You review a survey of a PDF, made by another model",
+        "Review the survey against the PDF for:",
+        "Give a verdict.",
+        "Labels. Make labels",
+        "The user's instructions for this PDF follow.",
+        "Margin notes are content.",
+    ]
+    assert [system.index(marker) for marker in markers] == sorted(
+        system.index(marker) for marker in markers
+    )
+    assert "Review the survey" not in json.dumps(surveyor.body["system"])
+    ledger = result.ledger
+    assert [(line.step, line.page_index, line.agent) for line in ledger] == [
+        ("survey", None, "surveyor"),
+        ("survey", None, "verifier"),
+    ]
+    assert result.record is not None
+    paid = sum(line.cost_usd for line in ledger if line.cost_usd is not None)
+    assert result.record.cost.by_step["survey"] == paid
+    assert result.record.steps[0].cost_usd == paid
+
+
+@pytest.mark.parametrize(
+    "outcome", ["passed", "correction_kept", "correction_not_kept"]
+)
+def test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues(  # noqa: PLR0913, PLR0917 - fixtures
+    facts_of: Callable[[str], Facts],
+    log_messages: list[tuple[str, str]],
+    mock_providers: Callable[..., MockProviders],
+    outcome: str,
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+    survey_verdict: Callable[..., dict],
+) -> None:
+    """The survey keeps the answer or the verifier's correction, as the verdict says.
+
+    The answer turns only half the pages, so it differs from the facts on 4 pages.
+    A passed verdict keeps it with no review issue. A correction that fails a check is
+    sent back, and its fixed version is kept, with the user's language first and the
+    facts unchanged. A correction that still fails on the last attempt is not kept,
+    so the differences and each problem are listed. ``pdf_survey.json``, the report
+    and the log line give the verifier's outcome.
+    """
+
+    facts = facts_of(_CAPS)
+    answer = _caps_answer(
+        facts,
+        survey_answer,
+        rotation=[{"degrees": 90, "first_page_index": 0, "last_page_index": 3}],
+    )
+    margin = {
+        "description": "Notes in the margin.",
+        "kinds": ["text"],
+        "name": "Margin note",
+        "role": "aside",
+    }
+    correction = dict(answer, labels=[*answer["labels"], margin])
+    failing = dict(correction, languages=["zz"])
+    labels = ("labels", "The margin notes on page 3 have no label.", 2)
+    regions = ("regions", "The box around the margin notes is missing.", None)
+    verdicts = {
+        "passed": [survey_verdict()],
+        "correction_kept": [
+            survey_verdict(labels, corrected=failing),
+            survey_verdict(labels, corrected=correction),
+        ],
+        "correction_not_kept": [survey_verdict(labels, regions, corrected=failing)],
+    }[outcome]
+    mock = mock_providers(answers=[answer], survey_verdicts=verdicts)
+
+    pydelity.run(
+        pdf_path(_CAPS),
+        advanced={"survey": {"check_retries": 1}},
+        languages=["fr"],
+        output_dir="out",
+        verify=True,
+    )
+
+    survey = pydelity.load("out").survey
+    assert survey is not None
+    verification = survey.verification
+    assert verification is not None
+    agents = [r.agent for r in mock.requests if r.route == "model"]
+    assert agents == ["surveyor"] + ["verifier"] * (1 if outcome == "passed" else 2)
+    kept = correction if outcome == "correction_kept" else answer
+    assert [label.name for label in survey.profile.labels] == [
+        *(label["name"] for label in kept["labels"]),
+        "other",
+    ]
+    assert survey.profile.languages == ["fr", "en"]
+    assert survey.facts == facts
+    assert {(check.passed, check.attempts) for check in survey.checks} == {
+        (True, 2 if outcome == "correction_kept" else 1)
+    }
+    assert verification.verdict.model_dump(mode="json") == verdicts[-1]
+    attempts, applied, failures, report_text, log_text = {
+        "passed": (1, False, [], "passed", "verifier passed"),
+        "correction_kept": (
+            2,
+            True,
+            [],
+            "found 1 problem and its correction was kept",
+            "verifier corrected the survey",
+        ),
+        "correction_not_kept": (
+            2,
+            False,
+            [("languages", False, 2)],
+            "found 2 problems, listed for review",
+            "verifier found 2 problems",
+        ),
+    }[outcome]
+    assert (verification.attempts, verification.correction_applied) == (
+        attempts,
+        applied,
+    )
+    assert [
+        (check.name, check.passed, check.attempts)
+        for check in verification.correction_failures
+    ] == failures
+    report = Path("out/report.html").read_text(encoding="utf-8")
+    assert f"<dt>Verifier</dt><dd>{report_text}</dd>" in report
+    (finished,) = [m for _, m in log_messages if m.startswith("Survey finished:")]
+    assert f"; {log_text}; " in finished
+    if outcome == "correction_kept":
+        retried = _model_requests(mock)[2]
+        sent_back = retry_message(
+            run_checks(SurveyAnswer.model_validate(failing), facts)
+        )
+        assert "Your corrected survey does not pass every check." in retried
+        assert json.dumps(sent_back)[1:-1] in retried
+        assert "does not pass every check" not in _model_requests(mock)[1]
+    listed = [] if outcome != "correction_not_kept" else [labels, regions]
+    differences = list(range(4, 8)) if listed else []
+    assert [
+        issue.page_index for issue in survey.issues if issue.check == "rotation_differs"
+    ] == differences
+    assert [
+        (issue.message, issue.details, issue.page_index, issue.item_id, issue.step)
+        for issue in survey.issues
+        if issue.check == "verifier"
+    ] == [
+        (f"verifier: {text}", {"category": category}, page, None, "survey")
+        for category, text, page in listed
+    ]
+    assert len(survey.issues) == len(differences) + len(listed)
+
+
+def test_turning_the_survey_s_verifier_on_surveys_again_only_what_no_verifier_reviewed(
+    canned_answers: Callable[[str], dict[str, object]],
+    log_messages: list[tuple[str, str]],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_verdict: Callable[..., dict],
+) -> None:
+    """A survey made without a verifier is surveyed again once its verifier is on.
+
+    The estimate says the survey will run again. The new survey reuses the recorded
+    upload, and since the verifier passed it, the page files are reused. Turning the
+    verifier off, or on again, then reuses the reviewed survey with no request.
+    """
+
+    model = "openai:gpt-6.2-astra"
+    on = {"survey": {"verify": True}}
+    mock = mock_providers(**canned_answers(_SCAN), survey_verdicts=[survey_verdict()])
+    first = pydelity.run(pdf_path(_SCAN), model=model, output_dir="out", pause=False)
+    assert first.survey is not None
+    assert first.survey.verification is None
+    (finished,) = [m for _, m in log_messages if m.startswith("Survey finished:")]
+    assert "; no verifier; " in finished
+
+    estimate = pydelity.estimate(
+        pdf_path(_SCAN), advanced=on, model=model, output_dir="out", pause=False
+    )
+    before = len(mock.requests)
+    second = pydelity.run(
+        pdf_path(_SCAN), advanced=on, model=model, output_dir="out", pause=False
+    )
+
+    assert (estimate.steps[0].name, estimate.steps[0].reused) == ("survey", False)
+    sent = [(r.route, r.agent) for r in mock.requests[before:]]
+    assert sent == [("model", "surveyor"), ("model", "verifier")]
+    assert any(
+        m.startswith("No verifier reviewed the survey in ") for _, m in log_messages
+    )
+    assert second.survey is not None
+    assert second.survey.verification is not None
+    assert second.survey.verification.verdict.passed
+    assert second.survey.fingerprint == first.survey.fingerprint
+    assert second.pages == first.pages
+    for advanced in ({}, on):
+        before = len(mock.requests)
+        again = pydelity.run(
+            pdf_path(_SCAN), advanced=advanced, model=model, output_dir="out"
+        )
+        assert len(mock.requests) == before
+        assert again.survey == second.survey
 
 
 def test_user_languages_lead_and_rejected_model_tags_become_review_issues(

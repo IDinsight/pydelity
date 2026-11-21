@@ -303,3 +303,39 @@ def survey_answer() -> Callable[..., dict[str, object]]:
         return data
 
     return answer
+
+
+@pytest.fixture
+def survey_verdict() -> Callable[..., dict[str, object]]:
+    """Return a function that writes the survey verifier's verdict.
+
+    With no problems the verdict passed. With problems it did not pass, and it holds
+    the corrected answer when one is given.
+
+    Returns
+    -------
+    Callable[..., dict[str, object]]
+        Takes each problem as ``(category, description, page_index)`` and the
+        corrected answer, and returns the verdict as JSON-ready data.
+    """
+
+    def verdict(
+        *problems: tuple[str, str, int | None],
+        corrected: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Write a verdict with these problems and this correction."""
+
+        return {
+            "corrected": corrected,
+            "passed": not problems,
+            "problems": [
+                {
+                    "category": category,
+                    "description": description,
+                    "page_index": page_index,
+                }
+                for category, description, page_index in problems
+            ],
+        }
+
+    return verdict

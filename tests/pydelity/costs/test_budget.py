@@ -23,7 +23,11 @@ from pydantic_ai.usage import RequestUsage
 import pydelity
 
 from pydelity.config.schemas import ModelPrices
-from pydelity.costs.budget import SpendGuard
+from pydelity.costs.budget import (
+    TYPICAL_OUTPUT_TOKENS,
+    TYPICAL_SURVEY_VERDICT_OUTPUT_TOKENS,
+    SpendGuard,
+)
 from pydelity.costs.pricing import price_response
 from pydelity.costs.schemas import MaxCostWarning
 from pydelity.errors import BudgetExceededError, PydelityWarning
@@ -345,16 +349,17 @@ def test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing(
     canned_answers: Callable[[str], dict[str, object]],
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
+    survey_verdict: Callable[..., dict],
 ) -> None:
     """`estimate` sends nothing and writes nothing; after a full run it costs zero.
 
     Before the first run, the survey would pause the run, so only the survey is
-    estimated. After a run through both steps with the verifier on, the survey and
+    estimated. After a run through both steps with the verifiers on, the survey and
     every page file are reused, so no step's figures include a verifier. The
     estimate also reports the folder's spend so far.
     """
 
-    mock = mock_providers(**canned_answers(_SCAN))
+    mock = mock_providers(**canned_answers(_SCAN), survey_verdicts=[survey_verdict()])
 
     before = pydelity.estimate(pdf_path(_SCAN), max_cost="0.0001", output_dir="out")
 
@@ -550,3 +555,123 @@ def test_the_estimate_covers_page_extraction_and_its_verifier_only_when_it_runs(
         assert with_verifier.max_usd is not None
         assert without.expected_usd < with_verifier.expected_usd
         assert without.max_usd < with_verifier.max_usd
+
+
+def test_the_survey_estimate_prices_its_verifier_only_when_it_runs(
+    pdf_path: Callable[[str], Path],
+) -> None:
+    """The survey's estimate adds the verifier's requests only when it is on.
+
+    At one dollar per million tokens, each figure counts tokens. The expected cost is
+    one survey request with a typical answer, and the verifier adds one request that
+    reads a typical answer and gives a typical verdict. The maximum is the survey's
+    first request and its check retries, each with the longest answer and the earlier
+    answers in its input, and the verifier adds as many again, each also reading the
+    survey's longest answer. Both read the PDF, and the verifier's prompt is the
+    longer one.
+    """
+
+    models = {
+        "anthropic:claude-opus-5-5": {
+            "input_usd_per_mtok": "1",
+            "output_usd_per_mtok": "1",
+        }
+    }
+    off = pydelity.estimate(
+        pdf_path(_SCAN), advanced={"models": models}, output_dir="out"
+    )
+    on = pydelity.estimate(
+        pdf_path(_SCAN),
+        advanced={"models": models, "survey": {"verify": True}},
+        output_dir="out",
+    )
+
+    (without,) = off.steps
+    (with_verifier,) = on.steps
+    assert (without.verifier, without.requests_max) == (False, 3)
+    assert (with_verifier.verifier, with_verifier.requests_max) == (True, 6)
+    assert without.expected_usd is not None
+    assert without.max_usd is not None
+    assert with_verifier.expected_usd is not None
+    assert with_verifier.max_usd is not None
+    per_token = Decimal(1) / 1_000_000
+    pdf = 2 * PROFILES["anthropic"].pdf_tokens_per_page
+    # The defaults: 2 check retries, so 3 attempts, and 32,000 output tokens.
+    longest = 32_000
+    survey_prompt = without.expected_usd / per_token - pdf - TYPICAL_OUTPUT_TOKENS
+    survey_max = sum(
+        pdf + survey_prompt + attempt * longest + longest for attempt in range(3)
+    )
+    assert without.max_usd == survey_max * per_token
+    verifier_prompt = (
+        (with_verifier.expected_usd - without.expected_usd) / per_token
+        - pdf
+        - TYPICAL_OUTPUT_TOKENS
+        - TYPICAL_SURVEY_VERDICT_OUTPUT_TOKENS
+    )
+    verifier_max = sum(
+        pdf + verifier_prompt + (attempt + 1) * longest + longest
+        for attempt in range(3)
+    )
+    assert with_verifier.max_usd == (survey_max + verifier_max) * per_token
+    assert verifier_prompt > survey_prompt > 0
+    assert (on.expected_usd, on.max_usd) == (
+        with_verifier.expected_usd,
+        with_verifier.max_usd,
+    )
+
+
+def test_the_survey_verifier_s_highest_cost_counts_the_pdf_and_stops_it_unsent(
+    mock_providers: Callable[..., MockProviders],
+    monkeypatch: pytest.MonkeyPatch,
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """The verifier's request is checked against ``max_cost`` with the PDF counted.
+
+    With each PDF page priced far above the prompts, the run's expected cost passes
+    the check before spending. The survey's answer then costs more than expected, so
+    the check before the verifier's request stops the run with the request unsent.
+    Without the PDF's tokens, the request would fit under ``max_cost``.
+    """
+
+    monkeypatch.setitem(
+        PROFILES,
+        "anthropic",
+        dataclasses.replace(PROFILES["anthropic"], pdf_image_tokens_per_page=500_000),
+    )
+    settings: dict[str, object] = {
+        "advanced": {
+            "models": {
+                "anthropic:claude-opus-5-5": {
+                    "input_usd_per_mtok": "1",
+                    "output_usd_per_mtok": "1",
+                }
+            },
+            "survey": {"verify": True},
+        },
+        "output_dir": "out",
+    }
+    estimate = pydelity.estimate(pdf_path(_SCAN), config=settings)
+    assert estimate.expected_usd is not None
+    max_cost = estimate.expected_usd + Decimal("0.05")
+    mock = mock_providers(answers=[survey_answer()], input_tokens=2_000_000)
+
+    with (
+        pytest.raises(BudgetExceededError),
+        pytest.warns(PydelityWarning, match="could go over max_cost"),
+    ):
+        pydelity.run(pdf_path(_SCAN), config=settings, max_cost=max_cost)
+
+    assert [(r.route, r.agent) for r in mock.requests] == [
+        ("upload", None),
+        ("model", "surveyor"),
+    ]
+    record = pydelity.load("out").record
+    assert record is not None
+    assert record.status == "stopped"
+    (warning,) = record.warnings
+    assert (warning.step, warning.details["check"]) == ("survey", "request")
+    projected = Decimal(str(warning.details["projected_usd"]))
+    pdf_usd = Decimal(2 * PROFILES["anthropic"].pdf_tokens_per_page) / 1_000_000
+    assert projected - pdf_usd <= max_cost < projected

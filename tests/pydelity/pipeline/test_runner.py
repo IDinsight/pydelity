@@ -5,6 +5,8 @@ provider server, and checks what the later run reuses or redoes.
 """
 
 # Standard Library
+import json
+
 from collections.abc import Callable
 from pathlib import Path
 
@@ -14,7 +16,7 @@ import pytest
 # Package Library
 import pydelity
 
-from pydelity.errors import PydelityWarning, SurveyError
+from pydelity.errors import OutputError, PydelityWarning, SurveyError
 from tests.fixtures.mock_providers import MockProviders
 
 # The 2-page scanned test PDF, with no text layer.
@@ -99,6 +101,36 @@ def test_a_folder_holding_another_pdfs_results_gives_a_warning(
     assert set(files) == {"run.json", "pdf_facts.json"}
 
 
+def test_a_ledger_whose_lines_name_no_agent_is_damaged_and_stops_the_run(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """A ``cost.jsonl`` line with no agent does not validate.
+
+    Such a line before the last one makes the next run raise `OutputError` naming
+    it, before any request.
+    """
+
+    mock = mock_providers(answers=[survey_answer(languages=[]), survey_answer()])
+    advanced = {"survey": {"check_retries": 1}}
+    pydelity.run(pdf_path(_SCAN), advanced=advanced, output_dir="out")
+    ledger = Path("out/cost.jsonl")
+    lines = [json.loads(line) for line in ledger.read_text("utf-8").splitlines()]
+    assert [line["agent"] for line in lines] == ["surveyor", "surveyor"]
+    ledger.write_text(
+        "".join(json.dumps(line | {"agent": None}) + "\n" for line in lines), "utf-8"
+    )
+    before = len(mock.requests)
+
+    with pytest.raises(OutputError, match=r"cost\.jsonl: line 1 is damaged"):
+        pydelity.run(
+            pdf_path(_SCAN), advanced=advanced, output_dir="out", overwrite=True
+        )
+
+    assert len(mock.requests) == before
+
+
 def test_a_new_probe_version_measures_again_and_reruns_the_survey(
     mock_providers: Callable[..., MockProviders],
     monkeypatch: pytest.MonkeyPatch,
@@ -172,6 +204,34 @@ def test_a_rerun_with_unchanged_inputs_reuses_everything(
         "selected": 2,
     }
     assert second.record.cost.run_usd == 0
+
+
+def test_a_survey_saved_without_its_verification_is_damaged_and_made_again(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """A ``pdf_survey.json`` with no ``verification`` field is surveyed again.
+
+    The run warns that the file is damaged and writes a new survey that says no
+    verifier ran.
+    """
+
+    mock = mock_providers(answers=[survey_answer()])
+    pydelity.run(pdf_path(_SCAN), output_dir="out")
+    path = Path("out/pdf_survey.json")
+    saved = json.loads(path.read_text("utf-8"))
+    del saved["verification"]
+    path.write_text(json.dumps(saved), "utf-8")
+
+    with pytest.warns(PydelityWarning, match="running the survey again"):
+        result = pydelity.run(pdf_path(_SCAN), output_dir="out")
+
+    assert _model_requests(mock) == 2
+    assert result.record is not None
+    damaged = [w.details for w in result.record.warnings if w.code == "damaged_output"]
+    assert damaged == [{"file": "pdf_survey.json"}]
+    assert json.loads(path.read_text("utf-8"))["verification"] is None
 
 
 @pytest.mark.parametrize(
@@ -267,7 +327,8 @@ def test_run_json_records_each_step_its_pages_cost_and_review_issues(
 ) -> None:
     """``run.json`` holds a record per step, its pages, its cost and its issues.
 
-    With the verifier on, a verifier problem about an item is a review issue naming
+    With page extraction's verifier on, a verifier problem about an item is a review
+    issue naming
     the step, the page and the item's ID. Each page request is a ledger line with
     its page and agent, and a warning issued during page extraction names that step.
     """
@@ -285,7 +346,10 @@ def test_run_json_records_each_step_its_pages_cost_and_review_issues(
     }
     mock_providers(answers=answers["answers"], page_answers=page_answers)
 
-    first = pydelity.run(pdf_path(_SCAN), output_dir="out", pause=False, verify=True)
+    advanced = {"extraction": {"verify": True}}
+    first = pydelity.run(
+        pdf_path(_SCAN), advanced=advanced, output_dir="out", pause=False
+    )
 
     assert first.record is not None
     (issue,) = first.record.review
@@ -318,7 +382,7 @@ def test_run_json_records_each_step_its_pages_cost_and_review_issues(
     Path("out/pages/0000.json").write_text("{", encoding="utf-8")
 
     with pytest.warns(PydelityWarning, match="extracting page 1"):
-        second = pydelity.run(pdf_path(_SCAN), output_dir="out", verify=True)
+        second = pydelity.run(pdf_path(_SCAN), advanced=advanced, output_dir="out")
 
     assert second.record is not None
     (warning,) = second.record.warnings

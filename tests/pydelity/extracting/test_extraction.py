@@ -163,7 +163,8 @@ def _page_requests(mock: MockProviders) -> list[tuple[int | None, str | None]]:
     Returns
     -------
     list[tuple[int | None, str | None]]
-        Each model request's page index and agent, both ``None`` for the survey's.
+        Each model request's page index and agent, ``None`` and ``surveyor`` for the
+        survey's.
     """
 
     return [
@@ -673,13 +674,12 @@ def test_each_page_request_carries_one_upright_image_and_only_its_own_instructio
     (page,) = pydelity.extract(
         pdf,
         advanced={
-            "extraction": {"instructions": "Stamps are content."},
+            "extraction": {"instructions": "Stamps are content.", "verify": True},
             "survey": {"instructions": "Margin notes are content."},
         },
         model=model[provider],
         output_dir="out",
         pages="1",
-        verify=True,
     )
 
     survey, extractor, verifier = [
@@ -809,11 +809,11 @@ def test_page_files_rerun_only_when_their_inputs_change(
     overwritten = requests_for(advanced=instructions, overwrite=True, pages="1-3")
 
     both_pages = [(0, "extractor"), (1, "extractor")]
-    assert first == [*both_pages, (None, None)]
+    assert first == [*both_pages, (None, "surveyor")]
     assert instructions_changed == both_pages
     assert unchanged == []
     assert widened == [(2, "extractor")]
-    assert overwritten == [*both_pages, (2, "extractor"), (None, None)]
+    assert overwritten == [*both_pages, (2, "extractor"), (None, "surveyor")]
 
 
 def test_the_same_answer_gives_the_same_items_and_containers_again(
@@ -920,7 +920,9 @@ def test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues(
         page_answers={0: {"extractor": extraction, "verifier": verdict}},
     )
 
-    (page,) = pydelity.extract(pdf, output_dir="out", pages="1", verify=True)
+    (page,) = pydelity.extract(
+        pdf, advanced={"extraction": {"verify": True}}, output_dir="out", pages="1"
+    )
 
     agents = [agent for _, agent in _page_requests(mock)[1:]]
     verifier_requests = 1 if outcome == "passed" else 3
@@ -998,7 +1000,7 @@ def test_turning_the_verifier_on_extracts_again_only_pages_it_has_not_reviewed(
     kept, turned_off = extract({})
     _, turned_on_again = extract(verified)
 
-    assert first == [(0, "extractor"), (1, "extractor"), (None, None)]
+    assert first == [(0, "extractor"), (1, "extractor"), (None, "surveyor")]
     assert turned_on == [
         (0, "extractor"),
         (0, "verifier"),

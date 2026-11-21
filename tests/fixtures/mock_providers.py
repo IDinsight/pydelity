@@ -8,15 +8,16 @@ to a provider, so a run needs no real API key and costs nothing. The server answ
 - OpenAI: ``POST /v1/responses`` (Responses API) and ``POST /v1/files`` (Files API).
 
 A model request gets the next survey answer the caller gave, as the reply's text, with
-the caller's usage figures. A page extraction request, whose text names its page with
-``Page index N (``, gets that page's answer for the extraction model or, when its text
-holds the extraction to review, for the verifier, whatever order concurrent requests
-arrive in. An upload succeeds and gets a new file ID. A model request
-that names a file ID the server does not hold gets HTTP 404 naming that ID, which is how
-the providers answer once an upload has expired. Faults the caller adds make requests
-fail; temporary ones (408, 409, 429 and 5xx) carry a ``retry-after-ms`` header of one
-millisecond, which both SDKs honor, so retries do not wait. Every request is logged
-without its headers, so no key is ever recorded.
+the caller's usage figures. A request whose text holds the survey answer to review gets
+the next survey verdict the caller gave. A page extraction request, whose text names
+its page with ``Page index N (``, gets that page's answer for the extraction model or,
+when its text holds the extraction to review, for the verifier, whatever order
+concurrent requests arrive in. An upload succeeds and gets a new file ID. A model
+request that names a file ID the server does not hold gets HTTP 404 naming that ID,
+which is how the providers answer once an upload has expired. Faults the caller adds
+make requests fail; temporary ones (408, 409, 429 and 5xx) carry a ``retry-after-ms``
+header of one millisecond, which both SDKs honor, so retries do not wait. Every request
+is logged without its headers, so no key is ever recorded.
 
 The bodies follow the response types of the installed ``anthropic`` and ``openai``
 SDKs (``Message``, ``FileMetadata``, ``Response`` and ``FileObject``) and their error
@@ -88,11 +89,15 @@ _PAGE_LINE = re.compile(r"Page index (\d+) \(")
 # this long.
 _POLL_INTERVAL_SECONDS = 0.05
 
+# Text that only the survey verifier's requests hold: the heading of the survey answer
+# it reviews.
+_SURVEY_VERIFIER_TEXT = "The survey answer to review:"
+
 # HTTP status codes below 500 that the SDKs treat as temporary and retry.
 _TEMPORARY_STATUS_CODES = frozenset({408, 409, 429})
 
-# Text that only the verifier's requests hold: the heading of the extraction it
-# reviews.
+# Text that only page extraction's verifier requests hold: the heading of the
+# extraction it reviews.
 _VERIFIER_TEXT = "The extraction to review:"
 
 # The input tokens each model reply reports, unless the caller gives another figure.
@@ -105,11 +110,12 @@ DEFAULT_OUTPUT_TOKENS = 600
 # a run without a key, and the server never looks at it.
 PLACEHOLDER_KEY = "mock-provider-placeholder"
 
+# Which agent a model request comes from: ``surveyor`` or ``verifier`` for the survey,
+# ``extractor`` or ``verifier`` for page extraction.
+type Agent = Literal["extractor", "surveyor", "verifier"]
+
 # An answer to a model request: JSON data, sent as JSON, or text, sent as it is.
 type Answer = Mapping[str, object] | str
-
-# Which of page extraction's agents a page request comes from.
-type PageAgent = Literal["extractor", "verifier"]
 
 # Which provider's API a request is for.
 type Provider = Literal["anthropic", "openai"]
@@ -513,29 +519,6 @@ def _openai_response(*, answer: str, model: str, usage: tuple[int, int]) -> _Rep
     return _Reply(payload=payload, status=200)
 
 
-def _page_request(body: Mapping[str, object]) -> tuple[int, PageAgent] | None:
-    """Tell which page and agent a page extraction request is for.
-
-    Parameters
-    ----------
-    body
-        The model request's JSON body.
-
-    Returns
-    -------
-    tuple[int, PageAgent] | None
-        The page index and the agent, or ``None`` for a request that names no page,
-        such as the survey's.
-    """
-
-    text = json.dumps(body, ensure_ascii=False)
-    match = _PAGE_LINE.search(text)
-    if match is None:
-        return None
-    agent: PageAgent = "verifier" if _VERIFIER_TEXT in text else "extractor"
-    return int(match[1]), agent
-
-
 def _parse_json(body: bytes) -> dict[str, object]:
     """Read a JSON request body.
 
@@ -594,12 +577,33 @@ def _parse_upload(*, body: bytes, content_type: str) -> dict[str, object]:
     return {"fields": fields, **summary}
 
 
+def _request_agent(body: Mapping[str, object]) -> tuple[int | None, Agent]:
+    """Tell which page and agent a model request is for.
+
+    Parameters
+    ----------
+    body
+        The model request's JSON body.
+
+    Returns
+    -------
+    tuple[int | None, Agent]
+        The page index, or ``None`` for one of the survey's requests, and the agent.
+    """
+
+    text = json.dumps(body, ensure_ascii=False)
+    match = _PAGE_LINE.search(text)
+    if match is None:
+        return None, "verifier" if _SURVEY_VERIFIER_TEXT in text else "surveyor"
+    return int(match[1]), "verifier" if _VERIFIER_TEXT in text else "extractor"
+
+
 @dataclass(frozen=True)
 class RecordedRequest:
     """One request the server received, without its headers."""
 
-    agent: PageAgent | None
-    """For a page extraction request, the agent it came from; otherwise ``None``."""
+    agent: Agent | None
+    """For a model request, the agent it came from; otherwise ``None``."""
 
     body: dict[str, object]
     """The JSON body of a model request. For an upload, its ``fields`` and the file's
@@ -642,6 +646,10 @@ class MockProviders:
         ``verifier``): one answer, or a list whose next item each request for that
         page and agent gets, the last one repeating. A page request without an
         answer here gets HTTP 400.
+    survey_verdicts
+        The survey verifier's verdicts. Each survey verifier request gets the next
+        one; once they run out, the last one repeats. A survey verifier request with
+        none here gets HTTP 400.
     input_tokens
         The input tokens each model reply reports.
     output_tokens
@@ -670,6 +678,7 @@ class MockProviders:
         page_answers: Mapping[int, Mapping[str, Answer | Sequence[Answer]]]
         | None = None,
         port: int = 0,
+        survey_verdicts: Sequence[Answer] = (),
         verbose: bool = False,
     ) -> None:
         """Hold the answers and settings; nothing listens until `start`."""
@@ -694,6 +703,8 @@ class MockProviders:
         self._port = port
         self._requests: list[RecordedRequest] = []
         self._server: _Server | None = None
+        self._survey_verdicts = [_answer_text(item) for item in survey_verdicts]
+        self._survey_verdicts_sent = 0
         self._thread: threading.Thread | None = None
         self._usage = (input_tokens, output_tokens)
         self.verbose = verbose
@@ -780,7 +791,7 @@ class MockProviders:
             if route == "upload"
             else _parse_json(body)
         )
-        page = _page_request(parsed) if route == "model" else None
+        page_index, agent = _request_agent(parsed) if route == "model" else (None, None)
         with self._lock:
             if route == "model":
                 self._in_flight -= 1
@@ -798,9 +809,9 @@ class MockProviders:
                 reply = self._model_reply(body=parsed, provider=provider)
             self._requests.append(
                 RecordedRequest(
-                    agent=None if page is None else page[1],
+                    agent=agent,
                     body=parsed,
-                    page_index=None if page is None else page[0],
+                    page_index=page_index,
                     path=path,
                     provider=provider,
                     route=route,
@@ -823,8 +834,9 @@ class MockProviders:
         -------
         _Reply
             HTTP 404 naming the first file ID the server does not hold, or else the
-            page's answer for a page extraction request, or the next survey answer.
-            HTTP 400 when there is no such answer.
+            page's answer for a page extraction request, the next survey verdict for
+            a survey verifier request, or the next survey answer. HTTP 400 when there
+            is no such answer.
         """
 
         missing = [
@@ -837,24 +849,19 @@ class MockProviders:
                 message=f"File not found: {missing[0]}", provider=provider, status=404
             )
 
-        page = _page_request(body)
-        if page is not None:
-            answer = self._page_answer(*page)
-            if answer is None:
-                return _error(
-                    message=f"No {page[1]} answer for page index {page[0]} (mock "
-                    "provider)",
-                    provider=provider,
-                    status=400,
-                )
-        elif self._answers:
-            answer = self._answers[min(self._answers_sent, len(self._answers) - 1)]
-            self._answers_sent += 1
+        page_index, agent = _request_agent(body)
+        if page_index is not None:
+            answer = self._page_answer(page_index, agent)
+            wanted = f"{agent} answer for page index {page_index}"
+        elif agent == "verifier":
+            answer = self._survey_verdict()
+            wanted = "survey verdict"
         else:
+            answer = self._survey_answer()
+            wanted = "survey answer"
+        if answer is None:
             return _error(
-                message="No survey answer (mock provider)",
-                provider=provider,
-                status=400,
+                message=f"No {wanted} (mock provider)", provider=provider, status=400
             )
         model = str(body.get("model", "mock-model"))
         if provider == "anthropic":
@@ -884,6 +891,37 @@ class MockProviders:
         sent = self._page_answers_sent[key]
         self._page_answers_sent[key] += 1
         return answers[min(sent, len(answers) - 1)]
+
+    def _survey_answer(self) -> str | None:
+        """Take the next survey answer. Call with the lock held.
+
+        Returns
+        -------
+        str | None
+            The answer, the last one repeating, or ``None`` when there is none.
+        """
+
+        if not self._answers:
+            return None
+        answer = self._answers[min(self._answers_sent, len(self._answers) - 1)]
+        self._answers_sent += 1
+        return answer
+
+    def _survey_verdict(self) -> str | None:
+        """Take the next survey verdict. Call with the lock held.
+
+        Returns
+        -------
+        str | None
+            The verdict, the last one repeating, or ``None`` when there is none.
+        """
+
+        if not self._survey_verdicts:
+            return None
+        verdicts = self._survey_verdicts
+        verdict = verdicts[min(self._survey_verdicts_sent, len(verdicts) - 1)]
+        self._survey_verdicts_sent += 1
+        return verdict
 
     def _take_fault(self, route: Route) -> _Fault | None:
         """Use up one request of the first fault on a route. Call with the lock held.

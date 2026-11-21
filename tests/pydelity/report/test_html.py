@@ -201,7 +201,7 @@ def test_a_page_no_verifier_reviewed_says_so_in_the_report(
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
 ) -> None:
-    """With the verifier off, each page's details say that no verifier ran."""
+    """With the verifiers off, the survey's and each page's details say so."""
 
     answers = canned_answers("irs_form_1040a_1965_scan.pdf")
     page_answers = answers["page_answers"]
@@ -219,7 +219,7 @@ def test_a_page_no_verifier_reviewed_says_so_in_the_report(
     )
 
     html = Path("out/report.html").read_text(encoding="utf-8")
-    assert html.count("<dt>Verifier</dt><dd>no verifier ran</dd>") == 2
+    assert html.count("<dt>Verifier</dt><dd>no verifier ran</dd>") == 3
 
 
 def test_item_boxes_take_only_the_box_styles_and_the_item_list_keeps_its_own(
@@ -377,10 +377,10 @@ def test_report_draws_extracted_items_numbered_with_links_from_their_issues(
 
     pydelity.run(
         pdf_path("irs_form_1040a_1965_scan.pdf"),
+        advanced={"extraction": {"verify": True}},
         output_dir="out",
         pages="1",
         pause=False,
-        verify=True,
     )
 
     report = Path("out/report.html")

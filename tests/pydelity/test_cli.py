@@ -423,7 +423,7 @@ def test_pages_and_no_pause_extract_only_those_pages_in_one_run(
 
     assert result.exit_code == ExitCode.COMPLETED, result.output
     agents = [(r.page_index, r.agent) for r in mock.requests if r.route == "model"]
-    assert agents == [(None, None)] + [(1, "extractor")] * 3
+    assert agents == [(None, "surveyor")] + [(1, "extractor")] * 3
     record = _record()
     assert record.status == "completed"
     assert [(step.name, step.status) for step in record.steps] == [
@@ -516,21 +516,23 @@ def test_the_removed_instructions_option_is_an_unknown_option(
 
 
 @pytest.mark.parametrize("option", ["--verify", "-vf"])
-def test_verify_adds_a_verifier_request_for_each_page_and_to_the_estimate(
+def test_verify_adds_a_verifier_request_for_each_step_and_to_the_estimate(  # noqa: PLR0913, PLR0917 - fixtures
     canned_answers: Callable[[str], dict[str, object]],
     mock_providers: Callable[..., MockProviders],
     option: str,
     pdf_path: Callable[[str], Path],
     run_cli: Callable[..., Result],
+    survey_verdict: Callable[..., dict],
 ) -> None:
-    """``--verify`` and ``-vf`` turn page extraction's verifier on for the run.
+    """``--verify`` and ``-vf`` turn the survey's and page extraction's verifiers on.
 
-    The page gets a verifier request after its extraction, the estimate before
-    spending names the verifier and counts its requests, and the ledger and the page
-    file hold the verifier's review.
+    The survey and the page each get a verifier request after their own, the
+    estimate before spending names page extraction's verifier and counts its
+    requests, and the ledger, the survey and the page file hold the verifiers'
+    reviews.
     """
 
-    mock = mock_providers(**canned_answers(_SCAN))
+    mock = mock_providers(**canned_answers(_SCAN), survey_verdicts=[survey_verdict()])
 
     result = run_cli(
         [str(pdf_path(_SCAN)), "-y", "-d", "out", "-p", "2", "-np", option]
@@ -538,16 +540,58 @@ def test_verify_adds_a_verifier_request_for_each_page_and_to_the_estimate(
 
     assert result.exit_code == ExitCode.COMPLETED, result.output
     agents = [(r.page_index, r.agent) for r in mock.requests if r.route == "model"]
-    assert agents == [(None, None), (1, "extractor"), (1, "verifier")]
-    assert "Extraction with its verifier cost estimate: about $" in result.stderr
-    assert "(1 page, up to 6 requests to anthropic:claude-opus-5-5)" in result.stderr
-    loaded = pydelity.load("out")
-    assert [(line.page_index, line.agent) for line in loaded.ledger[1:]] == [
+    assert agents == [
+        (None, "surveyor"),
+        (None, "verifier"),
         (1, "extractor"),
         (1, "verifier"),
     ]
+    assert "Extraction with its verifier cost estimate: about $" in result.stderr
+    assert "(1 page, up to 6 requests to anthropic:claude-opus-5-5)" in result.stderr
+    loaded = pydelity.load("out")
+    assert [(line.step, line.page_index, line.agent) for line in loaded.ledger] == [
+        ("survey", None, "surveyor"),
+        ("survey", None, "verifier"),
+        ("extraction", 1, "extractor"),
+        ("extraction", 1, "verifier"),
+    ]
+    assert loaded.survey is not None
+    assert loaded.survey.verification is not None
     (page,) = loaded.pages
     assert page.verification is not None
+
+
+def test_verify_counts_the_survey_s_verifier_in_the_estimate_and_the_question(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    run_cli: Callable[..., Result],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """With ``--verify``, the estimate and the ``max_cost`` question count the verifier.
+
+    ``max_cost`` lies between the survey's expected cost without its verifier and
+    with it. The estimate line names the survey's verifier and counts its requests,
+    the run asks once, and answering no sends nothing.
+    """
+
+    without = pydelity.estimate(pdf_path(_SCAN), output_dir="out")
+    with_verifier = pydelity.estimate(pdf_path(_SCAN), output_dir="out", verify=True)
+    assert without.expected_usd is not None
+    assert with_verifier.expected_usd is not None
+    max_cost = (without.expected_usd + with_verifier.expected_usd) / 2
+    mock = mock_providers(answers=[survey_answer()])
+
+    result = run_cli(
+        [str(pdf_path(_SCAN)), "-d", "out", "-mc", f"{max_cost}", "--verify"],
+        input="n\n",
+        terminal=True,
+    )
+
+    assert result.exit_code == ExitCode.STOPPED, result.output
+    assert "Survey with its verifier cost estimate: about $" in result.stderr
+    assert "(up to 6 requests to anthropic:claude-opus-5-5)" in result.stderr
+    assert result.output.count(_OVER) == 1
+    assert mock.requests == []
 
 
 def test_without_a_terminal_or_yes_it_stops_before_spending(
