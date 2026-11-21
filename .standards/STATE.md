@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -30,20 +30,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `USER_REWORK` `From`: `DEVELOPING` `FailureType`: `ARCHITECTURE`
-`Reason`:
-`The user asked that the probe set an outline link to a missing object to null, so get_toc reads every remaining bookmark with no blank entry; the design's outline rule leaves such a link in place.`
+`Kind`: `RESUME` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`The outline rule now sets a First or Next link to a missing object to null, so get_toc reads every reachable bookmark with no blank entry; no rerun is needed before development resumes.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `DEVELOPING` `Owner`: `ARCHITECTING` `FailureType`: `ARCHITECTURE`
-`Reason`:
-`The user asked that the probe set an outline link to a missing object to null, so get_toc reads every remaining bookmark with no blank entry; the design's outline rule leaves such a link in place.`
-`ResumeAt`: `DEVELOPING` `RerunThrough`: `NONE`
+`Active`: `false`
 
 ## Outstanding Obligations
 

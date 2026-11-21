@@ -177,10 +177,10 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
     review-issue name `verifier` becomes shared by both steps in `review.py`.
 12. **The remaining fixes are made where each defect lives**, without raising
     `PROBE_VERSION`: `load()` filters page files by the facts' PDF hash, the
-    report renders a table's rows in one row group, the outline walk stops at
-    links to objects the PDF does not have, the form reader skips inline widgets
-    with a probe error, and the `TEXT_FLAGS` comment names the CropBox. Details
-    under **Remaining fixes**.
+    report renders a table's rows in one row group, the outline walk sets links
+    to objects the PDF does not have to null, the form reader skips inline
+    widgets with a probe error, and the `TEXT_FLAGS` comment names the CropBox.
+    Details under **Remaining fixes**.
 13. **Every module is reordered first, by moving whole definitions only.**
     Before any other build step, each Python module in `src/pydelity/`,
     `scripts/` and `tests/` is put in the order **Module order** defines. A move
@@ -506,9 +506,13 @@ verifier adds cost.
   boundary. `report.css` has no `thead` rule to move.
 - Outline links (`surveying/probe.py` `_cut_outline_cycle`): a `First` or `Next`
   link to an object number the PDF does not have (not between 1 and
-  `xref_length() - 1`) is not followed, and the walk carries on with the links
-  left, so PyMuPDF's `get_toc` reads the outline as it did before the cycle cut
-  existed. Developer confirms which PyMuPDF calls raise on such a number.
+  `xref_length() - 1`) is set to `null` in the open document, and the walk
+  carries on with the links left. `get_toc` then reads every entry it can reach,
+  in reading order. Left in place, such a link gives a blank entry (title `" "`,
+  page -1), and a missing `First` also drops the entries that follow its entry
+  at the same level (PyMuPDF 2.1). The missing object is never read, no probe
+  error is recorded and the file is not written. A cycle after the link is still
+  cut. Developer updates the function's docstring to match and may rename it.
 - Inline widgets (`surveying/probe.py` `_form`): an annotation whose object
   number is 0 (written inline in `/Annots`) cannot be loaded as a widget. It is
   skipped with one `form` probe error naming its page, without reading keys of
@@ -628,8 +632,10 @@ verifier adds cost.
   differs from the facts' PDF hash.
 - `AC-022`: a header cell whose `row_span` passes `header_rows` leaves every
   body cell in the column the page file gives it.
-- `AC-023`: an outline with a link to an object number past the PDF's objects
-  gives the bookmarks `get_toc` can read, not an empty list.
+- `AC-023`: an outline with a `First` or `Next` link to an object number past
+  the PDF's objects gives every bookmark reachable without that link, in reading
+  order, with no blank entry for the missing object and no probe error; with a
+  cycle after the link, the bookmarks are the same as without the cycle.
 - `AC-024`: a PDF with an inline widget keeps its other form fields, with one
   `form` probe error for the inline one.
 - `AC-025`: the `TEXT_FLAGS` comment names the CropBox.
@@ -713,6 +719,9 @@ are Documenter's.
   that folder stop with `OutputError` (decision 8). The real runs use new
   folders.
 - `load()` returns no page files for a folder without `pdf_facts.json`.
+- For a PDF whose outline links to a missing object, the bookmarks differ from
+  0.1.x's: the blank entry is gone, and a missing `First` no longer drops the
+  entries that follow its entry at the same level.
 - The reorder moves most of the code, so `git blame` points at it for moved
   lines; `git blame --ignore-rev` with its commit, or a `.git-blame-ignore-revs`
   file the user may add, hides it.
