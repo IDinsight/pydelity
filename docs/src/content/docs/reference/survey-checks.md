@@ -1,8 +1,8 @@
 ---
 title: Survey checks
 description:
-  The checks every survey answer goes through, and its comparisons with the
-  facts.
+  The checks every survey answer goes through, its comparisons with the facts,
+  and the survey verifier's review issues.
 sidebar:
   order: 10
 ---
@@ -11,9 +11,13 @@ sidebar:
 
 Each survey answer goes through checks C1 to C7. While retries remain
 (`advanced.survey.check_retries`), an answer that fails a check is sent back to
-the model with every failure listed; the last answer is kept as it is, and each
-check it still fails becomes a review issue. The accepted answer is then
-compared with the measured facts.
+the model with every failure listed, and the last answer is kept as it is. When
+the survey's verifier is on (`advanced.survey.verify`, or `verify`), it reviews
+the accepted answer and may give a corrected one, which goes through the same
+checks and is sent back to the verifier while retries remain. The correction
+replaces the answer only when it passes every check. Each check still failing on
+the kept answer becomes a review issue, and the kept answer is compared with the
+measured facts.
 
 ## Checks
 
@@ -67,3 +71,14 @@ comparison never changes the answer and never sends it back to the model.
   profile does not give.
 - `rotation_differs`: List the pages whose confident measured rotation the
   profile does not give.
+
+Each difference is a review issue, unless the verifier passed the answer or its
+correction was kept.
+
+## Other review issues
+
+### `verifier`
+
+A problem the survey's verifier found when its correction was not kept, because
+it gave no correction or its correction failed a check. The issue gives the
+problem's category and, when the problem is about one page, that page.

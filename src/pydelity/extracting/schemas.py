@@ -1,7 +1,7 @@
 """Page extraction's data: the model's answer, the verifier's verdict, the page file.
 
 `PageAnswer` is what the extraction model answers for one page, and `VerifierVerdict`
-what the verifier model answers about it. Like the survey's answer, they use only
+what the verifier answers about it. Like the survey's answer, they use only
 strings, integers, booleans, enums, lists and objects, with no patterns or bounds, so
 they fit both providers' structured output. Every item has the same fields, with the
 fields its kind does not use set to null; `pydelity.extracting.validators` checks

@@ -87,7 +87,7 @@ class ReviewIssue(_Output):
 
     It comes from a check that still failed on a step's accepted answer, from a
     difference between the accepted answer and what pydelity measured, or from a
-    problem found another way, such as by a verifier model.
+    problem found another way, such as by a step's verifier.
     """
 
     check: IssueName

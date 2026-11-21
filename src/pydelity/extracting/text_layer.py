@@ -1,10 +1,11 @@
 """A page's text layer, and the form text is compared in.
 
-The text layer is the text a PDF stores for a page, which the models never see: they
-read the page image. Page extraction compares the text layer's lines with the items'
-text to find text the answer dropped or added. It also finds where the page furniture
-the survey found sits on the page, from the stored text alone, so the furniture check
-compares boxes rather than text.
+The text layer is the text a PDF stores for a page. The models read the page image.
+Of the stored text, a page request carries only the page's repeated lines, and a
+retry message for a failed text check quotes the lines it is about. Page extraction
+compares the text layer's lines with the items' text to find text the answer dropped
+or added. It also finds where the page furniture the survey found sits on the page,
+from the stored text alone, so the furniture check compares boxes rather than text.
 
 Text is compared as overlapping runs of three characters, after Unicode NFKC
 normalization and case folding, keeping only letters, marks and digits. Spaces,

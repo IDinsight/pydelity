@@ -1,6 +1,8 @@
 ---
 title: cost.jsonl
-description: The fields of cost.jsonl and the figures the cost estimate uses.
+description:
+  The fields of cost.jsonl and of the cost estimate, and the figures the
+  estimate uses.
 sidebar:
   order: 8
 ---
@@ -41,6 +43,49 @@ One model request that returned a response, as a line of `cost.jsonl`.
 - `step` (string; required): The step that made the request, such as `survey`.
 - `timestamp` (date and time (ISO 8601); required): When the response arrived
   (UTC).
+
+## Cost estimate
+
+A run's likely and maximum cost, estimated before it spends anything.
+
+- `expected_usd` (number or null; required): The steps' likely cost; `None` when
+  a model is unpriced.
+- `max_cost` (number or null; required): The `max_cost` setting.
+- `max_usd` (number or null; required): The most the steps can cost; `None` when
+  a model is unpriced.
+- `over_max_cost` (boolean; required): Whether `max_cost` is set and either the
+  folder's spend plus `expected_usd` exceeds it or a model has no known price.
+  Each request is still checked against its own maximum before it is sent.
+- `priced` (boolean; required): Whether a price is known for every model the run
+  uses.
+- `spent_usd` (number; required): What the output folder's ledger has recorded
+  so far, from earlier runs.
+- `steps` (list of objects ([`steps[]`](#steps)); required): The estimate for
+  each step.
+- `warnings` (list of strings; required): Problems with the estimate, such as a
+  model with no known price.
+
+## `steps[]`
+
+The cost estimate for one step.
+
+- `expected_usd` (number or null; required): The likely cost: one request per
+  agent that runs (and per page, for a page step) with a typical answer; `None`
+  when unpriced.
+- `max_usd` (number or null; required): The most the step can cost: every
+  allowed retry, each with the longest answer allowed; `None` when unpriced.
+- `model` (string; required): The model, as `<provider>:<model-id>`.
+- `name` (string; required): The step, such as `survey`.
+- `pages` (integer or null; required): How many pages the step would send
+  requests about, for a page step; `None` for a step that reads the whole PDF at
+  once, such as the survey.
+- `requests_max` (integer; required): The most model requests the step can make
+  (provider retries aside).
+- `reused` (boolean; required): Whether the step's saved output will be reused,
+  so it costs nothing.
+- `verifier` (boolean; required): Whether `expected_usd`, `max_usd` and
+  `requests_max` include the step's verifier requests; `False` for a reused
+  step.
 
 ## Estimate constants
 

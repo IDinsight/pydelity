@@ -42,7 +42,7 @@ import pydelity
 from pydelity import cli, errors
 from pydelity.config.schemas import Config
 from pydelity.costs import budget
-from pydelity.costs.schemas import LedgerEntry
+from pydelity.costs.schemas import CostEstimate, LedgerEntry
 from pydelity.extracting import text_layer
 from pydelity.extracting import validators as extraction_checks
 from pydelity.extracting.schemas import PageFile
@@ -272,6 +272,24 @@ def _check_text(doc: str | None) -> str:
     for code, words in _CHECK_REFERENCES.items():
         text = text.replace(code, words)
     return text
+
+
+def _choices(values: list[object]) -> str:
+    """Name the values a field may take.
+
+    Parameters
+    ----------
+    values
+        The values, in order.
+
+    Returns
+    -------
+    str
+        Such as ``one of `low`, `high``` or, for one value, ```verifier```.
+    """
+
+    names = [f"`{value}`" for value in values]
+    return names[0] if len(names) == 1 else "one of " + ", ".join(names)
 
 
 def _constants(module: types.ModuleType) -> list[str]:
@@ -527,14 +545,14 @@ def _named_type(annotation: object, links: dict[type, str]) -> str:
     -------
     str
         Such as ``object ([`facts`](#facts))``, ``one of `text`, `table```, or
-        ``number``.
+        ``number``. An enum of one member is named by that member alone.
     """
 
     if annotation in links:
         path = links[annotation]  # ty: ignore[invalid-argument-type]
         return f"object ([`{path}`](#{_anchor(path)}))"
     if isinstance(annotation, type) and issubclass(annotation, Enum):
-        return "one of " + ", ".join(f"`{member.value}`" for member in annotation)
+        return _choices([member.value for member in annotation])
     return _SIMPLE_TYPES.get(
         annotation, getattr(annotation, "__name__", str(annotation))
     )
@@ -733,8 +751,8 @@ def _type_name(annotation: object, links: dict[type, str]) -> str:
     Returns
     -------
     str
-        Such as ``integer``, ``list of strings``, ``one of `low`, `high``` or
-        ``object ([`facts`](#facts))``.
+        Such as ``integer``, ``list of strings``, ``one of `low`, `high```,
+        ```verifier``` (a literal of one value) or ``object ([`facts`](#facts))``.
     """
 
     annotation = _unwrap(annotation)
@@ -745,7 +763,7 @@ def _type_name(annotation: object, links: dict[type, str]) -> str:
         suffix = " or null" if type(None) in args else ""
         return " or ".join(names) + suffix
     if origin is typing.Literal:
-        return "one of " + ", ".join(f"`{arg}`" for arg in args)
+        return _choices(list(args))
     if origin in {list, tuple, set, frozenset}:
         return _sequence_name(args, links)
     if origin is dict:
@@ -852,7 +870,7 @@ def configuration_page() -> _Page:
 
 
 def cost_page() -> _Page:
-    """Describe ``cost.jsonl`` and the constants the cost estimate uses.
+    """Describe ``cost.jsonl``, the cost estimate and the constants it uses.
 
     Returns
     -------
@@ -874,6 +892,7 @@ def cost_page() -> _Page:
                 "each model response pydelity received, in the order received."
             ),
             _models_page_body(LedgerEntry, "cost.jsonl line", {}),
+            _models_page_body(CostEstimate, "Cost estimate", {}),
             "## Estimate constants",
             _prose("The figures the cost estimate and the ``max_cost`` checks use."),
             "\n".join(_constants(budget)),
@@ -882,7 +901,10 @@ def cost_page() -> _Page:
     )
     return _Page(
         body=body,
-        description="The fields of cost.jsonl and the figures the cost estimate uses.",
+        description=(
+            "The fields of cost.jsonl and of the cost estimate, and the figures the "
+            "estimate uses."
+        ),
         name="cost-jsonl",
         order=8,
         title="cost.jsonl",
@@ -918,7 +940,9 @@ def extraction_checks_page() -> _Page:
                 "``text_added``. The page file's ``checks`` holds each check's result "
                 "on the kept answer. Each check it still fails becomes a review "
                 "issue, except ``text_dropped`` and ``text_added`` on a page the "
-                "verifier passes or whose correction is kept."
+                "verifier passes or whose correction is kept. With the verifier off "
+                "(``advanced.extraction.verify``, or ``verify``), every check still "
+                "failing is a review issue."
             ),
             "## Checks",
             *checks,
@@ -930,10 +954,10 @@ def extraction_checks_page() -> _Page:
             _prose(_check_text(extraction_checks.unmatched_labels.__doc__)),
             "### `verifier`",
             _prose(
-                "A problem the verifier model found on a page whose extraction it did "
-                "not replace, because it gave no correction or its correction failed a "
-                "check. The issue names the item or container the problem is about, "
-                "when there is one."
+                "A problem page extraction's verifier found on a page whose "
+                "extraction it did not replace, because it gave no correction or its "
+                "correction failed a check. The issue names the item or container the "
+                "problem is about, when there is one."
             ),
         ]
     )
@@ -1128,7 +1152,7 @@ def python_api_page() -> _Page:
 
 
 def survey_checks_page() -> _Page:
-    """Describe the survey's checks C1 to C7 and its comparisons with the facts.
+    """Describe the survey's checks C1 to C7, its comparisons and its verifier issue.
 
     Returns
     -------
@@ -1161,22 +1185,39 @@ def survey_checks_page() -> _Page:
             _prose(
                 "Each survey answer goes through checks C1 to C7. While retries remain "
                 "(``advanced.survey.check_retries``), an answer that fails a check is "
-                "sent back to the model with every failure listed; the last answer is "
-                "kept as it is, and each check it still fails becomes a review issue. "
-                "The accepted answer is then compared with the measured facts."
+                "sent back to the model with every failure listed, and the last answer "
+                "is kept as it is. When the survey's verifier is on "
+                "(``advanced.survey.verify``, or ``verify``), it reviews the accepted "
+                "answer and may give a corrected one, which goes through the same "
+                "checks and is sent back to the verifier while retries remain. The "
+                "correction replaces the answer only when it passes every check. Each "
+                "check still failing on the kept answer becomes a review issue, and "
+                "the kept answer is compared with the measured facts."
             ),
             "## Checks",
             *(text for _, text in sorted(checks)),
             "## Comparisons with the facts",
             _prose(compare_text),
             "\n".join(comparisons),
+            _prose(
+                "Each difference is a review issue, unless the verifier passed the "
+                "answer or its correction was kept."
+            ),
+            "## Other review issues",
+            "### `verifier`",
+            _prose(
+                "A problem the survey's verifier found when its correction was not "
+                "kept, because it gave no correction or its correction failed a check. "
+                "The issue gives the problem's category and, when the problem is about "
+                "one page, that page."
+            ),
         ]
     )
     return _Page(
         body=body,
         description=(
-            "The checks every survey answer goes through, and its comparisons with "
-            "the facts."
+            "The checks every survey answer goes through, its comparisons with the "
+            "facts, and the survey verifier's review issues."
         ),
         name="survey-checks",
         order=10,

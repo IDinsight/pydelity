@@ -7,7 +7,7 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 
 `Cycle`: `add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada`
 `Mode`: `STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`IN_PROGRESS` `Verification Cadence`: `INCREMENTAL` `Current Increment`: `4`
+`COMPLETE` `Verification Cadence`: `INCREMENTAL` `Current Increment`: `NONE`
 
 ## Implementation Contract
 
@@ -1167,7 +1167,7 @@ arm64, Python 3.13.9, `.venv`, PyMuPDF 2.1).
 
 ### DEV-011 — Docstrings, reference pages and the package description
 
-`Status`: `PENDING` `Depends On`:
+`Status`: `DONE` `Depends On`:
 `DEV-003, DEV-006, DEV-007, DEV-008, DEV-009, DEV-010` `Acceptance`:
 `AC-028, AC-030, AC-033, AC-034`
 
@@ -1183,9 +1183,9 @@ instructions, under plan revision 1), `src/pydelity/extracting/text_layer.py`
 (docstrings), `scripts/generate_reference_docs.py` (the hand-written check
 texts: the survey checks page gains `verifier`, and the extraction checks page's
 wording no longer calls the verifier a model or says it reviews every page; the
-generated type text says "one of" for a list of one name, such as `verifier`,
-and the `verification` fields say `None` where a JSON page means `null`), any
-other docstring or comment that still calls the verifier a model (such as in
+generated type text says "one of" for a list of one name, such as `verifier`;
+the `verification` fields' `None` wording was dropped, see Evidence), any other
+docstring or comment that still calls the verifier a model (such as in
 `src/pydelity/review.py` and `src/pydelity/extracting/schemas.py`),
 `pyproject.toml` (`description`), the generated pages under
 `docs/src/content/docs/reference/`.
@@ -1214,6 +1214,71 @@ other docstring or comment that still calls the verifier a model (such as in
 ruff, ty and interrogate; `uv build` and `twine check --strict` (or the
 `.venv/bin` equivalents where uv cannot write its cache);
 `python scripts/smoke_installed_wheel.py`; the full test and doctest run.
+
+**Evidence**
+
+Evidence, 2026-11-21, repo root, on `7311f93` plus the uncommitted DEV-011
+changes: `git diff HEAD -- src scripts examples docs pyproject.toml` has 163
+insertions and 57 deletions over 13 files, SHA-256 starting `b00a83ede04aedb0`
+(macOS arm64, Python 3.13.9, `.venv`).
+
+- Plan revision 1: the extraction model's instructions end "Your answer is
+  checked by code. You will be told what to fix if a check fails."
+  `PROMPT_VERSION` is unchanged.
+- Docstrings (`AC-034`): `extracting/prompts.py` and `extracting/text_layer.py`
+  now say what is sent:
+  - the page's repeated lines with their stored text, and its fillable form
+    fields with their values;
+  - in a retry message for a failed text check, the stored lines it is about;
+  - nothing else of the page's stored text.
+
+  `extracting/__init__.py`, `extracting/schemas.py` and `review.py` no longer
+  call the verifier a model or say it reviews every page. A search of `src/`,
+  `scripts/` and `pyproject.toml` finds no other such wording.
+
+- `scripts/generate_reference_docs.py`:
+  - A field that takes one literal or enum value is named by that value alone.
+    `IssueName` now reads "`no_matching_label`" and "`verifier`", not "one of
+    `verifier`".
+  - The extraction checks page says every failing check is listed with the
+    verifier off, and names "page extraction's verifier".
+  - The survey checks page describes the survey's verifier, says when the
+    differences from the facts are listed, and gains the `verifier` issue.
+  - The cost page gains the cost estimate (`CostEstimate` and `steps[]`,
+    `StepEstimate.verifier` included). The design expected the generator to pick
+    up `StepEstimate.verifier` by itself, but no page described the estimate.
+- The `verification` fields keep saying `None` when no verifier ran. That is how
+  41 other fields on the JSON pages word it, since docstrings serve the Python
+  and the JSON pages alike, so the earlier note to change only these two is
+  dropped.
+- `pyproject.toml`: the description says pydelity surveys a PDF and extracts its
+  pages with Anthropic or OpenAI models, "with an optional verifier for each
+  step" (`AC-030`'s package part). The README is Documenter's.
+- Reference pages, regenerated and formatted. The diff covers `cost-jsonl.md`,
+  `extraction-checks.md`, `page-json.md`, `pdf-survey-json.md`, `run-json.md`
+  and `survey-checks.md`, and reads as above. With the earlier steps' pages
+  (`configuration.md`, `cli.md`, `page-json.md`, `pdf-survey-json.md`,
+  `cost-jsonl.md`), the reference covers:
+  - the three settings and `--verify`/`-vf`;
+  - `PdfSurvey.verification` and its parts;
+  - the nullable `PageFile.verification`, `StepEstimate.verifier` and the
+    required `LedgerEntry.agent`;
+  - the survey's `verifier` issue (`AC-033`).
+- Build: `uv build --offline` into a temporary folder made
+  `pydelity-0.1.1-py3-none-any.whl` and `pydelity-0.1.1.tar.gz` from uv's cache,
+  with nothing downloaded. uv ran outside the sandbox, which blocks writes to
+  its cache. `.venv/bin/twine check --strict` passed both files; the wheel's
+  `Summary` is the new description, and it holds no `tests/`. The version is
+  0.1.1, since the release setup raises it (`AC-031`, not Developer's).
+- `ruff check`, `ruff format --check scripts src tests` (89 files),
+  `ty check scripts src tests` and `interrogate` clean; doctests 28 passed, 1
+  skipped; the module order check finds no new departure.
+- Tests: 205 passed, 2 failed, the same two rows recorded under DEV-010's
+  rework, for Tester.
+- Not run locally: `scripts/smoke_installed_wheel.py`. It installs the wheel's
+  dependencies from PyPI into a fresh environment. On 2026-11-21 the user chose
+  to leave it to CI, which runs it on Linux, macOS and Windows; Tester's full
+  verification assesses that result (`AC-028`).
 
 ---
 
@@ -1491,3 +1556,29 @@ Reconciled on `81d7dcd`:
 Suspended Assignment 1 is restored. DEV-010 reopens with the corrected outcome,
 then DEV-011 follows with plan revision 1. The DEV-010 evidence above describes
 the first version, which left such links in place.
+
+### Full completion
+
+- Ready: DEV-001 to DEV-011 are `DONE`, with their self-check evidence under
+  each step. The plan is `COMPLETE`, `Current Increment` is `NONE`, and the user
+  style `tony` stays locked. Plan revision 1 is approved and built:
+  - the extraction prompt sentence, in DEV-011;
+  - dangling outline links set to null, in DEV-010's rework, after Architect's
+    `81d7dcd`.
+- Assessed content: `126f52f..7311f93`, plus the uncommitted DEV-011 changes to
+  `src/`, `scripts/`, `docs/` and `pyproject.toml`. Those are
+  `git diff HEAD -- src scripts examples docs pyproject.toml`: 163 insertions
+  and 57 deletions over 13 files, SHA-256 starting `b00a83ede04aedb0`. If the
+  user commits them before Tester runs, the commit holds the same content.
+- Tests of the replaced contract: the two rows (`first`, `next`) of
+  `test_probe.py::test_outline_links_to_missing_objects_keep_the_bookmarks_pymupdf_reads`
+  expect the blank bookmark entry that the corrected outline rule removes. All
+  205 other tests pass.
+- Since Increment 4, the probe's outline walk and the extraction prompt changed.
+  `AC-023`'s Increment 4 evidence no longer applies, and `AC-028` (the wheel
+  smoke test) and Python 3.14 rest on CI.
+- Not Developer's: the README and the docs guides and FAQ (`AC-030`'s README
+  part, `AC-032`, `AC-034`'s FAQ part, `AC-035` to `AC-038`, Documenter); the
+  0.2.0 release setup (`AC-031`); the user's real runs (`AC-039`, `AC-040`). The
+  README still says "A second model reviews every page".
+- Next: Tester's full verification (`Assessment Purpose` `FULL`).

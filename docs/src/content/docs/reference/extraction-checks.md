@@ -17,7 +17,8 @@ verifier correction replaces the extraction when it passes every check other
 than `text_dropped` and `text_added`. The page file's `checks` holds each
 check's result on the kept answer. Each check it still fails becomes a review
 issue, except `text_dropped` and `text_added` on a page the verifier passes or
-whose correction is kept.
+whose correction is kept. With the verifier off (`advanced.extraction.verify`,
+or `verify`), every check still failing is a review issue.
 
 ## Checks
 
@@ -112,6 +113,6 @@ content goes on the review list instead.
 
 ### `verifier`
 
-A problem the verifier model found on a page whose extraction it did not
+A problem page extraction's verifier found on a page whose extraction it did not
 replace, because it gave no correction or its correction failed a check. The
 issue names the item or container the problem is about, when there is one.

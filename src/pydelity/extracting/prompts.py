@@ -4,9 +4,11 @@ Each prompt's instructions (the system message) are the same for every page of a
 run, so providers can cache them: the task, the item vocabulary, the PDF's labels,
 the rules an extraction follows and, last, the user's page extraction instructions.
 The text sent with each page image says which page it is and gives what the survey
-and the PDF's own data know about it: its writing direction, its repeated lines and
-its fillable form fields. The text the PDF stores for the page is never sent; the
-models read all text from the image.
+and the PDF's own data know about it: its writing direction, its repeated lines with
+the text the PDF stores for them, and its fillable form fields with their values.
+The rest of the page's stored text is not sent, and the models read the page's text
+from the image. A retry message for a failed text check quotes the stored lines it
+is about.
 
 No prompt names a document type, a language or a writing direction as a default.
 """
@@ -335,8 +337,8 @@ def extract_page(context: PageContext) -> PromptPair:
         "page as items in reading order. The image is the source of truth: give "
         "exactly what is on the page.\n\n"
         f"{_RULES}\n\n{_labels(context.labels)}\n\n"
-        "Your answer is checked by code and reviewed by a second model. You will be "
-        "told what to fix if a check fails."
+        "Your answer is checked by code. You will be told what to fix if a check "
+        "fails."
     )
     return PromptPair(
         system_message=_with_user_instructions(system_message, context.instructions),
