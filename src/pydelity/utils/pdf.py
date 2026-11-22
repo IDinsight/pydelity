@@ -1,4 +1,8 @@
-"""Opening a PDF: checking that it can be read and measuring its identity."""
+"""Opening a PDF and reading its text.
+
+`open_pdf` checks that a PDF can be read and measures its identity. `TEXT_FLAGS` is how
+every part of pydelity reads a page's stored text, so they all read the same text.
+"""
 
 # Standard Library
 import hashlib
@@ -11,6 +15,17 @@ import pymupdf
 
 # Package Library
 from pydelity.errors import PdfError
+
+# How a page's stored text is read: ligatures and whitespace as written, only text
+# inside the page's CropBox (PyMuPDF clips to the page's displayed area, despite the
+# flag's name), and no images. Without TEXT_USE_CID_FOR_UNKNOWN_UNICODE, a glyph
+# with no known character comes out as U+FFFD, which the survey's garbled-text
+# measure counts.
+TEXT_FLAGS = (
+    pymupdf.TEXT_PRESERVE_LIGATURES
+    | pymupdf.TEXT_PRESERVE_WHITESPACE
+    | pymupdf.TEXT_MEDIABOX_CLIP
+)
 
 
 def _count_pages(path: Path) -> int:

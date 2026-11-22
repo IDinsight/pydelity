@@ -3,8 +3,10 @@
 # Standard Library
 import html as html_text
 import os
+import re
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -16,6 +18,69 @@ from tests.fixtures.mock_providers import MockProviders
 
 # The 6-page fillable test form, with form fields and two repeated lines.
 _FORM = "irs_form_w9.pdf"
+
+# HTML elements that have no end tag.
+_VOID_TAGS = frozenset({"br", "hr", "img", "input", "link", "meta", "source", "wbr"})
+
+
+class _Ancestry(HTMLParser):
+    """Find an element by its ID, with its tag and classes and those of its parents."""
+
+    def __init__(self, element_id: str) -> None:
+        """Look for the element with this ID.
+
+        Parameters
+        ----------
+        element_id
+            The element's ``id``.
+        """
+
+        super().__init__()
+        self._element_id = element_id
+        self._open: list[tuple[str, frozenset[str]]] = []
+        self.chain: list[tuple[str, frozenset[str]]] = []
+
+    def handle_endtag(self, tag: str) -> None:
+        """Close the most recent element with this tag.
+
+        Parameters
+        ----------
+        tag
+            The tag's name.
+        """
+
+        for index in range(len(self._open) - 1, -1, -1):
+            if self._open[index][0] == tag:
+                del self._open[index:]
+                return
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Open an element, and keep the chain when it is the one looked for.
+
+        Parameters
+        ----------
+        tag
+            The tag's name.
+        attrs
+            Its attributes.
+        """
+
+        values = dict(attrs)
+        element = (tag, frozenset((values.get("class") or "").split()))
+        if values.get("id") == self._element_id:
+            self.chain = [*self._open, element]
+        if tag not in _VOID_TAGS:
+            self._open.append(element)
+
+
+@dataclass
+class _Cell:
+    """One cell of an HTML table, as written."""
+
+    col_span: int
+    row_span: int
+    tag: str
+    text: str = ""
 
 
 class _Links(HTMLParser):
@@ -48,6 +113,184 @@ class _Links(HTMLParser):
                 self.links.append(value)
 
 
+class _TableCells(HTMLParser):
+    """Collect the cells of a page's item tables, by row group and row."""
+
+    def __init__(self) -> None:
+        """Start with no cell read."""
+
+        super().__init__()
+        self._cell: _Cell | None = None
+        self._in_table = False
+        self.groups: list[list[list[_Cell]]] = []
+
+    def handle_data(self, data: str) -> None:
+        """Add text to the cell being read.
+
+        Parameters
+        ----------
+        data
+            The text.
+        """
+
+        if self._cell is not None:
+            self._cell.text += data
+
+    def handle_endtag(self, tag: str) -> None:
+        """Finish a cell or an item table.
+
+        Parameters
+        ----------
+        tag
+            The tag's name.
+        """
+
+        if tag in {"td", "th"}:
+            self._cell = None
+        elif tag == "table":
+            self._in_table = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Start an item table, a row group, a row or a cell.
+
+        Parameters
+        ----------
+        tag
+            The tag's name.
+        attrs
+            Its attributes.
+        """
+
+        values = dict(attrs)
+        if tag == "table":
+            self._in_table = "item-table" in (values.get("class") or "").split()
+        elif not self._in_table:
+            return
+        elif tag in {"tbody", "tfoot", "thead"}:
+            self.groups.append([])
+        elif tag == "tr":
+            if not self.groups:
+                self.groups.append([])
+            self.groups[-1].append([])
+        elif tag in {"td", "th"}:
+            self._cell = _Cell(
+                col_span=int(values.get("colspan") or 1),
+                row_span=int(values.get("rowspan") or 1),
+                tag=tag,
+            )
+            self.groups[-1][-1].append(self._cell)
+
+
+def _columns(groups: list[list[list[_Cell]]]) -> dict[str, int]:
+    """Place each cell in its column, as HTML does.
+
+    Cells fill each row from the left, skipping places that a cell above still
+    spans. A row span ends at the end of its row group.
+
+    Parameters
+    ----------
+    groups
+        The table's row groups, each a list of rows of cells.
+
+    Returns
+    -------
+    dict[str, int]
+        Each cell's text and its first column, counted from 0.
+    """
+
+    columns = {}
+    for rows in groups:
+        taken: set[tuple[int, int]] = set()
+        for row_number, cells in enumerate(rows):
+            column = 0
+            for cell in cells:
+                while (row_number, column) in taken:
+                    column += 1
+                columns[cell.text] = column
+                taken.update(
+                    (row, place)
+                    for row in range(row_number, row_number + cell.row_span)
+                    for place in range(column, column + cell.col_span)
+                )
+                column += cell.col_span
+    return columns
+
+
+def _css_rules(stylesheet: str) -> list[tuple[str, dict[str, str]]]:
+    """Read a stylesheet's rules, counting rules inside media queries as always on.
+
+    Parameters
+    ----------
+    stylesheet
+        The CSS.
+
+    Returns
+    -------
+    list[tuple[str, dict[str, str]]]
+        Each rule's selector list and its declarations by property.
+    """
+
+    text = re.sub(r"/\*.*?\*/", "", stylesheet, flags=re.DOTALL)
+    # Drop each media query's wrapper and keep the rules inside it.
+    text = re.sub(r"@media[^{]*\{((?:[^{}]*\{[^{}]*\})*)\s*\}", r"\1", text)
+    rules = []
+    for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", text):
+        declarations = {
+            name.strip(): value.strip()
+            for name, value in (
+                part.split(":", 1) for part in body.split(";") if ":" in part
+            )
+        }
+        rules.append((" ".join(selectors.split()), declarations))
+    return rules
+
+
+def _matches(selector: str, chain: list[tuple[str, frozenset[str]]]) -> bool:
+    """Tell whether a selector can apply to the last element of a chain.
+
+    Only tags, classes, and the descendant and child combinators are judged;
+    pseudo-classes, IDs and attribute selectors count as matching, so the answer
+    errs toward a rule applying.
+
+    Parameters
+    ----------
+    selector
+        One selector, such as ``.items > .item:target``.
+    chain
+        The element's tag and classes, after those of its parents from the root.
+
+    Returns
+    -------
+    bool
+        Whether the selector matches.
+    """
+
+    parts = re.split(r"\s*(>)\s*|\s+", selector.strip())
+    tokens = [part for part in parts if part]
+
+    def compound_fits(compound: str, element: tuple[str, frozenset[str]]) -> bool:
+        """Tell whether one compound selector fits one element."""
+
+        bare = re.sub(r"::?[\w-]+(\([^)]*\))?|\[[^]]*\]|#[\w-]+", "", compound)
+        tag = re.match(r"[a-z][\w-]*|\*", bare)
+        classes = set(re.findall(r"\.([\w-]+)", bare))
+        tag_fits = tag is None or tag[0] in {"*", element[0]}
+        return tag_fits and classes <= element[1]
+
+    def fits(position: int, depth: int) -> bool:
+        """Match the tokens up to a position against the chain up to a depth."""
+
+        if not compound_fits(tokens[position], chain[depth]):
+            return False
+        if position == 0:
+            return True
+        if tokens[position - 1] == ">":
+            return depth > 0 and fits(position - 2, depth - 1)
+        return any(fits(position - 1, above) for above in range(depth))
+
+    return fits(len(tokens) - 1, len(chain) - 1)
+
+
 def _parse(path: Path) -> _Links:
     """Parse an HTML file.
 
@@ -65,6 +308,338 @@ def _parse(path: Path) -> _Links:
     parser = _Links()
     parser.feed(path.read_text(encoding="utf-8"))
     return parser
+
+
+def test_a_header_cell_spanning_into_the_body_keeps_each_body_cell_in_its_column(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """A table's rows share one row group, so a header cell can span the body.
+
+    The header row's first cell spans all three rows. Placed as a browser places
+    them, the report's cells land in the columns the page file gives them, header
+    cells as ``th`` and body cells as ``td``.
+    """
+
+    def cell(text: str, row_span: int = 1) -> dict[str, object]:
+        """Write one table cell."""
+
+        return {"col_span": 1, "row_span": row_span, "text": text}
+
+    table = {
+        "header_rows": 1,
+        "rows": [
+            [cell("Section", row_span=3), cell("Item"), cell("Amount")],
+            [cell("b1"), cell("c1")],
+            [cell("b2"), cell("c2")],
+        ],
+    }
+    item = dict.fromkeys(
+        ["caption_of", "container", "entries", "field", "figure", "latex", "text"]
+    ) | {
+        "box": [100, 100, 900, 400],
+        "kind": "table",
+        "label": "Table",
+        "language": "en",
+        "ref": "tab",
+        "role": "body",
+        "table": table,
+    }
+    labels = [
+        {"description": "Text.", "kinds": ["text"], "name": "Body", "role": "body"},
+        {"description": "Grid.", "kinds": ["table"], "name": "Table", "role": "body"},
+    ]
+    mock_providers(
+        answers=[survey_answer(labels=labels)],
+        page_answers={
+            0: {
+                "extractor": {
+                    "column_order": None,
+                    "containers": [],
+                    "items": [item],
+                }
+            }
+        },
+    )
+
+    pydelity.run(
+        pdf_path("irs_form_1040a_1965_scan.pdf"),
+        output_dir="out",
+        pages="1",
+        pause=False,
+    )
+
+    (page,) = pydelity.load("out").pages
+    (saved,) = [item.table for item in page.items if item.table is not None]
+    rows = [
+        [
+            _Cell(col_span=c.col_span, row_span=c.row_span, tag="", text=c.text or "")
+            for c in row
+        ]
+        for row in saved.rows
+    ]
+    parser = _TableCells()
+    parser.feed(Path("out/report.html").read_text(encoding="utf-8"))
+    assert _columns([rows]) == {
+        "Section": 0,
+        "Item": 1,
+        "Amount": 2,
+        "b1": 1,
+        "c1": 2,
+        "b2": 1,
+        "c2": 2,
+    }
+    assert _columns(parser.groups) == _columns([rows])
+    cells = [cell for group in parser.groups for row in group for cell in row]
+    assert [(cell.text, cell.tag) for cell in cells] == [
+        ("Section", "th"),
+        ("Item", "th"),
+        ("Amount", "th"),
+        ("b1", "td"),
+        ("c1", "td"),
+        ("b2", "td"),
+        ("c2", "td"),
+    ]
+
+
+def test_a_page_no_verifier_reviewed_says_so_in_the_report(
+    canned_answers: Callable[[str], dict[str, object]],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+) -> None:
+    """With the verifiers off, the survey's and each page's details say so."""
+
+    answers = canned_answers("irs_form_1040a_1965_scan.pdf")
+    page_answers = answers["page_answers"]
+    assert isinstance(page_answers, dict)
+    mock_providers(
+        answers=answers["answers"],
+        page_answers={
+            index: {"extractor": by_agent["extractor"]}
+            for index, by_agent in page_answers.items()
+        },
+    )
+
+    pydelity.run(
+        pdf_path("irs_form_1040a_1965_scan.pdf"), output_dir="out", pause=False
+    )
+
+    html = Path("out/report.html").read_text(encoding="utf-8")
+    assert html.count("<dt>Verifier</dt><dd>no verifier ran</dd>") == 3
+
+
+def test_item_boxes_take_only_the_box_styles_and_the_item_list_keeps_its_own(
+    canned_answers: Callable[[str], dict[str, object]],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+) -> None:
+    """The item list's styles stay off the boxes drawn over the page image.
+
+    No rule that can apply to an item's box gives it padding, which would draw a
+    short item taller than its box, and the box a review issue links to is shaded
+    with the see-through target color. The item's entry in the list keeps its
+    padding and its own highlight.
+    """
+
+    mock_providers(**canned_answers("irs_form_1040a_1965_scan.pdf"))
+    pydelity.run(
+        pdf_path("irs_form_1040a_1965_scan.pdf"),
+        output_dir="out",
+        pages="1",
+        pause=False,
+    )
+    html = Path("out/report.html").read_text(encoding="utf-8")
+    stylesheet = html[html.index("<style>") + 7 : html.index("</style>")]
+    rules = _css_rules(stylesheet)
+
+    def applied(element_id: str) -> list[tuple[str, dict[str, str]]]:
+        """List the rules with a selector that can apply to an element."""
+
+        finder = _Ancestry(element_id)
+        finder.feed(html)
+        assert finder.chain, element_id
+        return [
+            (selectors, declarations)
+            for selectors, declarations in rules
+            if any(_matches(one, finder.chain) for one in selectors.split(","))
+        ]
+
+    box = applied("box-p0000-001")
+    entry = applied("item-p0000-001")
+
+    assert any(".box.item" in selectors for selectors, _ in box)
+    assert [
+        (selectors, name)
+        for selectors, declarations in box
+        for name in declarations
+        if name.startswith("padding")
+    ] == []
+    assert [
+        declarations.get("background")
+        for selectors, declarations in box
+        if ":target" in selectors
+    ] == ["var(--target)"]
+    assert any("padding-block" in declarations for _, declarations in entry)
+    assert "var(--highlight)" in [
+        declarations.get("background")
+        for selectors, declarations in entry
+        if ":target" in selectors
+    ]
+
+
+def test_page_images_are_rendered_only_when_missing(
+    canned_answers: Callable[[str], dict[str, object]],
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+) -> None:
+    """A rerun keeps the page images it has and renders only a missing one.
+
+    The rerun reuses the survey and goes on to extract the pages.
+    """
+
+    mock_providers(**canned_answers("irs_form_1040a_1965_scan.pdf"))
+    pydelity.run(pdf_path("irs_form_1040a_1965_scan.pdf"), output_dir="out")
+    first, second = Path("out/report/pages/0000.jpg"), Path("out/report/pages/0001.jpg")
+    os.utime(first, (1_000_000_000, 1_000_000_000))
+    os.utime(second, (1_000_000_000, 1_000_000_000))
+    second.unlink()
+
+    pydelity.run(pdf_path("irs_form_1040a_1965_scan.pdf"), output_dir="out")
+
+    assert first.stat().st_mtime == 1_000_000_000
+    assert second.is_file()
+    assert second.stat().st_mtime > 1_000_000_000
+
+
+def test_report_draws_extracted_items_numbered_with_links_from_their_issues(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """An extracted page shows its items' numbered boxes, containers and item list.
+
+    Each box links to the item's entry, which shows its content and, for a figure,
+    the crop. A review issue about an item, here the verifier's, marks its box and
+    links to it, and the page's details give the verifier's outcome.
+    """
+
+    def item(**fields: object) -> dict[str, object]:
+        """Write one answer item: body text unless the fields say otherwise."""
+
+        empty = dict.fromkeys(
+            ["caption_of", "container", "entries", "field", "figure", "latex", "table"]
+        )
+        return (
+            empty
+            | {
+                "kind": "text",
+                "label": "Body",
+                "language": "en",
+                "role": "body",
+                "text": None,
+            }
+            | fields
+        )
+
+    labels = [
+        {"description": "Text.", "kinds": ["text"], "name": "Body", "role": "body"},
+        {"description": "Art.", "kinds": ["figure"], "name": "Figure", "role": "body"},
+        {"description": "Other.", "kinds": ["text"], "name": "other", "role": "body"},
+    ]
+    answer = {
+        "column_order": None,
+        "containers": [
+            {
+                "box": [50, 150, 950, 700],
+                "container": None,
+                "label": "Body",
+                "ref": "c1",
+            }
+        ],
+        "items": [
+            item(box=[100, 50, 900, 100], ref="t1", text="<i>Income</i> & tax"),
+            item(
+                box=[100, 200, 900, 650],
+                container="c1",
+                figure={"description": "A seal.", "text": None},
+                kind="figure",
+                label="Figure",
+                language=None,
+                ref="pic",
+            ),
+        ],
+    }
+    verdict = {
+        "corrected": None,
+        "passed": False,
+        "problems": [
+            {"category": "box", "description": "The seal is larger.", "item_ref": "pic"}
+        ],
+    }
+    mock_providers(
+        answers=[survey_answer(labels=labels)],
+        page_answers={0: {"extractor": answer, "verifier": verdict}},
+    )
+
+    pydelity.run(
+        pdf_path("irs_form_1040a_1965_scan.pdf"),
+        advanced={"extraction": {"verify": True}},
+        output_dir="out",
+        pages="1",
+        pause=False,
+    )
+
+    report = Path("out/report.html")
+    html = report.read_text(encoding="utf-8")
+    parsed = _parse(report)
+    assert 'class="box item" id="box-p0000-001" href="#item-p0000-001"' in html
+    assert '<span class="box-label">1</span>' in html
+    assert 'class="box item flagged" id="box-p0000-002" href="#item-p0000-002"' in html
+    assert '<span class="box-label">2 !</span>' in html
+    assert 'class="box container" id="box-p0000-c01"' in html
+    assert '<li class="item" id="item-p0000-002">' in html
+    assert "in container" in html
+    assert "figures/p0000-002.png" in parsed.images
+    assert Path("out/figures/p0000-002.png").is_file()
+    assert "&lt;i&gt;Income&lt;/i&gt; &amp; tax" in html
+    assert "verifier: The seal is larger." in html
+    assert "#box-p0000-002" in parsed.links
+    assert "found 1 problem, listed for review" in html
+    assert "box-p0001-001" not in html
+
+
+def test_report_escapes_text_from_the_pdf_the_user_and_the_model(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """Markup in instructions and in the model's labels is shown, never run."""
+
+    labels = [
+        {
+            "description": "<img src=x onerror=alert(2)>",
+            "kinds": ["text"],
+            "name": "<b>Bold</b>",
+            "role": "body",
+        }
+    ]
+    mock_providers(answers=[survey_answer(labels=labels)])
+
+    pydelity.run(
+        pdf_path("irs_form_1040a_1965_scan.pdf"),
+        advanced={"survey": {"instructions": "<script>alert(1)</script>"}},
+        output_dir="out",
+    )
+
+    html = Path("out/report.html").read_text(encoding="utf-8")
+    parsed = _parse(Path("out/report.html"))
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "<b>Bold</b>" not in html
+    assert "&lt;b&gt;Bold&lt;/b&gt;" in html
+    assert "x" not in parsed.images
+    assert "script" not in parsed.tags
 
 
 def test_report_shows_every_page_with_findings_and_needs_no_network(
@@ -116,57 +691,3 @@ def test_report_shows_every_page_with_findings_and_needs_no_network(
     assert result.facts is not None
     for line in result.facts.summary:
         assert html_text.escape(line) in html
-
-
-def test_report_escapes_text_from_the_pdf_the_user_and_the_model(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """Markup in instructions and in the model's labels is shown, never run."""
-
-    labels = [
-        {
-            "description": "<img src=x onerror=alert(2)>",
-            "kinds": ["text"],
-            "name": "<b>Bold</b>",
-            "role": "body",
-        }
-    ]
-    mock_providers(answers=[survey_answer(labels=labels)])
-
-    pydelity.run(
-        pdf_path("irs_form_1040a_1965_scan.pdf"),
-        instructions="<script>alert(1)</script>",
-        output_dir="out",
-    )
-
-    html = Path("out/report.html").read_text(encoding="utf-8")
-    parsed = _parse(Path("out/report.html"))
-    assert "<script>alert(1)</script>" not in html
-    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
-    assert "<b>Bold</b>" not in html
-    assert "&lt;b&gt;Bold&lt;/b&gt;" in html
-    assert "x" not in parsed.images
-    assert "script" not in parsed.tags
-
-
-def test_page_images_are_rendered_only_when_missing(
-    mock_providers: Callable[..., MockProviders],
-    pdf_path: Callable[[str], Path],
-    survey_answer: Callable[..., dict],
-) -> None:
-    """A rerun keeps the page images it has and renders only a missing one."""
-
-    mock_providers(answers=[survey_answer()])
-    pydelity.run(pdf_path("irs_form_1040a_1965_scan.pdf"), output_dir="out")
-    first, second = Path("out/report/pages/0000.jpg"), Path("out/report/pages/0001.jpg")
-    os.utime(first, (1_000_000_000, 1_000_000_000))
-    os.utime(second, (1_000_000_000, 1_000_000_000))
-    second.unlink()
-
-    pydelity.run(pdf_path("irs_form_1040a_1965_scan.pdf"), output_dir="out")
-
-    assert first.stat().st_mtime == 1_000_000_000
-    assert second.is_file()
-    assert second.stat().st_mtime > 1_000_000_000

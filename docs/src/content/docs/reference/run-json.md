@@ -2,7 +2,7 @@
 title: run.json
 description: Every field of run.json.
 sidebar:
-  order: 6
+  order: 7
 ---
 
 <!-- Generated from pydelity's code by scripts/generate_reference_docs.py. Run `just docs-reference` instead of editing this file. -->
@@ -30,8 +30,8 @@ The contents of `run.json`: one run on one PDF.
 - `settings` (map of string to any value; required): The resolved settings,
   which hold no API keys.
 - `started_at` (date and time (ISO 8601); required): When the run started (UTC).
-- `status` (one of `running`, `completed`, `failed`, `stopped`, `interrupted`;
-  required): How the run ended, or `running`.
+- `status` (one of `running`, `completed`, `paused`, `failed`, `stopped`,
+  `interrupted`; required): How the run ended, or `running`.
 - `steps` (list of objects ([`steps[]`](#steps)); required): What each step did.
 - `warnings` (list of objects ([`warnings[]`](#warnings)); required): The
   user-facing warnings, in the order they were issued.
@@ -61,16 +61,26 @@ The PDF a run processed.
 
 A problem a person should review.
 
-- `check` (one of `labels`, `regions`, `rotation`, `page_numbering`,
-  `artifacts`, `writing_direction`, `languages` or one of `rotation_differs`,
-  `page_number_differs`; required): The check or comparison that found the
-  problem.
+- `check` (one of `labels`, `content`, `languages`, `boxes`, `containers`,
+  `captions` or one of `reading_order`, `artifacts`, `form_fields`,
+  `text_dropped`, `text_added` or `no_matching_label` or one of `labels`,
+  `regions`, `rotation`, `page_numbering`, `artifacts`, `writing_direction`,
+  `languages` or one of `rotation_differs`, `page_number_differs` or `verifier`;
+  required): What found the problem: a check, a hint or another source. `step`
+  says whose, since two steps can have checks and hints of the same name.
 - `details` (map of string to any value; required): The values the problem is
-  about, such as `{"measured": 90, "profile": 0}`.
+  about. A survey hint gives values such as `{"measured": 90, "profile": 0}`,
+  and a check gives its failure's `details`, such as `{"item_ref": "t3"}` on a
+  page. A `no_matching_label` issue gives the `kind` and `role` that no label
+  fits, with the items' refs and IDs (`item_refs`, `item_ids`). A `verifier`
+  issue gives the problem's `category`, and on a page its `item_ref`.
+- `item_id` (string or null; required): The item the problem is about, or `None`
+  when no single item applies.
 - `message` (string; required): What is wrong.
 - `page_index` (integer or null; required): The page the problem is on, or
   `None` when no single page applies.
-- `step` (one of `survey`; required): The step whose check found the problem.
+- `step` (one of `survey`, `extraction`; required): The step whose check found
+  the problem.
 
 ## `steps[]`
 
@@ -84,6 +94,10 @@ What one step of a run did.
 - `name` (string; required): The step, such as `survey`.
 - `outputs` (list of strings; required): The files the step wrote or reused, by
   name.
+- `pages` (object ([`steps[].pages`](#stepspages)) or null; required): How many
+  pages the step selected, extracted and reused; `None` for a step that reads
+  the whole PDF at once, such as the survey, and for a page extraction step that
+  was skipped.
 - `pdf_transport` (one of `upload`, `request` or null; required): How the PDF
   went to the model: `upload` or `request`; `None` when no request carried it.
 - `requests` (integer; required): How many model requests the step made in this
@@ -105,3 +119,13 @@ A user-facing warning the run issued.
 - `message` (string; required): The warning's text.
 - `step` (string or null; required): The step that issued it, or `None` when no
   step was running.
+
+## `steps[].pages`
+
+How many pages a page step selected, extracted and reused.
+
+- `extracted` (integer; required): The selected pages extracted in this run.
+- `reused` (integer; required): The selected pages whose saved output was
+  reused.
+- `selected` (integer; required): The pages selected with `pages`; every page
+  when it is unset.

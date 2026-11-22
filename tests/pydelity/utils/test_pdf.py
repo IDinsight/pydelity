@@ -13,26 +13,6 @@ from pydelity.errors import PdfError
 from pydelity.utils.pdf import open_pdf
 
 
-def test_an_empty_file_is_not_a_pdf(tmp_path: Path) -> None:
-    """An empty file raises `PdfError` naming the file and the reason."""
-
-    path = tmp_path / "empty.pdf"
-    path.touch()
-
-    with pytest.raises(PdfError, match=r"empty\.pdf: the file is empty"):
-        open_pdf(path)
-
-
-def test_a_text_file_named_pdf_cannot_be_opened(tmp_path: Path) -> None:
-    """A file that is not a PDF raises `PdfError` naming the file and the reason."""
-
-    path = tmp_path / "notes.pdf"
-    path.write_text("These are notes, not a PDF.\n", encoding="utf-8")
-
-    with pytest.raises(PdfError, match=r"notes\.pdf: cannot be opened as a PDF"):
-        open_pdf(path)
-
-
 def test_a_password_protected_pdf_is_refused(
     pdf_path: Callable[[str], Path], tmp_path: Path
 ) -> None:
@@ -48,4 +28,24 @@ def test_a_password_protected_pdf_is_refused(
         )
 
     with pytest.raises(PdfError, match=r"locked\.pdf: .*password-protected"):
+        open_pdf(path)
+
+
+def test_a_text_file_named_pdf_cannot_be_opened(tmp_path: Path) -> None:
+    """A file that is not a PDF raises `PdfError` naming the file and the reason."""
+
+    path = tmp_path / "notes.pdf"
+    path.write_text("These are notes, not a PDF.\n", encoding="utf-8")
+
+    with pytest.raises(PdfError, match=r"notes\.pdf: cannot be opened as a PDF"):
+        open_pdf(path)
+
+
+def test_an_empty_file_is_not_a_pdf(tmp_path: Path) -> None:
+    """An empty file raises `PdfError` naming the file and the reason."""
+
+    path = tmp_path / "empty.pdf"
+    path.touch()
+
+    with pytest.raises(PdfError, match=r"empty\.pdf: the file is empty"):
         open_pdf(path)

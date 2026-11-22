@@ -22,7 +22,7 @@ _MAX_PROBLEMS_SHOWN = 3
 # A temporary file is named `<target name>.tmp-<16 hex digits>`.
 _TEMP_INFIX = ".tmp-"
 
-# Matches only the temporary files that `write_text_atomic` creates, so cleanup does
+# Matches only the temporary files that `write_bytes_atomic` creates, so cleanup does
 # not delete a user's file that happens to have ".tmp-" in its name.
 _TEMP_NAME = re.compile(rf"{re.escape(_TEMP_INFIX)}[0-9a-f]{{16}}$")
 
@@ -112,7 +112,7 @@ def remove_stale_temp_files(folder: Path) -> list[Path]:
     """Delete temporary files that an interrupted write left in a folder.
 
     Only the folder itself is searched, not its subfolders, and only names that
-    `write_text_atomic` creates are removed.
+    `write_bytes_atomic` creates are removed.
 
     Parameters
     ----------
@@ -136,6 +136,38 @@ def remove_stale_temp_files(folder: Path) -> list[Path]:
     return removed
 
 
+def write_bytes_atomic(*, data: bytes, path: Path) -> None:
+    """Write bytes to a file atomically.
+
+    The bytes go to a temporary file in the same folder, which is flushed, synced to
+    disk and then moved over the target with `os.replace`. If anything fails, the
+    temporary file is removed and the target is left as it was.
+
+    Parameters
+    ----------
+    data
+        The bytes to write.
+    path
+        The file to write; its folder must exist.
+    """
+
+    temp_path = path.with_name(f"{path.name}{_TEMP_INFIX}{secrets.token_hex(8)}")
+    # O_EXCL never reuses an existing file; O_BINARY (Windows only) stops the C runtime
+    # from turning "\n" into "\r\n". Mode 0o666 lets the umask set the permissions, as
+    # for any newly created file.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(temp_path, flags, 0o666)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    except BaseException:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
 def write_model_atomic(*, model: BaseModel, path: Path) -> None:
     """Write a Pydantic model to a JSON file atomically.
 
@@ -151,11 +183,9 @@ def write_model_atomic(*, model: BaseModel, path: Path) -> None:
 
 
 def write_text_atomic(*, path: Path, text: str) -> None:
-    """Write text to a file atomically, as UTF-8 with LF line endings.
+    """Write text to a file atomically, as UTF-8 with its line endings unchanged.
 
-    The text goes to a temporary file in the same folder, which is flushed, synced to
-    disk and then moved over the target with `os.replace`. If anything fails, the
-    temporary file is removed and the target is left as it was.
+    See `write_bytes_atomic`.
 
     Parameters
     ----------
@@ -165,18 +195,4 @@ def write_text_atomic(*, path: Path, text: str) -> None:
         The text to write.
     """
 
-    temp_path = path.with_name(f"{path.name}{_TEMP_INFIX}{secrets.token_hex(8)}")
-    # O_EXCL never reuses an existing file; O_BINARY (Windows only) stops the C runtime
-    # from turning "\n" into "\r\n". Mode 0o666 lets the umask set the permissions, as
-    # for any newly created file.
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
-    descriptor = os.open(temp_path, flags, 0o666)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_path, path)
-    except BaseException:
-        temp_path.unlink(missing_ok=True)
-        raise
+    write_bytes_atomic(data=text.encode("utf-8"), path=path)

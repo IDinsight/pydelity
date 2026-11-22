@@ -1,10 +1,12 @@
 """``LedgerModel``: checks ``max_cost`` before each model request and records each one.
 
 Every model pydelity builds is wrapped in a `LedgerModel`. Before a request is sent,
-it asks the run's ``max_cost`` guard whether the request may go ahead. After a
-response arrives, it prices the response's usage and appends a line to the output
-folder's ``cost.jsonl``. A request that the provider fails or rejects, after the SDK's
-retries, raises `pydelity.errors.ProviderError`.
+it asks the run's ``max_cost`` guard whether the request may go ahead, and the guard
+holds the request's highest possible cost until the request ends. After a response
+arrives, it prices the response's usage and appends a line to the output folder's
+``cost.jsonl``, with the step, page and agent the request belongs to. A request that
+the provider fails or rejects, after the SDK's retries, raises
+`pydelity.errors.ProviderError`.
 """
 
 # Standard Library
@@ -13,11 +15,11 @@ import math
 
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 # Third Party Library
 from loguru import logger
@@ -26,6 +28,7 @@ from pydantic_ai.exceptions import ModelAPIError, ModelConnectionError, ModelHTT
 from pydantic_ai.messages import (
     BinaryContent,
     DocumentUrl,
+    ImageUrl,
     ModelMessage,
     ModelRequest,
     ModelResponse,
@@ -45,6 +48,7 @@ from pydelity.costs.ledger import append_entry
 from pydelity.costs.pricing import price_response, price_usage
 from pydelity.costs.schemas import LedgerEntry
 from pydelity.errors import ProviderError
+from pydelity.providers.profiles import ModelChoice
 from pydelity.schema_versions import LEDGER_SCHEMA_VERSION
 from pydelity.utils.pdf import PdfInfo
 
@@ -58,8 +62,27 @@ _FIRST_SERVER_ERROR_CODE = 500
 _TEMPORARY_STATUS_CODES = frozenset({408, 409, 429})
 
 
+class _ContentSize(NamedTuple):
+    """How much a request message or prompt holds.
+
+    Attributes
+    ----------
+    chars
+        Characters of text.
+    documents
+        Documents, such as PDFs, sent inline, by URL or as an uploaded file.
+    images
+        Images, sent inline or by URL.
+    """
+
+    chars: int
+    documents: int
+    images: int
+
+
 def _input_tokens(
     *,
+    image_tokens: int,
     messages: Sequence[ModelMessage],
     parameters: ModelRequestParameters,
     pdf_tokens: int,
@@ -67,11 +90,14 @@ def _input_tokens(
     """Estimate a request's input tokens, as the cost estimate does.
 
     Text counts `PROMPT_CHARS_PER_TOKEN` characters per token, including the output
-    and tool schemas. Each document counts ``pdf_tokens``. Each earlier answer counts
-    the output tokens the provider reported for it.
+    and tool schemas. Each document counts ``pdf_tokens`` and each image
+    ``image_tokens``. Each earlier answer counts the output tokens the provider
+    reported for it.
 
     Parameters
     ----------
+    image_tokens
+        Input tokens to count for each image the request carries.
     messages
         The messages the request sends.
     parameters
@@ -92,17 +118,24 @@ def _input_tokens(
     chars = sum(len(json.dumps(schema)) for schema in schemas)
 
     documents = 0
+    images = 0
     earlier_output_tokens = 0
     for message in messages:
         if isinstance(message, ModelResponse):
             earlier_output_tokens += message.usage.output_tokens
             continue
-        message_chars, message_documents = _request_size(message)
-        chars += message_chars
-        documents += message_documents
+        size = _request_size(message)
+        chars += size.chars
+        documents += size.documents
+        images += size.images
 
     text_tokens = math.ceil(chars / PROMPT_CHARS_PER_TOKEN)
-    return text_tokens + documents * pdf_tokens + earlier_output_tokens
+    return (
+        text_tokens
+        + documents * pdf_tokens
+        + images * image_tokens
+        + earlier_output_tokens
+    )
 
 
 def _is_temporary(error: ModelAPIError) -> bool:
@@ -150,8 +183,8 @@ def _provider_message(error: ModelAPIError) -> str:
     return error.message
 
 
-def _request_size(message: ModelRequest) -> tuple[int, int]:
-    """Measure one request message: its text characters and documents.
+def _request_size(message: ModelRequest) -> _ContentSize:
+    """Measure one request message: its text characters, documents and images.
 
     Parameters
     ----------
@@ -160,20 +193,22 @@ def _request_size(message: ModelRequest) -> tuple[int, int]:
 
     Returns
     -------
-    tuple[int, int]
-        The characters of text, and the number of documents.
+    _ContentSize
+        What the message holds.
     """
 
     chars = len(message.instructions or "")
     documents = 0
+    images = 0
     for part in message.parts:
         if isinstance(part, UserPromptPart):
-            part_chars, part_documents = _user_content_size(part.content)
-            chars += part_chars
-            documents += part_documents
+            size = _user_content_size(part.content)
+            chars += size.chars
+            documents += size.documents
+            images += size.images
         else:
             chars += len(str(getattr(part, "content", "")))
-    return chars, documents
+    return _ContentSize(chars=chars, documents=documents, images=images)
 
 
 def _sentence(text: str) -> str:
@@ -193,8 +228,8 @@ def _sentence(text: str) -> str:
     return text if text.endswith((".", "!", "?")) else f"{text}."
 
 
-def _user_content_size(content: str | Sequence[UserContent]) -> tuple[int, int]:
-    """Measure a user prompt: its text characters and documents.
+def _user_content_size(content: str | Sequence[UserContent]) -> _ContentSize:
+    """Measure a user prompt: its text characters, documents and images.
 
     Parameters
     ----------
@@ -203,15 +238,16 @@ def _user_content_size(content: str | Sequence[UserContent]) -> tuple[int, int]:
 
     Returns
     -------
-    tuple[int, int]
-        The characters of text, and the number of documents (PDFs or other
-        document files, sent inline, by URL or as an uploaded file).
+    _ContentSize
+        What the prompt holds. Documents are PDFs or other document files, sent
+        inline, by URL or as an uploaded file; images are sent inline or by URL.
     """
 
     if isinstance(content, str):
-        return len(content), 0
+        return _ContentSize(chars=len(content), documents=0, images=0)
     chars = 0
     documents = 0
+    images = 0
     for item in content:
         if isinstance(item, str):
             chars += len(item)
@@ -221,7 +257,11 @@ def _user_content_size(content: str | Sequence[UserContent]) -> tuple[int, int]:
             isinstance(item, BinaryContent) and item.is_document
         ):
             documents += 1
-    return chars, documents
+        elif isinstance(item, ImageUrl) or (
+            isinstance(item, BinaryContent) and item.is_image
+        ):
+            images += 1
+    return _ContentSize(chars=chars, documents=documents, images=images)
 
 
 @dataclass(frozen=True)
@@ -230,10 +270,17 @@ class LedgerContext:
 
     Attributes
     ----------
+    agent
+        The step's agent that makes the requests, such as ``extractor``; ``None`` for
+        the step's own wrapper, which sends no request itself. Each request goes
+        through a wrapper from `LedgerModel.for_agent` or `LedgerModel.for_page`.
     guard
         The run's ``max_cost`` guard.
     ledger_path
         The output folder's ``cost.jsonl``.
+    page_index
+        The page the requests are about (0-based), or ``None`` when they are about
+        the whole PDF.
     pdf
         The PDF the step's requests carry, or ``None`` when they carry none.
     run_id
@@ -242,8 +289,10 @@ class LedgerContext:
         The step that makes them, such as ``survey``.
     """
 
+    agent: str | None
     guard: SpendGuard
     ledger_path: Path
+    page_index: int | None
     pdf: PdfInfo | None
     run_id: str
     step: str
@@ -256,65 +305,69 @@ class LedgerModel(WrapperModel):
     ----------
     wrapped
         The provider's model.
+    choice
+        The step's model, which prices its requests.
     config
-        The run's settings, for the model, its prices and the retry count.
+        The run's settings, for the prices and the retry count.
     context
-        The guard, ledger, PDF, run and step the requests belong to.
+        The guard, ledger, PDF, run, step, page and agent the requests belong to.
     """
 
     def __init__(
-        self, wrapped: Model, *, config: Config, context: LedgerContext
+        self,
+        wrapped: Model,
+        *,
+        choice: ModelChoice,
+        config: Config,
+        context: LedgerContext,
     ) -> None:
         """Wrap a provider's model for one step of one run."""
 
         super().__init__(wrapped)
+        self._choice = choice
         self._config = config
         self._context = context
         self._requests = 0
 
-    async def _check_max_cost(
-        self,
-        *,
-        messages: Sequence[ModelMessage],
-        model_settings: ModelSettings | None,
-        parameters: ModelRequestParameters,
-    ) -> None:
-        """Ask the ``max_cost`` guard whether the request may go ahead.
+    def _agent(self) -> str:
+        """Return the agent that makes this wrapper's requests.
 
-        The request's upper bound is its estimated input with the longest answer
-        allowed (its ``max_tokens``).
-
-        Parameters
-        ----------
-        messages
-            The messages the request sends.
-        model_settings
-            The request's settings, merged with the model's own.
-        parameters
-            The request's tools and output schema.
+        Returns
+        -------
+        str
+            The agent's name, such as ``surveyor``.
 
         Raises
         ------
-        BudgetExceededError
-            If the request could take the folder over ``max_cost`` and the decision
-            is no.
+        RuntimeError
+            If the wrapper names no agent, so a request through it could not be
+            recorded with its agent. Requests go through `for_agent` or `for_page`.
         """
 
-        pdf = self._context.pdf
-        pdf_tokens = 0
-        if pdf is not None:
-            profile = self._config.model_choice.profile
-            pdf_tokens = pdf.page_count * profile.pdf_tokens_per_page
-        input_tokens = _input_tokens(
-            messages=messages, parameters=parameters, pdf_tokens=pdf_tokens
-        )
-        upper_bound = price_usage(
-            input_tokens=input_tokens,
-            model=self._config.model,
-            output_tokens=(model_settings or {}).get("max_tokens", 0),
-            overrides=self._config.advanced.models,
-        )
-        await self._context.guard.check(check="request", upper_bound_usd=upper_bound)
+        agent = self._context.agent
+        if agent is None:
+            raise RuntimeError(
+                f"{self._label()} requests must go through a wrapper that names their "
+                "agent"
+            )
+        return agent
+
+    def _label(self) -> str:
+        """Name the requests' step, and their page and agent when they have them.
+
+        Returns
+        -------
+        str
+            Such as ``Survey, surveyor`` or ``Extraction, page 4 (index 3), verifier``.
+        """
+
+        context = self._context
+        parts = [context.step.capitalize()]
+        if context.page_index is not None:
+            parts.append(f"page {context.page_index + 1} (index {context.page_index})")
+        if context.agent is not None:
+            parts.append(context.agent)
+        return ", ".join(parts)
 
     def _provider_error(
         self, error: ModelAPIError, messages: Sequence[ModelMessage]
@@ -332,19 +385,22 @@ class LedgerModel(WrapperModel):
         -------
         ProviderError
             The error, with a message that names the provider and model, then the
-            provider's message, the PDF when the request carried it, and, for a
-            temporary failure, the retries made.
+            provider's message, the page and agent when the request was about one
+            page, the PDF when the request carried it, and, for a temporary failure,
+            the retries made.
         """
 
-        choice = self._config.model_choice
+        choice = self._choice
         provider_message = _provider_message(error)
         status_code = error.status_code if isinstance(error, ModelHTTPError) else None
         temporary = _is_temporary(error)
 
         sentences = [f"{choice.setting}: {_sentence(provider_message)}"]
+        if self._context.page_index is not None:
+            sentences.append(f"The request was for {self._label().lower()}.")
         pdf = self._context.pdf
         documents = sum(
-            _request_size(message)[1]
+            _request_size(message).documents
             for message in messages
             if isinstance(message, ModelRequest)
         )
@@ -377,21 +433,23 @@ class LedgerModel(WrapperModel):
             The response, with the usage the provider reported.
         """
 
-        choice = self._config.model_choice
+        choice = self._choice
         cost, source = price_response(
-            model=self._config.model,
+            model=choice.setting,
             overrides=self._config.advanced.models,
             response=response,
         )
         usage = response.usage
         self._requests += 1
         entry = LedgerEntry(
+            agent=self._agent(),
             cache_read_tokens=usage.cache_read_tokens,
             cache_write_tokens=usage.cache_write_tokens,
             cost_usd=None if cost is None else cost.quantize(_COST_QUANTUM),
             input_tokens=usage.input_tokens,
             model=choice.model_id,
             output_tokens=usage.output_tokens,
+            page_index=self._context.page_index,
             price_source=source,
             provider=choice.provider,
             request=self._requests,
@@ -403,12 +461,107 @@ class LedgerModel(WrapperModel):
         )
         append_entry(entry=entry, path=self._context.ledger_path)
         logger.debug(
-            "{step} request {number}: {input} input and {output} output tokens, {cost}",
+            "{label} request {number}: {input} input and {output} output tokens, "
+            "{cost}",
             cost="price unknown" if cost is None else format_usd(cost),
             input=usage.input_tokens,
+            label=self._label(),
             number=self._requests,
             output=usage.output_tokens,
-            step=self._context.step.capitalize(),
+        )
+
+    def _upper_bound(
+        self,
+        *,
+        messages: Sequence[ModelMessage],
+        model_settings: ModelSettings | None,
+        parameters: ModelRequestParameters,
+    ) -> Decimal | None:
+        """Price the most a request can cost.
+
+        That is its estimated input, with each image at the provider's per-image
+        token figure, and the longest answer allowed (its ``max_tokens``).
+
+        Parameters
+        ----------
+        messages
+            The messages the request sends.
+        model_settings
+            The request's settings, merged with the model's own.
+        parameters
+            The request's tools and output schema.
+
+        Returns
+        -------
+        Decimal | None
+            The cost in US dollars, or ``None`` when no price is known for the model.
+        """
+
+        profile = self._choice.profile
+        pdf = self._context.pdf
+        pdf_tokens = 0 if pdf is None else pdf.page_count * profile.pdf_tokens_per_page
+        input_tokens = _input_tokens(
+            image_tokens=profile.image_tokens,
+            messages=messages,
+            parameters=parameters,
+            pdf_tokens=pdf_tokens,
+        )
+        return price_usage(
+            input_tokens=input_tokens,
+            model=self._choice.setting,
+            output_tokens=(model_settings or {}).get("max_tokens", 0),
+            overrides=self._config.advanced.models,
+        )
+
+    def for_agent(self, *, agent: str) -> "LedgerModel":
+        """Wrap the same provider model for one agent's requests about the whole PDF.
+
+        The new wrapper shares the provider model, its SDK client, the step's PDF
+        and the run's ``max_cost`` guard, and counts its own requests. Each request's
+        highest possible cost therefore still counts the PDF's tokens.
+
+        Parameters
+        ----------
+        agent
+            The step's agent that makes the requests, such as ``surveyor``.
+
+        Returns
+        -------
+        LedgerModel
+            The wrapper for that agent.
+        """
+
+        return LedgerModel(
+            self.wrapped,
+            choice=self._choice,
+            config=self._config,
+            context=replace(self._context, agent=agent),
+        )
+
+    def for_page(self, *, agent: str, page_index: int) -> "LedgerModel":
+        """Wrap the same provider model for one page's requests by one agent.
+
+        The new wrapper shares the provider model, its SDK client and the run's
+        ``max_cost`` guard, and counts its own requests.
+
+        Parameters
+        ----------
+        agent
+            The step's agent that makes the requests, such as ``extractor``.
+        page_index
+            The page the requests are about (0-based).
+
+        Returns
+        -------
+        LedgerModel
+            The wrapper for that page and agent.
+        """
+
+        return LedgerModel(
+            self.wrapped,
+            choice=self._choice,
+            config=self._config,
+            context=replace(self._context, agent=agent, page_index=page_index),
         )
 
     async def request(
@@ -440,20 +593,25 @@ class LedgerModel(WrapperModel):
             is no; nothing is sent.
         ProviderError
             If the provider fails or rejects the request after the SDK's retries.
+        RuntimeError
+            If the wrapper names no agent; nothing is sent.
         """
 
-        await self._check_max_cost(
+        # Every response is recorded with its agent, so check for one before sending.
+        self._agent()
+        upper_bound = self._upper_bound(
             messages=messages,
             model_settings=merge_model_settings(self.settings, model_settings),
             parameters=model_request_parameters,
         )
-        try:
-            response = await super().request(
-                messages, model_settings, model_request_parameters
-            )
-        except ModelAPIError as error:
-            raise self._provider_error(error, messages) from error
-        self._record(response)
+        async with self._context.guard.reserve(upper_bound):
+            try:
+                response = await super().request(
+                    messages, model_settings, model_request_parameters
+                )
+            except ModelAPIError as error:
+                raise self._provider_error(error, messages) from error
+            self._record(response)
         return response
 
     @asynccontextmanager
@@ -489,18 +647,23 @@ class LedgerModel(WrapperModel):
             is no; nothing is sent.
         ProviderError
             If the provider fails or rejects the request after the SDK's retries.
+        RuntimeError
+            If the wrapper names no agent; nothing is sent.
         """
 
-        await self._check_max_cost(
+        # Every response is recorded with its agent, so check for one before sending.
+        self._agent()
+        upper_bound = self._upper_bound(
             messages=messages,
             model_settings=merge_model_settings(self.settings, model_settings),
             parameters=model_request_parameters,
         )
-        try:
-            async with super().request_stream(
-                messages, model_settings, model_request_parameters, run_context
-            ) as stream:
-                yield stream
-        except ModelAPIError as error:
-            raise self._provider_error(error, messages) from error
-        self._record(stream.get())
+        async with self._context.guard.reserve(upper_bound):
+            try:
+                async with super().request_stream(
+                    messages, model_settings, model_request_parameters, run_context
+                ) as stream:
+                    yield stream
+            except ModelAPIError as error:
+                raise self._provider_error(error, messages) from error
+            self._record(stream.get())

@@ -21,6 +21,7 @@ from pydelity.config.loading import resolve_config
 from pydelity.config.schemas import (
     AdvancedConfig,
     Config,
+    ExtractionConfig,
     ModelPrices,
     SurveyConfig,
     UploadsConfig,
@@ -81,7 +82,9 @@ def test_config_file_paths_resolve_against_its_folder_and_keywords_win(
 ) -> None:
     """A YAML file sets every top-level setting; relative paths are the file's.
 
-    A PDF and a model given as keywords win over the file's.
+    Each step's instructions and page extraction's own model sit under
+    ``advanced``. A PDF and a model given as keywords win over the file's, and page
+    extraction's own model wins over the global one.
     """
 
     folder = tmp_path / "settings"
@@ -93,15 +96,21 @@ def test_config_file_paths_resolve_against_its_folder_and_keywords_win(
             [
                 "pdf: docs/form.pdf",
                 "output_dir: results",
-                "instructions: Read the fields.",
                 "languages: [ar, EN_us]",
                 "model: openai:gpt-6.2-astra",
                 "max_cost: 2.50",
                 "overwrite: true",
+                "pages: 5, 1-3, 2",
+                "pause: false",
                 "advanced:",
+                "  extraction:",
+                "    concurrent_pages: 3",
+                "    instructions: Read each page's fields.",
+                "    model: anthropic:claude-sonnet-5-5",
                 "  provider_retries: 4",
                 "  survey:",
                 "    effort: medium",
+                "    instructions: Read the fields.",
             ]
         ),
         encoding="utf-8",
@@ -117,17 +126,99 @@ def test_config_file_paths_resolve_against_its_folder_and_keywords_win(
 
     assert from_file.pdf == folder / "docs" / "form.pdf"
     assert from_file.output_folder == folder / "results"
-    assert from_file.instructions == "Read the fields."
     assert from_file.languages == ["ar", "en-US"]
     assert from_file.model == "openai:gpt-6.2-astra"
     assert from_file.max_cost == Decimal("2.50")
     assert from_file.overwrite is True
+    assert from_file.pages == "1-3,5"
+    assert from_file.pause is False
+    assert from_file.advanced.extraction.concurrent_pages == 3
+    assert from_file.advanced.extraction.instructions == "Read each page's fields."
     assert from_file.advanced.provider_retries == 4
     assert from_file.advanced.survey.effort == "medium"
     assert from_file.advanced.survey.check_retries == 2
+    assert from_file.advanced.survey.instructions == "Read the fields."
+    assert from_file.survey_model.setting == "openai:gpt-6.2-astra"
+    assert from_file.extraction_model.setting == "anthropic:claude-sonnet-5-5"
     assert overridden.pdf == other_pdf
     assert overridden.model == "anthropic:claude-sonnet-5-5"
     assert overridden.output_folder == folder / "results"
+
+
+@pytest.mark.parametrize(
+    ("settings", "survey_model", "extraction_model"),
+    [
+        (
+            {"model": "openai:gpt-6.2-astra"},
+            "openai:gpt-6.2-astra",
+            "openai:gpt-6.2-astra",
+        ),
+        (
+            {"advanced": {"extraction": {"model": "openai:gpt-6.2-astra"}}},
+            "anthropic:claude-opus-5-5",
+            "openai:gpt-6.2-astra",
+        ),
+    ],
+    ids=["model", "extraction-model"],
+)
+def test_each_step_resolves_its_own_model(
+    extraction_model: str,
+    pdf_path: Callable[[str], Path],
+    settings: dict[str, object],
+    survey_model: str,
+) -> None:
+    """Page extraction uses its own model, else ``model``; the survey uses ``model``.
+
+    Page extraction's effort stays ``high`` unless set.
+    """
+
+    config = resolve_config(pdf=pdf_path("irs_form_w9.pdf"), settings=settings)
+
+    assert config.survey_model.setting == survey_model
+    assert config.extraction_model.setting == extraction_model
+    assert config.advanced.extraction.effort == "high"
+
+
+@pytest.mark.parametrize(
+    ("file_text", "settings", "expected"),
+    [
+        (None, {}, (False, False)),
+        ("verify: false\nadvanced:\n  survey:\n    verify: true\n", {}, (True, False)),
+        (
+            "verify: true\nadvanced:\n  survey:\n    verify: false\n",
+            {"advanced": {"extraction": {"verify": False}}},
+            (False, False),
+        ),
+        (None, {"advanced": {"extraction": {"verify": True}}}, (False, True)),
+    ],
+    ids=["default", "survey-on-in-file", "both-off-file-and-keyword", "extraction-on"],
+)
+def test_each_step_s_verifier_follows_verify_unless_its_own_setting_is_set(
+    expected: tuple[bool, bool],
+    file_text: str | None,
+    pdf_path: Callable[[str], Path],
+    settings: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """A step's ``verify`` under ``advanced`` turns its verifier on or off alone.
+
+    With no setting, both verifiers are off. A step's own setting decides for that
+    step whatever ``verify`` is, and the other step follows ``verify``. It can be
+    set in a config file or by a nested ``advanced`` keyword, which keeps the file's
+    other ``advanced`` settings. ``expected`` is whether the survey's verifier and
+    page extraction's verifier run.
+    """
+
+    config_file = None
+    if file_text is not None:
+        config_file = tmp_path / "run.yaml"
+        config_file.write_text(file_text, encoding="utf-8")
+
+    config = resolve_config(
+        config=config_file, pdf=pdf_path("irs_form_w9.pdf"), settings=settings
+    )
+
+    assert (config.verify_survey, config.verify_extraction) == expected
 
 
 def test_every_invalid_setting_is_named_in_one_error_before_any_request(
@@ -170,6 +261,37 @@ def test_every_invalid_setting_is_named_in_one_error_before_any_request(
     assert not Path("out").exists()
 
 
+@pytest.mark.parametrize("example", _EXAMPLES, ids=lambda path: path.name)
+def test_example_config_holds_every_setting_at_its_default(
+    example: Path, pdf_path: Callable[[str], Path]
+) -> None:
+    """An example file holds exactly the settings `Config` accepts, at every level.
+
+    It matches the other example's values, and resolving it with a PDF given as an
+    argument gives the defaults apart from the PDF and its placeholder price entry.
+    """
+
+    data = _read_example(example)
+    other = _read_example(next(path for path in _EXAMPLES if path != example))
+    advanced = data["advanced"]
+    (price_entry,) = advanced["models"].values()
+    pdf = pdf_path("irs_form_w9.pdf")
+
+    resolved = resolve_config(config=example, pdf=pdf)
+
+    assert set(data) == _field_names(Config)
+    assert set(advanced) == _field_names(AdvancedConfig)
+    assert set(advanced["extraction"]) == _field_names(ExtractionConfig)
+    assert set(advanced["survey"]) == _field_names(SurveyConfig)
+    assert set(advanced["uploads"]) == _field_names(UploadsConfig)
+    assert set(price_entry) == _field_names(ModelPrices)
+    assert data == other
+    expected = Config(advanced={"models": advanced["models"]}, pdf=pdf)
+    assert resolved.model_dump() == expected.model_dump()
+    assert resolved.output_dir is None
+    assert data["pdf"] == "document.pdf"
+
+
 def test_spellings_of_one_language_tag_resolve_to_one_standard_form(
     facts_of: Callable[[str], Facts], pdf_path: Callable[[str], Path]
 ) -> None:
@@ -200,31 +322,72 @@ def test_spellings_of_one_language_tag_resolve_to_one_standard_form(
     assert len(fingerprints) == 1
 
 
-@pytest.mark.parametrize("example", _EXAMPLES, ids=lambda path: path.name)
-def test_example_config_holds_every_setting_at_its_default(
-    example: Path, pdf_path: Callable[[str], Path]
+@pytest.mark.parametrize("source", ["file", "keyword"])
+def test_the_removed_instructions_setting_is_unknown_before_any_request(
+    mock_providers: Callable[..., MockProviders],
+    pdf_path: Callable[[str], Path],
+    source: str,
+    survey_answer: Callable[..., dict],
+    tmp_path: Path,
 ) -> None:
-    """An example file holds exactly the settings `Config` accepts, at every level.
+    """A top-level ``instructions`` setting gets the unknown-setting error at once.
 
-    It matches the other example's values, and resolving it with a PDF given as an
-    argument gives the defaults apart from the PDF and its placeholder price entry.
+    It does so in a config file and as a keyword; instructions are set per step
+    under ``advanced`` instead.
     """
 
-    data = _read_example(example)
-    other = _read_example(next(path for path in _EXAMPLES if path != example))
-    advanced = data["advanced"]
-    (price_entry,) = advanced["models"].values()
+    mock = mock_providers(answers=[survey_answer()])
+    config_file = tmp_path / "run.yml"
+    config_file.write_text("instructions: Read it.", encoding="utf-8")
+
     pdf = pdf_path("irs_form_w9.pdf")
+    start = {
+        "file": lambda: pydelity.run(pdf, config=config_file),
+        "keyword": lambda: pydelity.run(pdf, instructions="Read it."),
+    }[source]
 
-    resolved = resolve_config(config=example, pdf=pdf)
+    with pytest.raises(ConfigError) as raised:
+        start()
 
-    assert set(data) == _field_names(Config)
-    assert set(advanced) == _field_names(AdvancedConfig)
-    assert set(advanced["survey"]) == _field_names(SurveyConfig)
-    assert set(advanced["uploads"]) == _field_names(UploadsConfig)
-    assert set(price_entry) == _field_names(ModelPrices)
-    assert data == other
-    expected = Config(advanced={"models": advanced["models"]}, pdf=pdf)
-    assert resolved.model_dump() == expected.model_dump()
-    assert resolved.output_dir is None
-    assert data["pdf"] == "document.pdf"
+    assert str(raised.value).splitlines() == [
+        "1 invalid setting:",
+        "- instructions: not a setting pydelity knows",
+    ]
+    assert mock.requests == []
+
+
+def test_verify_turns_on_both_steps_verifiers_from_a_file_or_a_keyword(
+    pdf_path: Callable[[str], Path], tmp_path: Path
+) -> None:
+    """``verify`` is off by default and can be turned on in a file or as a keyword.
+
+    Set to true in a JSON file, a YAML file or the ``verify`` keyword, it turns on
+    both the survey's verifier and page extraction's verifier, whose own settings
+    stay unset.
+    """
+
+    pdf = pdf_path("irs_form_w9.pdf")
+    json_file = tmp_path / "run.json"
+    json_file.write_text(json.dumps({"verify": True}), encoding="utf-8")
+    yaml_file = tmp_path / "run.yaml"
+    yaml_file.write_text("verify: true\n", encoding="utf-8")
+
+    default = resolve_config(pdf=pdf)
+    turned_on = [
+        resolve_config(config=json_file, pdf=pdf),
+        resolve_config(config=yaml_file, pdf=pdf),
+        resolve_config(pdf=pdf, settings={"verify": True}),
+    ]
+
+    assert (
+        default.verify,
+        default.advanced.survey.verify,
+        default.advanced.extraction.verify,
+    ) == (False, None, None)
+    for config in turned_on:
+        assert config.verify is True
+        assert (config.advanced.survey.verify, config.advanced.extraction.verify) == (
+            None,
+            None,
+        )
+        assert (config.verify_survey, config.verify_extraction) == (True, True)

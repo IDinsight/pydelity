@@ -40,7 +40,8 @@ class ExitCode(IntEnum):
     """The run completed, with or without review issues."""
 
     FAILED = 1
-    """The run failed: a provider error, a survey error or an unexpected error."""
+    """The run failed: a provider error, a survey or page extraction error, or an
+    unexpected error."""
 
     INTERRUPTED = 130
     """The run was interrupted with Ctrl+C."""
@@ -51,6 +52,15 @@ class ExitCode(IntEnum):
     STOPPED = 3
     """The run stopped at the user's answer, or because input is not a terminal and
     ``--yes`` was not given."""
+
+
+class ExtractionError(PydelityError):
+    """Page extraction could not get a usable answer for a page.
+
+    The model refused, ran out of output tokens, or never gave an answer that matches
+    the answer format. The message names the page and the model's role in it, the
+    extraction model or the verifier.
+    """
 
 
 class MissingApiKeyError(PydelityError):
@@ -111,9 +121,9 @@ class ProviderError(PydelityError):
         self.upload_error = upload_error
 
 
-class SurveyError(PydelityError):
-    """The survey step could not produce a usable answer."""
-
-
 class PydelityWarning(UserWarning):
     """A problem the user should know about that does not stop the run."""
+
+
+class SurveyError(PydelityError):
+    """The survey step could not produce a usable answer."""

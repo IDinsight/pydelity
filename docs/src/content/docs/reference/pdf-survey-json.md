@@ -14,21 +14,30 @@ The contents of `pdf_survey.json`: the checked survey of one PDF.
 The contents of `pdf_survey.json`: the checked survey of one PDF.
 
 - `checks` (list of objects ([`checks[]`](#checks)); required): The result of
-  each check, C1 to C7 in order.
+  each check on the kept answer, C1 to C7 in order: the survey's answer, or the
+  verifier's correction when it was kept.
 - `facts` (object ([`facts`](#facts)); required): A copy of the measured facts
   the survey used.
 - `fingerprint` (string; required): `sha256:` fingerprint of what the survey
   depends on; a matching file is reused.
+- `hints` (list of objects ([`hints[]`](#hints)); required): Each hint's
+  differences on the kept answer, `rotation_differs` then `page_number_differs`,
+  whether or not the review list shows them.
 - `inputs` (object ([`inputs`](#inputs)); required): What the survey was made
   from.
-- `issues` (list of objects ([`issues[]`](#issues)); required): One review issue
-  per failure on the accepted answer.
+- `issues` (list of objects ([`issues[]`](#issues)); required): The review list:
+  each failure still on the kept answer; then its hint differences, unless the
+  verifier passed the answer or its correction was kept; then the verifier's
+  problems, when its correction was not kept. The `hints` list keeps every hint
+  difference either way.
 - `profile` (object ([`profile`](#profile)); required): How the PDF's pages are
   laid out, for later steps.
 - `proposal` (object ([`proposal`](#proposal)); required): The rest of the
   model's answer.
 - `schema_version` (string; required): The version of this file's schema,
   `"MAJOR.MINOR"`.
+- `verification` (object ([`verification`](#verification)) or null; required):
+  The verifier's review; `None` when no verifier reviewed the survey.
 
 ## `checks[]`
 
@@ -69,13 +78,23 @@ Everything the probe measured.
 - `structure` (object ([`facts.structure`](#factsstructure)) or null; required):
   What the structure tags cover.
 
+## `hints[]`
+
+How the kept answer compares with one hint.
+
+- `differences` (list of objects ([`checks[].failures[]`](#checksfailures));
+  required): Where the kept answer differs from what the probe measured; empty
+  when it agrees.
+- `name` (one of `rotation_differs`, `page_number_differs`; required): The hint.
+
 ## `inputs`
 
 What a survey was made from.
 
 - `facts_fingerprint` (string; required): The fingerprint of the
   `pdf_facts.json` the survey used.
-- `instructions` (string or null; required): The user's instructions, if any.
+- `instructions` (string or null; required): The user's survey instructions
+  (`advanced.survey.instructions`), if any.
 - `languages` (list of strings; required): The user's languages, in standard
   form.
 - `model` (string; required): The model, as `<provider>:<model-id>`.
@@ -91,16 +110,26 @@ What a survey was made from.
 
 A problem a person should review.
 
-- `check` (one of `labels`, `regions`, `rotation`, `page_numbering`,
-  `artifacts`, `writing_direction`, `languages` or one of `rotation_differs`,
-  `page_number_differs`; required): The check or comparison that found the
-  problem.
+- `check` (one of `labels`, `content`, `languages`, `boxes`, `containers`,
+  `captions` or one of `reading_order`, `artifacts`, `form_fields`,
+  `text_dropped`, `text_added` or `no_matching_label` or one of `labels`,
+  `regions`, `rotation`, `page_numbering`, `artifacts`, `writing_direction`,
+  `languages` or one of `rotation_differs`, `page_number_differs` or `verifier`;
+  required): What found the problem: a check, a hint or another source. `step`
+  says whose, since two steps can have checks and hints of the same name.
 - `details` (map of string to any value; required): The values the problem is
-  about, such as `{"measured": 90, "profile": 0}`.
+  about. A survey hint gives values such as `{"measured": 90, "profile": 0}`,
+  and a check gives its failure's `details`, such as `{"item_ref": "t3"}` on a
+  page. A `no_matching_label` issue gives the `kind` and `role` that no label
+  fits, with the items' refs and IDs (`item_refs`, `item_ids`). A `verifier`
+  issue gives the problem's `category`, and on a page its `item_ref`.
+- `item_id` (string or null; required): The item the problem is about, or `None`
+  when no single item applies.
 - `message` (string; required): What is wrong.
 - `page_index` (integer or null; required): The page the problem is on, or
   `None` when no single page applies.
-- `step` (one of `survey`; required): The step whose check found the problem.
+- `step` (one of `survey`, `extraction`; required): The step whose check found
+  the problem.
 
 ## `profile`
 
@@ -121,8 +150,6 @@ What later steps depend on: how the PDF's pages are laid out.
 - `start_markers` (list of objects
   ([`profile.start_markers[]`](#profilestart_markers)); required): Text that
   marks where a new unit of content starts.
-- `user_instructions` (string or null; required): The user's instructions for
-  this PDF, if any.
 - `writing_direction` (object
   ([`profile.writing_direction`](#profilewriting_direction)); required): The
   writing direction of the pages.
@@ -141,14 +168,35 @@ The model's answer that is not part of the profile.
 - `regions` (list of objects ([`proposal.regions[]`](#proposalregions));
   required): Areas of single pages the model labeled.
 
+## `verification`
+
+The verifier's review of the survey.
+
+- `attempts` (integer; required): How many verdicts the verifier gave: 1 plus
+  the retries its correction used.
+- `correction_applied` (boolean; required): Whether the verifier's corrected
+  answer replaced the survey's answer. A correction replaces it when it passes
+  every check.
+- `correction_failures` (list of objects ([`checks[]`](#checks)); required): The
+  checks a correction that was not applied still failed; empty when it was
+  applied or there was none.
+- `verdict` (object ([`verification.verdict`](#verificationverdict)); required):
+  The verdict as the verifier gave it.
+
 ## `checks[].failures[]`
 
-One problem a check found in the model's answer.
+A problem a check found in a model's answer, or a difference from a hint.
 
-- `details` (map of string to any value; required): The proposed value and,
-  where it applies, what it was checked against, such as
-  `{"proposed": 9, "page_count": 6}`.
-- `message` (string; required): What is wrong, starting with the check's name.
+- `details` (map of string to any value; required): The values the problem is
+  about. A survey check gives the proposed value and, where it applies, what it
+  was checked against, such as `{"proposed": 9, "page_count": 6}`, and a survey
+  hint gives the measured value and the profile's, such as
+  `{"measured": 90, "profile": 0}`. A page extraction check or hint gives the
+  ref that the model's answer gave the item or container, or `None` when no
+  single one applies, such as `{"item_ref": "t3"}`. That ref comes from the
+  answer, and the page file's items have IDs instead.
+- `message` (string; required): What is wrong or differs, starting with the
+  check's or hint's name.
 - `page_index` (integer or null; required): The page the problem is on, or
   `None` when no single page applies.
 
@@ -344,6 +392,20 @@ An area of one page the model labeled, with its box in points.
 - `note` (string; required): Why the area is worth marking; may be empty.
 - `page_index` (integer; required): The page (0-based).
 
+## `verification.verdict`
+
+The verifier's verdict on the survey.
+
+- `corrected` (object
+  ([`verification.verdict.corrected`](#verificationverdictcorrected)) or null;
+  required): The whole survey answer again with the problems fixed; null when
+  the survey passed or cannot be corrected.
+- `passed` (boolean; required): Whether the survey is faithful to the PDF, with
+  nothing to fix.
+- `problems` (list of objects
+  ([`verification.verdict.problems[]`](#verificationverdictproblems));
+  required): The problems found; empty when the survey passed.
+
 ## `facts.pages[].direction`
 
 The writing direction measured on a page.
@@ -401,3 +463,71 @@ Consecutive pages written in one direction.
   these pages.
 - `first_page_index` (integer; required): The first page of the range (0-based).
 - `last_page_index` (integer; required): The last page of the range, inclusive.
+
+## `verification.verdict.corrected`
+
+The model's answer to the survey: the profile and the rest of the proposal.
+
+- `artifacts` (list of objects ([`proposal.artifacts[]`](#proposalartifacts));
+  required): Page furniture. Every measured repeated line ID appears exactly
+  once, here or in `non_artifact_lines`.
+- `continuation_notes` (list of strings; required): How content continues from
+  one page to the next, such as text or tables that run across a page break.
+- `labels` (list of objects ([`profile.labels[]`](#profilelabels)); required):
+  Names for the kinds of content in this PDF, each with one role.
+- `languages` (list of strings; required): BCP-47 tags of the languages the
+  PDF's text is written in; at least one.
+- `non_artifact_lines` (list of objects
+  ([`proposal.non_artifact_lines[]`](#proposalnon_artifact_lines)); required):
+  Measured repeated lines that are content rather than page furniture.
+- `notes` (list of strings; required): Anything else about the layout that later
+  steps should know.
+- `page_numbering` (list of objects
+  ([`profile.page_numbering[]`](#profilepage_numbering)); required): Ranges of
+  pages with their printed page numbers' style and offset.
+- `regions` (list of objects
+  ([`verification.verdict.corrected.regions[]`](#verificationverdictcorrectedregions));
+  required): Areas of single pages worth labeling.
+- `rotation` (list of objects ([`profile.rotation[]`](#profilerotation));
+  required): Ranges of pages whose content is not upright; other pages need no
+  rotation.
+- `start_markers` (list of objects
+  ([`profile.start_markers[]`](#profilestart_markers)); required): Text that
+  marks where a new unit of content starts.
+- `writing_direction` (object
+  ([`profile.writing_direction`](#profilewriting_direction)); required): The
+  writing direction of the pages.
+
+## `verification.verdict.problems[]`
+
+A problem the verifier found in the survey.
+
+- `category` (one of `labels`, `languages`, `writing_direction`, `rotation`,
+  `page_numbering`, `artifacts`, `regions`, `continuation`, `start_markers`,
+  `other`; required): What part of the survey the problem is about.
+- `description` (string; required): What is wrong and where, quoting the text
+  concerned, so that a person can find it.
+- `page_index` (integer or null; required): The page the problem is about
+  (0-based); null when it is about the whole PDF or several pages.
+
+## `verification.verdict.corrected.regions[]`
+
+An area of one page the model labels, with its box as page fractions.
+
+- `bbox` (object
+  ([`verification.verdict.corrected.regions[].bbox`](#verificationverdictcorrectedregionsbbox));
+  required): The area on the displayed page.
+- `label` (string; required): The label of the area's content.
+- `note` (string; required): Why the area is worth marking; may be empty.
+- `page_index` (integer; required): The page (0-based).
+
+## `verification.verdict.corrected.regions[].bbox`
+
+A box on the displayed page, in fractions of its size from the top left.
+
+- `x0` (number; required): The left edge, from 0 (the page's left) to 1 (its
+  right).
+- `x1` (number; required): The right edge.
+- `y0` (number; required): The top edge, from 0 (the page's top) to 1 (its
+  bottom).
+- `y1` (number; required): The bottom edge.

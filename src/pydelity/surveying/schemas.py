@@ -16,13 +16,14 @@ the displayed page, which Python converts to points.
 # Standard Library
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, Self
 
 # Third Party Library
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 # Package Library
 from pydelity.providers.profiles import Effort
+from pydelity.review import CheckFailure, ReviewIssue, SurveyCheckName, SurveyHintName
 
 # A page angle in degrees, counterclockwise.
 type Angle = Literal[0, 90, 180, 270]
@@ -33,22 +34,6 @@ type ArtifactPosition = Literal["top", "bottom", "left", "right", "middle"]
 
 # Where a line sits on the displayed page: the top or bottom band, or between them.
 type Band = Literal["top", "bottom", "middle"]
-
-# The survey's checks, C1 to C7 in order. The names are part of the ``run.json``
-# contract.
-type CheckName = Literal[
-    "labels",
-    "regions",
-    "rotation",
-    "page_numbering",
-    "artifacts",
-    "writing_direction",
-    "languages",
-]
-
-# The survey's comparisons of the accepted answer with the facts, whose differences
-# are review issues. The names are part of the ``run.json`` contract.
-type ComparisonName = Literal["rotation_differs", "page_number_differs"]
 
 # A writing direction: left to right, right to left, or top to bottom.
 type Direction = Literal["ltr", "rtl", "ttb"]
@@ -70,6 +55,20 @@ type ProbeFact = Literal["bookmarks", "form", "structure"]
 # How well the structure tags cover the PDF.
 type StructureQuality = Literal["none", "poor", "partial", "good"]
 
+# What a problem the survey's verifier found is about.
+type SurveyProblemCategory = Literal[
+    "labels",
+    "languages",
+    "writing_direction",
+    "rotation",
+    "page_numbering",
+    "artifacts",
+    "regions",
+    "continuation",
+    "start_markers",
+    "other",
+]
+
 # Whether a page's text layer is readable.
 type TextQuality = Literal["none", "good", "garbled"]
 
@@ -78,6 +77,23 @@ class _Output(BaseModel):
     """Base for the models stored in output files."""
 
     model_config = ConfigDict(use_attribute_docstrings=True)
+
+
+class Artifact(_Output):
+    """Page furniture the model identified, such as a running header or a stamp."""
+
+    description: str
+    """What the artifact is, in a few words."""
+
+    id: str
+    """The artifact's identifier, such as ``A1``."""
+
+    position: ArtifactPosition
+    """Where the artifact sits on the displayed page."""
+
+    repeated_line_ids: list[str]
+    """The IDs of the measured repeated lines (``R1``, ``R2`` and so on) that are this
+    artifact; empty when no repeated line is."""
 
 
 class Bookmark(_Output):
@@ -93,6 +109,22 @@ class Bookmark(_Output):
     """The bookmark's title."""
 
 
+class CheckResult(_Output):
+    """The result of one check on the accepted answer."""
+
+    attempts: int
+    """How many model answers were checked: 1 plus the retries used."""
+
+    failures: list[CheckFailure]
+    """The problems the check found in the accepted answer."""
+
+    name: SurveyCheckName
+    """The check."""
+
+    passed: bool
+    """Whether the accepted answer passed: ``failures`` is empty."""
+
+
 class DirectionFacts(_Output):
     """The writing direction measured on a page."""
 
@@ -103,6 +135,19 @@ class DirectionFacts(_Output):
 
     vertical_share: float
     """The share of the page's characters on lines in vertical writing mode."""
+
+
+class DirectionRange(_Output):
+    """Consecutive pages written in one direction."""
+
+    direction: Direction
+    """The writing direction on these pages."""
+
+    first_page_index: int
+    """The first page of the range (0-based)."""
+
+    last_page_index: int
+    """The last page of the range, inclusive."""
 
 
 class FormField(_Output):
@@ -140,56 +185,6 @@ class FormInfo(_Output):
     """Whether the form also carries an XFA form."""
 
 
-class ItemKind(StrEnum):
-    """The kind of content an item holds. Later steps handle each kind differently."""
-
-    CODE = "code"
-    """Code and other preformatted text, whose whitespace and line breaks matter."""
-
-    FIELD = "field"
-    """A form field with its label and value."""
-
-    FIGURE = "figure"
-    """An image, chart or diagram."""
-
-    FORMULA = "formula"
-    """A mathematical or chemical formula."""
-
-    LIST = "list"
-    """A list of items."""
-
-    TABLE = "table"
-    """A table."""
-
-    TEXT = "text"
-    """Running text."""
-
-
-class ItemRole(StrEnum):
-    """The role an item plays in the document. Later steps handle each differently."""
-
-    ARTIFACT = "artifact"
-    """Page furniture, such as running headers, footers and page numbers."""
-
-    ASIDE = "aside"
-    """Content beside the main flow, such as a sidebar or callout."""
-
-    BODY = "body"
-    """The main content."""
-
-    CAPTION = "caption"
-    """A caption of a figure or table."""
-
-    FOOTNOTE = "footnote"
-    """A footnote or endnote."""
-
-    HEADING = "heading"
-    """A heading."""
-
-    NAVIGATION = "navigation"
-    """A table of contents, index or other navigation aid."""
-
-
 class NumberingRange(_Output):
     """Consecutive measured pages whose printed numbers follow their page indexes."""
 
@@ -224,22 +219,6 @@ class OrientationFacts(_Output):
     """The angle most characters run at, or ``None`` without horizontal text."""
 
 
-class PdfIdentity(_Output):
-    """Which PDF the facts describe."""
-
-    bytes: int
-    """The file's size in bytes."""
-
-    name: str
-    """The file name."""
-
-    page_count: int
-    """The number of pages."""
-
-    sha256: str
-    """The SHA-256 hex digest of the file."""
-
-
 class PrintedNumber(_Output):
     """The page number printed on a page, or its page label."""
 
@@ -255,6 +234,59 @@ class PrintedNumber(_Output):
 
     value: int | None
     """The number's value, or ``None`` for a label that is not a number."""
+
+
+class TextFacts(_Output):
+    """How much text a page's text layer holds, and whether it is readable."""
+
+    chars: int
+    """Characters other than whitespace."""
+
+    control_chars: int
+    """Control characters among them."""
+
+    private_use_chars: int
+    """Private-use characters among them."""
+
+    quality: TextQuality
+    """``none`` without characters; ``garbled`` when control, private-use,
+    unassigned and replacement characters reach the garbled share; ``good``
+    otherwise."""
+
+    replacement_chars: int
+    """Replacement characters (U+FFFD) among them, for glyphs with no known
+    character."""
+
+    unassigned_chars: int
+    """Characters Unicode does not assign, among them."""
+
+
+class PageFacts(_Output):
+    """What the probe measured on one page."""
+
+    direction: DirectionFacts
+    """The writing direction."""
+
+    height_pt: float
+    """The displayed page's height in points."""
+
+    index: int
+    """The page's index."""
+
+    orientation: OrientationFacts
+    """Which way the text runs."""
+
+    printed_number: PrintedNumber | None
+    """The page number printed on the page, if one was found."""
+
+    rotation_attribute: int
+    """The page's rotation attribute in degrees, clockwise."""
+
+    text: TextFacts
+    """The text layer."""
+
+    width_pt: float
+    """The displayed page's width in points."""
 
 
 class ProbeError(_Output):
@@ -314,59 +346,6 @@ class StructureFacts(_Output):
     """Elements by standard type, after the tree's role map is applied."""
 
 
-class TextFacts(_Output):
-    """How much text a page's text layer holds, and whether it is readable."""
-
-    chars: int
-    """Characters other than whitespace."""
-
-    control_chars: int
-    """Control characters among them."""
-
-    private_use_chars: int
-    """Private-use characters among them."""
-
-    quality: TextQuality
-    """``none`` without characters; ``garbled`` when control, private-use,
-    unassigned and replacement characters reach the garbled share; ``good``
-    otherwise."""
-
-    replacement_chars: int
-    """Replacement characters (U+FFFD) among them, for glyphs with no known
-    character."""
-
-    unassigned_chars: int
-    """Characters Unicode does not assign, among them."""
-
-
-class PageFacts(_Output):
-    """What the probe measured on one page."""
-
-    direction: DirectionFacts
-    """The writing direction."""
-
-    height_pt: float
-    """The displayed page's height in points."""
-
-    index: int
-    """The page's index."""
-
-    orientation: OrientationFacts
-    """Which way the text runs."""
-
-    printed_number: PrintedNumber | None
-    """The page number printed on the page, if one was found."""
-
-    rotation_attribute: int
-    """The page's rotation attribute in degrees, clockwise."""
-
-    text: TextFacts
-    """The text layer."""
-
-    width_pt: float
-    """The displayed page's width in points."""
-
-
 class Facts(_Output):
     """Everything the probe measured.
 
@@ -402,95 +381,6 @@ class Facts(_Output):
     """What the structure tags cover."""
 
 
-class PdfFacts(_Output):
-    """The contents of ``pdf_facts.json``: the measured facts and their summary."""
-
-    facts: Facts
-    """The measured facts."""
-
-    fingerprint: str
-    """``sha256:`` fingerprint of what the facts depend on; a matching file is
-    reused."""
-
-    measured_at: datetime
-    """When the PDF was measured (UTC)."""
-
-    pdf: PdfIdentity
-    """Which PDF was measured."""
-
-    probe_version: int
-    """The version of the measurement rules."""
-
-    pydelity_version: str
-    """The pydelity version that measured the PDF."""
-
-    schema_version: str
-    """The version of this file's schema, ``"MAJOR.MINOR"``."""
-
-    summary: list[str]
-    """The facts as plain-text lines, for people and for the model."""
-
-
-class Artifact(_Output):
-    """Page furniture the model identified, such as a running header or a stamp."""
-
-    description: str
-    """What the artifact is, in a few words."""
-
-    id: str
-    """The artifact's identifier, such as ``A1``."""
-
-    position: ArtifactPosition
-    """Where the artifact sits on the displayed page."""
-
-    repeated_line_ids: list[str]
-    """The IDs of the measured repeated lines (``R1``, ``R2`` and so on) that are this
-    artifact; empty when no repeated line is."""
-
-
-class CheckFailure(_Output):
-    """One problem a check found in the model's answer."""
-
-    details: dict[str, object]
-    """The proposed value and, where it applies, what it was checked against, such as
-    ``{"proposed": 9, "page_count": 6}``."""
-
-    message: str
-    """What is wrong, starting with the check's name."""
-
-    page_index: int | None
-    """The page the problem is on, or ``None`` when no single page applies."""
-
-
-class CheckResult(_Output):
-    """The result of one check on the accepted answer."""
-
-    attempts: int
-    """How many model answers were checked: 1 plus the retries used."""
-
-    failures: list[CheckFailure]
-    """The problems the check found in the accepted answer."""
-
-    name: CheckName
-    """The check."""
-
-    passed: bool
-    """Whether the accepted answer passed: ``failures`` is empty."""
-
-
-class DirectionRange(_Output):
-    """Consecutive pages written in one direction."""
-
-    direction: Direction
-    """The writing direction on these pages."""
-
-    first_page_index: int
-    """The first page of the range (0-based)."""
-
-    last_page_index: int
-    """The last page of the range, inclusive."""
-
-
 class FractionBox(_Output):
     """A box on the displayed page, in fractions of its size from the top left."""
 
@@ -505,6 +395,67 @@ class FractionBox(_Output):
 
     y1: float
     """The bottom edge."""
+
+
+class HintResult(_Output):
+    """How the kept answer compares with one hint."""
+
+    differences: list[CheckFailure]
+    """Where the kept answer differs from what the probe measured; empty when it
+    agrees."""
+
+    name: SurveyHintName
+    """The hint."""
+
+
+class ItemKind(StrEnum):
+    """The kind of content an item holds. Later steps handle each kind differently."""
+
+    CODE = "code"
+    """Code and other preformatted text, whose whitespace and line breaks matter."""
+
+    FIELD = "field"
+    """A form field with its label and value."""
+
+    FIGURE = "figure"
+    """An image, chart or diagram."""
+
+    FORMULA = "formula"
+    """A mathematical or chemical formula."""
+
+    LIST = "list"
+    """A list of items."""
+
+    TABLE = "table"
+    """A table."""
+
+    TEXT = "text"
+    """Running text."""
+
+
+class ItemRole(StrEnum):
+    """The role an item plays in the document. Later steps handle each differently."""
+
+    ARTIFACT = "artifact"
+    """Page furniture, such as running headers, footers and page numbers."""
+
+    ASIDE = "aside"
+    """Content beside the main flow, such as a sidebar or callout."""
+
+    BODY = "body"
+    """The main content."""
+
+    CAPTION = "caption"
+    """A caption of a figure or table."""
+
+    FOOTNOTE = "footnote"
+    """A footnote or endnote."""
+
+    HEADING = "heading"
+    """A heading."""
+
+    NAVIGATION = "navigation"
+    """A table of contents, index or other navigation aid."""
 
 
 class Label(_Output):
@@ -550,59 +501,49 @@ class PageNumberingRange(_Output):
     """How the numbers are written."""
 
 
-class ProposedRegion(_Output):
-    """An area of one page the model labels, with its box as page fractions."""
+class PdfIdentity(_Output):
+    """Which PDF the facts describe."""
 
-    bbox: FractionBox
-    """The area on the displayed page."""
+    bytes: int
+    """The file's size in bytes."""
 
-    label: str
-    """The label of the area's content."""
+    name: str
+    """The file name."""
 
-    note: str
-    """Why the area is worth marking; may be empty."""
+    page_count: int
+    """The number of pages."""
 
-    page_index: int
-    """The page (0-based)."""
-
-
-class Region(_Output):
-    """An area of one page the model labeled, with its box in points."""
-
-    bbox: tuple[float, float, float, float]
-    """The area on the displayed page, as ``[x0, y0, x1, y1]`` in points."""
-
-    label: str
-    """The label of the area's content."""
-
-    note: str
-    """Why the area is worth marking; may be empty."""
-
-    page_index: int
-    """The page (0-based)."""
+    sha256: str
+    """The SHA-256 hex digest of the file."""
 
 
-class ReviewIssue(_Output):
-    """A problem a person should review.
+class PdfFacts(_Output):
+    """The contents of ``pdf_facts.json``: the measured facts and their summary."""
 
-    It comes from a check that still failed on the accepted answer, or from a
-    difference between the accepted answer and the measured facts.
-    """
+    facts: Facts
+    """The measured facts."""
 
-    check: CheckName | ComparisonName
-    """The check or comparison that found the problem."""
+    fingerprint: str
+    """``sha256:`` fingerprint of what the facts depend on; a matching file is
+    reused."""
 
-    details: dict[str, object]
-    """The values the problem is about, such as ``{"measured": 90, "profile": 0}``."""
+    measured_at: datetime
+    """When the PDF was measured (UTC)."""
 
-    message: str
-    """What is wrong."""
+    pdf: PdfIdentity
+    """Which PDF was measured."""
 
-    page_index: int | None
-    """The page the problem is on, or ``None`` when no single page applies."""
+    probe_version: int
+    """The version of the measurement rules."""
 
-    step: Literal["survey"]
-    """The step whose check found the problem."""
+    pydelity_version: str
+    """The pydelity version that measured the PDF."""
+
+    schema_version: str
+    """The version of this file's schema, ``"MAJOR.MINOR"``."""
+
+    summary: list[str]
+    """The facts as plain-text lines, for people and for the model."""
 
 
 class RotationRange(_Output):
@@ -626,19 +567,6 @@ class StartMarker(_Output):
 
     text: str
     """The text, as printed."""
-
-
-class SurveySettings(_Output):
-    """The survey settings a survey's result depends on."""
-
-    check_retries: int
-    """How many times the model could answer again after failing the checks."""
-
-    effort: Effort
-    """How hard the model thought before answering."""
-
-    max_output_tokens: int
-    """The most tokens one model answer could contain, thinking included."""
 
 
 class WritingDirection(_Output):
@@ -672,11 +600,24 @@ class Profile(_Output):
     start_markers: list[StartMarker]
     """Text that marks where a new unit of content starts."""
 
-    user_instructions: str | None
-    """The user's instructions for this PDF, if any."""
-
     writing_direction: WritingDirection
     """The writing direction of the pages."""
+
+
+class Region(_Output):
+    """An area of one page the model labeled, with its box in points."""
+
+    bbox: tuple[float, float, float, float]
+    """The area on the displayed page, as ``[x0, y0, x1, y1]`` in points."""
+
+    label: str
+    """The label of the area's content."""
+
+    note: str
+    """Why the area is worth marking; may be empty."""
+
+    page_index: int
+    """The page (0-based)."""
 
 
 class Proposal(_Output):
@@ -693,6 +634,22 @@ class Proposal(_Output):
 
     regions: list[Region]
     """Areas of single pages the model labeled."""
+
+
+class ProposedRegion(_Output):
+    """An area of one page the model labels, with its box as page fractions."""
+
+    bbox: FractionBox
+    """The area on the displayed page."""
+
+    label: str
+    """The label of the area's content."""
+
+    note: str
+    """Why the area is worth marking; may be empty."""
+
+    page_index: int
+    """The page (0-based)."""
 
 
 class SurveyAnswer(_Output):
@@ -734,6 +691,19 @@ class SurveyAnswer(_Output):
     """The writing direction of the pages."""
 
 
+class SurveySettings(_Output):
+    """The survey settings a survey's result depends on."""
+
+    check_retries: int
+    """How many times the model could answer again after failing the checks."""
+
+    effort: Effort
+    """How hard the model thought before answering."""
+
+    max_output_tokens: int
+    """The most tokens one model answer could contain, thinking included."""
+
+
 class SurveyInputs(_Output):
     """What a survey was made from."""
 
@@ -741,7 +711,7 @@ class SurveyInputs(_Output):
     """The fingerprint of the ``pdf_facts.json`` the survey used."""
 
     instructions: str | None
-    """The user's instructions, if any."""
+    """The user's survey instructions (``advanced.survey.instructions``), if any."""
 
     languages: list[str]
     """The user's languages, in standard form."""
@@ -768,11 +738,83 @@ class SurveyInputs(_Output):
     """The survey settings used."""
 
 
+class SurveyProblem(_Output):
+    """A problem the verifier found in the survey."""
+
+    category: SurveyProblemCategory
+    """What part of the survey the problem is about."""
+
+    description: str
+    """What is wrong and where, quoting the text concerned, so that a person can find
+    it."""
+
+    page_index: int | None
+    """The page the problem is about (0-based); null when it is about the whole PDF
+    or several pages."""
+
+
+class SurveyVerdict(_Output):
+    """The verifier's verdict on the survey."""
+
+    corrected: SurveyAnswer | None
+    """The whole survey answer again with the problems fixed; null when the survey
+    passed or cannot be corrected."""
+
+    passed: bool
+    """Whether the survey is faithful to the PDF, with nothing to fix."""
+
+    problems: list[SurveyProblem]
+    """The problems found; empty when the survey passed."""
+
+    @model_validator(mode="after")
+    def _agree(self) -> Self:
+        """Check that ``passed`` agrees with the problems and the correction.
+
+        Returns
+        -------
+        Self
+            The verdict.
+
+        Raises
+        ------
+        ValueError
+            If a passed verdict lists problems or a correction, or a failed verdict
+            lists no problem.
+        """
+
+        if self.passed and (self.problems or self.corrected is not None):
+            raise ValueError(
+                "a verdict that passed has no problems and no corrected survey answer"
+            )
+        if not self.passed and not self.problems:
+            raise ValueError("a verdict that did not pass names at least one problem")
+        return self
+
+
+class SurveyVerification(_Output):
+    """The verifier's review of the survey."""
+
+    attempts: int
+    """How many verdicts the verifier gave: 1 plus the retries its correction used."""
+
+    correction_applied: bool
+    """Whether the verifier's corrected answer replaced the survey's answer. A
+    correction replaces it when it passes every check."""
+
+    correction_failures: list[CheckResult]
+    """The checks a correction that was not applied still failed; empty when it was
+    applied or there was none."""
+
+    verdict: SurveyVerdict
+    """The verdict as the verifier gave it."""
+
+
 class PdfSurvey(_Output):
     """The contents of ``pdf_survey.json``: the checked survey of one PDF."""
 
     checks: list[CheckResult]
-    """The result of each check, C1 to C7 in order."""
+    """The result of each check on the kept answer, C1 to C7 in order: the survey's
+    answer, or the verifier's correction when it was kept."""
 
     facts: Facts
     """A copy of the measured facts the survey used."""
@@ -781,11 +823,18 @@ class PdfSurvey(_Output):
     """``sha256:`` fingerprint of what the survey depends on; a matching file is
     reused."""
 
+    hints: list[HintResult]
+    """Each hint's differences on the kept answer, ``rotation_differs`` then
+    ``page_number_differs``, whether or not the review list shows them."""
+
     inputs: SurveyInputs
     """What the survey was made from."""
 
     issues: list[ReviewIssue]
-    """One review issue per failure on the accepted answer."""
+    """The review list: each failure still on the kept answer; then its hint
+    differences, unless the verifier passed the answer or its correction was kept;
+    then the verifier's problems, when its correction was not kept. The ``hints`` list
+    keeps every hint difference either way."""
 
     profile: Profile
     """How the PDF's pages are laid out, for later steps."""
@@ -795,3 +844,6 @@ class PdfSurvey(_Output):
 
     schema_version: str
     """The version of this file's schema, ``"MAJOR.MINOR"``."""
+
+    verification: SurveyVerification | None
+    """The verifier's review; ``None`` when no verifier reviewed the survey."""

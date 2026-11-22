@@ -7,6 +7,7 @@ needs a provider.
 
 # Standard Library
 import json
+import re
 
 from decimal import Decimal
 from pathlib import Path
@@ -15,15 +16,31 @@ from typing import Annotated, Literal
 # Third Party Library
 import langcodes
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, SecretStr
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    SecretStr,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Package Library
-from pydelity.providers.profiles import DEFAULT_MODEL, ModelChoice, parse_model
+from pydelity.providers.profiles import (
+    DEFAULT_EXTRACTION_MODEL,
+    DEFAULT_SURVEY_MODEL,
+    ModelChoice,
+    parse_model,
+)
 
 # The default parent of the output folders, in the current directory. Each PDF gets
 # its own folder inside it, named after the PDF.
 _DEFAULT_OUTPUT_PARENT = "pydelity-output"
+
+# One item of a page list: a page number or a range of page numbers, such as ``8`` or
+# ``1-5``. Only ASCII digits count.
+_PAGE_ITEM = re.compile(r"([0-9]+)(?:-([0-9]+))?")
 
 
 def _absolute(path: Path) -> Path:
@@ -43,6 +60,23 @@ def _absolute(path: Path) -> Path:
     """
 
     return path.expanduser().absolute()
+
+
+def _blank_as_unset(text: str) -> str | None:
+    """Treat text that is empty or only whitespace as unset.
+
+    Parameters
+    ----------
+    text
+        The text as given.
+
+    Returns
+    -------
+    str | None
+        The text, unchanged, or ``None`` when it is blank.
+    """
+
+    return text if text.strip() else None
 
 
 def _check_language_tag(tag: str) -> str:
@@ -115,6 +149,26 @@ def _check_output_dir(path: Path) -> Path:
     return absolute
 
 
+def _check_pages(text: str) -> str:
+    """Accept a page list, in its canonical form.
+
+    Parameters
+    ----------
+    text
+        The page list as given, such as ``"8, 1-5"``.
+
+    Returns
+    -------
+    str
+        The page list sorted and merged, such as ``"1-5,8"``.
+    """
+
+    ranges = parse_pages(text)
+    return ",".join(
+        str(first) if first == last else f"{first}-{last}" for first, last in ranges
+    )
+
+
 def _check_pdf(path: Path) -> Path:
     """Accept a PDF path that exists and is a file, made absolute.
 
@@ -142,6 +196,61 @@ def _check_pdf(path: Path) -> Path:
     return absolute
 
 
+def _int_as_page(value: object) -> object:
+    """Turn a whole number given for ``pages`` into the page list of that one page.
+
+    Parameters
+    ----------
+    value
+        The ``pages`` value as given.
+
+    Returns
+    -------
+    object
+        The number as text, or any other value unchanged.
+    """
+
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    return value
+
+
+class ExtractionConfig(BaseModel):
+    """Settings for page extraction.
+
+    They apply to page extraction's requests and to its verifier's requests alike.
+    """
+
+    model_config = ConfigDict(extra="forbid", use_attribute_docstrings=True)
+
+    check_retries: Annotated[int, Field(ge=0, le=5)] = 2
+    """How many times a model may answer again after failing page extraction's
+    checks."""
+
+    concurrent_pages: Annotated[int, Field(ge=1, le=32)] = 8
+    """How many pages are extracted at the same time."""
+
+    effort: Literal["low", "medium", "high"] = "high"
+    """How hard the model thinks before answering."""
+
+    instructions: Annotated[str, AfterValidator(_blank_as_unset)] | None = None
+    """What is particular, different or nuanced about this PDF, in your own words, for
+    page extraction's model and its verifier. Blank text counts as unset."""
+
+    max_output_tokens: Annotated[int, Field(gt=0)] = 32_000
+    """The most tokens one model answer may contain, thinking included."""
+
+    model: Annotated[str, AfterValidator(_check_model_setting)] | None = None
+    """The model for page extraction, as ``<provider>:<model-id>``; ``model``, or else
+    page extraction's default, if unset."""
+
+    request_timeout_seconds: Annotated[float, Field(gt=0)] = 600
+    """How long to wait for one model request before it counts as failed."""
+
+    verify: bool | None = None
+    """Whether a verifier reviews each page's extraction; ``verify`` if unset."""
+
+
 class ModelPrices(BaseModel):
     """Prices for one model, in US dollars per million tokens.
 
@@ -164,7 +273,10 @@ class ModelPrices(BaseModel):
 
 
 class SurveyConfig(BaseModel):
-    """Settings for the survey step."""
+    """Settings for the survey step.
+
+    They apply to the survey's requests and to its verifier's requests alike.
+    """
 
     model_config = ConfigDict(extra="forbid", use_attribute_docstrings=True)
 
@@ -174,11 +286,18 @@ class SurveyConfig(BaseModel):
     effort: Literal["low", "medium", "high"] = "high"
     """How hard the model thinks before answering."""
 
+    instructions: Annotated[str, AfterValidator(_blank_as_unset)] | None = None
+    """What is particular, different or nuanced about this PDF, in your own words, for
+    the survey's model and its verifier. Blank text counts as unset."""
+
     max_output_tokens: Annotated[int, Field(gt=0)] = 32_000
     """The most tokens one model answer may contain, thinking included."""
 
     request_timeout_seconds: Annotated[float, Field(gt=0)] = 900
     """How long to wait for one model request before it counts as failed."""
+
+    verify: bool | None = None
+    """Whether a verifier reviews the survey's answer; ``verify`` if unset."""
 
 
 class UploadsConfig(BaseModel):
@@ -194,6 +313,9 @@ class AdvancedConfig(BaseModel):
     """Settings most runs never need to change."""
 
     model_config = ConfigDict(extra="forbid", use_attribute_docstrings=True)
+
+    extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
+    """Settings for page extraction."""
 
     models: dict[Annotated[str, AfterValidator(_check_model_setting)], ModelPrices] = (
         Field(default_factory=dict)
@@ -223,9 +345,6 @@ class Config(BaseModel):
     advanced: AdvancedConfig = Field(default_factory=AdvancedConfig)
     """Settings most runs never need to change."""
 
-    instructions: str | None = None
-    """Extra instructions for the model about this PDF."""
-
     languages: list[Annotated[str, AfterValidator(_check_language_tag)]] = Field(
         default_factory=list
     )
@@ -234,10 +353,12 @@ class Config(BaseModel):
     max_cost: Annotated[Decimal, Field(gt=0)] | None = None
     """The most the output folder's model requests may cost, in US dollars."""
 
-    model: Annotated[str, AfterValidator(_check_model_setting)] = DEFAULT_MODEL
-    """The model, as ``<provider>:<model-id>``; provider ``anthropic`` or ``openai``.
+    model: Annotated[str, AfterValidator(_check_model_setting)] | None = None
+    """The model for every step, as ``<provider>:<model-id>``; each step's default if
+    unset.
 
-    The model ID is sent to the provider as given.
+    The provider is ``anthropic`` or ``openai``, and the model ID is sent to the
+    provider as given.
     """
 
     output_dir: Annotated[Path, AfterValidator(_check_output_dir)] | None = None
@@ -247,14 +368,39 @@ class Config(BaseModel):
     overwrite: bool = False
     """Whether to redo steps whose outputs could be reused."""
 
+    pages: (
+        Annotated[str, BeforeValidator(_int_as_page), AfterValidator(_check_pages)]
+        | None
+    ) = None
+    """The pages to extract, numbered from 1 as a PDF viewer shows them, such as
+    ``1-5,8``; every page if unset. The survey always reads every page."""
+
+    pause: bool = True
+    """Whether to stop after a step that wrote new output, so it can be checked before
+    the next step is paid for."""
+
     pdf: Annotated[Path, AfterValidator(_check_pdf)]
     """The PDF to process."""
 
-    @property
-    def model_choice(self) -> ModelChoice:
-        """The model setting split into its provider and model ID."""
+    verify: bool = False
+    """Whether a verifier reviews each step's answer.
 
-        return parse_model(self.model)
+    The verifier is a second request to the step's model, which checks the answer
+    against the PDF and may correct it. Each verifier request adds cost.
+    """
+
+    @property
+    def extraction_model(self) -> ModelChoice:
+        """The page extraction model.
+
+        It is ``advanced.extraction.model``, else ``model``, else page extraction's
+        default.
+        """
+
+        setting = (
+            self.advanced.extraction.model or self.model or DEFAULT_EXTRACTION_MODEL
+        )
+        return parse_model(setting)
 
     @property
     def output_folder(self) -> Path:
@@ -263,6 +409,32 @@ class Config(BaseModel):
         if self.output_dir is not None:
             return self.output_dir
         return Path(_DEFAULT_OUTPUT_PARENT).absolute() / self.pdf.stem
+
+    @property
+    def survey_model(self) -> ModelChoice:
+        """The survey model: ``model``, else the survey's default."""
+
+        return parse_model(self.model or DEFAULT_SURVEY_MODEL)
+
+    @property
+    def verify_extraction(self) -> bool:
+        """Whether page extraction's verifier runs.
+
+        It is ``advanced.extraction.verify`` when set, else ``verify``.
+        """
+
+        override = self.advanced.extraction.verify
+        return self.verify if override is None else override
+
+    @property
+    def verify_survey(self) -> bool:
+        """Whether the survey's verifier runs.
+
+        It is ``advanced.survey.verify`` when set, else ``verify``.
+        """
+
+        override = self.advanced.survey.verify
+        return self.verify if override is None else override
 
 
 class ProviderEnv(BaseSettings):
@@ -308,6 +480,68 @@ def is_language_tag(tag: str) -> bool:
     """
 
     return langcodes.tag_is_valid(tag)
+
+
+def parse_pages(text: str) -> list[tuple[int, int]]:
+    """Read a page list into sorted, merged ranges of page numbers.
+
+    Pages are numbered from 1, as a PDF viewer shows them. Items are separated by
+    commas, and each is a page (``8``) or a range of pages (``1-5``), with spaces
+    allowed around it. Overlapping, repeated and adjacent items merge.
+
+    Parameters
+    ----------
+    text
+        The page list, such as ``"1-5,8"``.
+
+    Returns
+    -------
+    list[tuple[int, int]]
+        The first and last page of each range, in ascending order.
+
+    Raises
+    ------
+    ValueError
+        If the list is empty, an item is not a page or a range of pages, a page is
+        0, or a range ends before it starts.
+
+    Examples
+    --------
+    >>> parse_pages("8, 1-5, 4-6")
+    [(1, 6), (8, 8)]
+    """
+
+    if not text.strip():
+        raise ValueError(
+            "empty; give pages such as 1-5,8, or leave it unset to extract every page"
+        )
+
+    ranges = []
+    for item in text.split(","):
+        match = _PAGE_ITEM.fullmatch(item.strip())
+        if match is None:
+            shown = json.dumps(item.strip(), ensure_ascii=False)
+            raise ValueError(
+                f"{shown} is not a page or a range of pages, such as 8 or 1-5"
+            )
+        first = int(match[1])
+        last = int(match[2] or match[1])
+        if first < 1:
+            raise ValueError("pages are numbered from 1")
+        if last < first:
+            raise ValueError(f"the range {first}-{last} ends before it starts")
+        ranges.append((first, last))
+
+    # Sort, then join each range into the one before it when they overlap or touch.
+    ranges.sort()
+    merged = [ranges[0]]
+    for first, last in ranges[1:]:
+        previous_first, previous_last = merged[-1]
+        if first <= previous_last + 1:
+            merged[-1] = (previous_first, max(previous_last, last))
+        else:
+            merged.append((first, last))
+    return merged
 
 
 def standard_language_tag(tag: str) -> str:

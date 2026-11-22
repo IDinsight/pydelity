@@ -84,8 +84,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: uv run --locked just lint
 
-      - name: Fail if the lint recipes changed any file
-        run: git diff --exit-code
+      # The lint recipes regenerate the reference pages, so a changed file or a new page
+      # left untracked means the commit is missing generated or fixed files.
+      - name: Fail if the lint recipes changed or added any file
+        run: |
+          git diff --exit-code
+          added="$(git status --porcelain --untracked-files=all -- docs/src/content/docs/reference)"
+          if [[ -n "$added" ]]; then
+            echo "::error::Generated reference pages are not committed:"
+            echo "$added"
+            exit 1
+          fi
 
       - name: Run the tests
         run: uv run --locked just test

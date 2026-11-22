@@ -15,11 +15,16 @@ from pydantic import BaseModel, ConfigDict
 # Package Library
 from pydelity.costs.schemas import LedgerEntry, Money
 from pydelity.errors import WarningCode
+from pydelity.extracting.schemas import PageFile
 from pydelity.providers.profiles import PdfTransport
-from pydelity.surveying.schemas import PdfFacts, PdfSurvey, ReviewIssue
+from pydelity.review import ReviewIssue
+from pydelity.surveying.schemas import PdfFacts, PdfSurvey
 
-# How a run ended, or ``running`` while it lasts.
-type RunStatus = Literal["running", "completed", "failed", "stopped", "interrupted"]
+# How a run ended, or ``running`` while it lasts. A ``paused`` run stopped after a step
+# that wrote new output, so it can be checked before the next step.
+type RunStatus = Literal[
+    "running", "completed", "paused", "failed", "stopped", "interrupted"
+]
 
 # How a step ended.
 type StepStatus = Literal["completed", "reused", "failed", "stopped", "skipped"]
@@ -29,6 +34,19 @@ class _Output(BaseModel):
     """Base for the models stored in output files."""
 
     model_config = ConfigDict(use_attribute_docstrings=True)
+
+
+class PageCounts(_Output):
+    """How many pages a page step selected, extracted and reused."""
+
+    extracted: int
+    """The selected pages extracted in this run."""
+
+    reused: int
+    """The selected pages whose saved output was reused."""
+
+    selected: int
+    """The pages selected with ``pages``; every page when it is unset."""
 
 
 class PdfRecord(_Output):
@@ -80,6 +98,11 @@ class StepRecord(_Output):
 
     outputs: list[str]
     """The files the step wrote or reused, by name."""
+
+    pages: PageCounts | None
+    """How many pages the step selected, extracted and reused; ``None`` for a step
+    that reads the whole PDF at once, such as the survey, and for a page extraction
+    step that was skipped."""
 
     pdf_transport: PdfTransport | None
     """How the PDF went to the model: ``upload`` or ``request``; ``None`` when no
@@ -170,6 +193,11 @@ class RunResult(BaseModel):
 
     output_dir: Path
     """The output folder."""
+
+    pages: list[PageFile]
+    """Page files, in page order. A run returns its selected pages that have one.
+    `pydelity.load` returns the page files made from the PDF in ``pdf_facts.json``,
+    and none when the folder has no ``pdf_facts.json``."""
 
     record: RunRecord | None
     """The contents of ``run.json``."""

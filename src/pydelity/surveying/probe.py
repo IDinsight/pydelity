@@ -5,7 +5,8 @@ with PyMuPDF. It relies on Unicode properties and PDF structure, not word lists,
 works the same way for any language or type of document. Every threshold is a named
 constant below. On a malformed PDF, reading the bookmarks, the form or the structure
 tree can fail. The probe then sets that fact to ``None``, records a `ProbeError` and
-continues.
+continues. A form field that cannot be read is left out, with a `ProbeError` naming it,
+and the other fields are kept.
 """
 
 # Standard Library
@@ -44,6 +45,55 @@ from pydelity.surveying.schemas import (
     TextFacts,
     TextQuality,
 )
+from pydelity.utils.pdf import TEXT_FLAGS
+from pydelity.utils.text import normalize_line
+
+# Items of a PDF array as PyMuPDF prints it: references, inline dictionaries and
+# integers (marked-content IDs).
+_ARRAY_ITEM = re.compile(r"(\d+)\s+\d+\s+R|(<<.*?>>)|(-?\d+)", re.DOTALL)
+
+# Form field types, as PyMuPDF names them, and as pdf_facts.json records them.
+_FIELD_TYPES: dict[str, FieldType] = {
+    "Button": "button",
+    "CheckBox": "checkbox",
+    "ComboBox": "combobox",
+    "ListBox": "listbox",
+    "RadioButton": "radio",
+    "Signature": "signature",
+    "Text": "text",
+}
+
+# A page label's number at its end, after any prefix: decimal digits, or letters (a
+# roman numeral) after a character that is not a letter, as in "Page 12" or "A-iv".
+_LABEL_NUMBER = re.compile(r"(?:.*\W)?([^\W\d_]+)|.*?(\d+)")
+
+# How long an error message from a malformed PDF may be.
+_MAX_MESSAGE_CHARS = 200
+
+# How many role-map steps lead from a custom structure type to a standard one, at most.
+_MAX_ROLE_STEPS = 10
+
+# Page-label numbering styles that give a page number: decimal digits, and upper- or
+# lower-case roman numerals. Letter styles (A, a) and labels with no style give none.
+_NUMBERED_LABEL_STYLES = frozenset({"D", "R", "r"})
+
+# A line's number or word parts: runs of decimal digits (any script) or of letters.
+_NUMBER_PARTS = re.compile(r"\d+|[^\W\d_]+")
+
+# The page reference of an inline marked-content or object reference dictionary.
+_PAGE_REFERENCE = re.compile(r"/Pg\s+(\d+)\s+\d+\s+R")
+
+# A key of a dictionary whose value is a reference, as PyMuPDF prints the dictionary,
+# such as the on and off states of a button's appearances: /Yes 12 0 R.
+_REFERENCE_KEY = re.compile(r"/([^\s/<>\[\]()]+)\s+\d+\s+\d+\s+R")
+
+# A pair in an inline role-map dictionary: /CustomType /StandardType.
+_ROLE_MAP_PAIR = re.compile(r"/([^\s/<>\[\]()]+)\s*/([^\s/<>\[\]()]+)")
+
+# A roman numeral from 1 to 3999.
+_ROMAN = re.compile(r"M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})")
+
+_ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 
 # A page's top band, and its bottom band, as a share of the displayed page's height.
 # Printed page numbers are looked for there, and repeated lines are placed by it.
@@ -97,54 +147,6 @@ STRUCTURE_GROUPING_TYPES = frozenset(
 
 STRUCTURE_MIN_ELEMENTS = 10
 
-# Items of a PDF array as PyMuPDF prints it: references, inline dictionaries and
-# integers (marked-content IDs).
-_ARRAY_ITEM = re.compile(r"(\d+)\s+\d+\s+R|(<<.*?>>)|(-?\d+)", re.DOTALL)
-
-# Form field types, as PyMuPDF names them, and as pdf_facts.json records them.
-_FIELD_TYPES: dict[str, FieldType] = {
-    "Button": "button",
-    "CheckBox": "checkbox",
-    "ComboBox": "combobox",
-    "ListBox": "listbox",
-    "RadioButton": "radio",
-    "Signature": "signature",
-    "Text": "text",
-}
-
-# How long an error message from a malformed PDF may be.
-_MAX_MESSAGE_CHARS = 200
-
-# How many role-map steps lead from a custom structure type to a standard one, at most.
-_MAX_ROLE_STEPS = 10
-
-# A line's number or word parts: runs of decimal digits (any script) or of letters.
-_NUMBER_PARTS = re.compile(r"\d+|[^\W\d_]+")
-
-# A page label's number at its end, after any prefix: decimal digits, or letters (a
-# roman numeral) after a character that is not a letter, as in "Page 12" or "A-iv".
-_LABEL_NUMBER = re.compile(r"(?:.*\W)?([^\W\d_]+)|.*?(\d+)")
-
-# The page reference of an inline marked-content or object reference dictionary.
-_PAGE_REFERENCE = re.compile(r"/Pg\s+(\d+)\s+\d+\s+R")
-
-# A pair in an inline role-map dictionary: /CustomType /StandardType.
-_ROLE_MAP_PAIR = re.compile(r"/([^\s/<>\[\]()]+)\s*/([^\s/<>\[\]()]+)")
-
-# A roman numeral from 1 to 3999.
-_ROMAN = re.compile(r"M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})")
-
-_ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
-
-# Text extraction keeps ligatures and whitespace as written, clips to the page and
-# leaves out images. Without TEXT_USE_CID_FOR_UNKNOWN_UNICODE, a glyph with no known
-# character comes out as U+FFFD, which the garbled-text measure counts.
-_TEXT_FLAGS = (
-    pymupdf.TEXT_PRESERVE_LIGATURES
-    | pymupdf.TEXT_PRESERVE_WHITESPACE
-    | pymupdf.TEXT_MEDIABOX_CLIP
-)
-
 
 @dataclass(frozen=True)
 class _Line:
@@ -160,6 +162,8 @@ class _Line:
         Characters other than whitespace.
     edge_distance
         Distance in points from the line to the nearer of the page's top and bottom.
+    rect
+        The line's box on the displayed page, in points.
     text
         The line's text, stripped.
     """
@@ -168,6 +172,7 @@ class _Line:
     band: Band
     chars: int
     edge_distance: float
+    rect: pymupdf.Rect
     text: str
 
 
@@ -228,13 +233,62 @@ def _bookmarks(document: pymupdf.Document) -> list[Bookmark]:
     Returns
     -------
     list[Bookmark]
-        The bookmarks in order; empty when the PDF has none.
+        The bookmarks in order; empty when the PDF has none. An outline whose links
+        lead back to an entry already read gives the bookmarks before that entry,
+        and a link to an object the PDF does not have is skipped.
     """
 
+    _cut_broken_outline_links(document)
     return [
         Bookmark(level=level, page_index=page - 1 if page >= 1 else None, title=title)
         for level, title, page in document.get_toc(simple=True)
     ]
+
+
+def _button_state(
+    *, document: pymupdf.Document, field_type: FieldType, xref: int
+) -> tuple[bool, str | None]:
+    """Read whether a checkbox or radio button is on, and its field's value.
+
+    Both come from the PDF's entries, not from the button's appearances, which a
+    filled form can lack: ``AS`` is the state the button shows, and ``V``, on the
+    button or on the field it belongs to, is the field's value. A radio button that
+    shows off counts as on only when no button of its group shows on and the
+    group's value names one of its on states.
+
+    Parameters
+    ----------
+    document
+        The open PDF.
+    field_type
+        ``checkbox`` or ``radio``.
+    xref
+        The button's object number.
+
+    Returns
+    -------
+    tuple[bool, str | None]
+        Whether the button is on, and the field's value, such as ``Yes`` or ``Off``.
+    """
+
+    shown = _name_value(document=document, key="AS", xref=xref)
+    value = _name_value(document=document, key="V", xref=xref)
+    if value is None:
+        value = _name_value(document=document, key="Parent/V", xref=xref)
+    if field_type == "checkbox":
+        state = shown if shown is not None else value
+        return state not in {None, "Off"}, value if value is not None else shown
+
+    on = shown not in {None, "Off"}
+    if (
+        not on
+        and value not in {None, "Off"}
+        and not _group_shows_on(document=document, xref=xref)
+    ):
+        # A radio group can be saved with every button showing off while its value
+        # names one button's on state. When a button shows on, it is the one on.
+        on = value in _on_states(document=document, xref=xref)
+    return on, value
 
 
 def _choose_text_numbers(
@@ -292,6 +346,51 @@ def _common_band(bands: list[Band]) -> Band:
     counts = Counter(bands)
     order: tuple[Band, ...] = ("top", "bottom", "middle")
     return max(order, key=lambda band: counts[band])
+
+
+def _cut_broken_outline_links(document: pymupdf.Document) -> None:
+    """Remove the outline's links to missing objects and to entries already read.
+
+    The outline is walked in reading order: each entry, then its children, then its
+    next sibling. A link to an object the PDF does not have is removed, and the walk
+    carries on. PyMuPDF raises on reading such an object, and `get_toc` would show it
+    as a blank entry and, for a missing first child, drop the entries after it.
+    PyMuPDF reads no bookmarks at all from an outline whose links form a cycle, so at
+    the first link to an entry already read, that link and every link not yet
+    followed are removed, and the outline ends there. Only the open document
+    changes; the file is not written.
+
+    Parameters
+    ----------
+    document
+        The open PDF; its outline is changed in place when it has a broken link.
+    """
+
+    kind, value = document.xref_get_key(document.pdf_catalog(), "Outlines")
+    if kind != "xref":
+        return
+    objects = range(1, document.xref_length())
+    root = int(value.split(maxsplit=1)[0])
+    if root not in objects:
+        return
+    seen: set[int] = set()
+    links = [(root, "First")]
+    while links:
+        holder, key = links.pop()
+        kind, value = document.xref_get_key(holder, key)
+        if kind != "xref":
+            continue
+        entry = int(value.split(maxsplit=1)[0])
+        if entry not in objects:
+            document.xref_set_key(holder, key, "null")
+            continue
+        if entry in seen:
+            for open_holder, open_key in [(holder, key), *links]:
+                document.xref_set_key(open_holder, open_key, "null")
+            return
+        seen.add(entry)
+        # Pushed in this order so that the children are walked before the sibling.
+        links += [(entry, "Next"), (entry, "First")]
 
 
 def _direction(*, text: str, vertical_share: float) -> DirectionFacts:
@@ -356,13 +455,40 @@ def _displayed_angle(*, direction: tuple[float, float], rotation: int) -> Angle:
     return angles[displayed]
 
 
-def _error_message(error: Exception) -> str:
+def _element_kids(*, document: pymupdf.Document, xref: int) -> list[tuple[str, str]]:
+    """Read a structure element's kids, following a ``K`` entry that refers to an array.
+
+    Parameters
+    ----------
+    document
+        The open PDF.
+    xref
+        The element's object number, or the structure tree root's.
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        The kids, as `_kids` gives them.
+    """
+
+    kind, value = document.xref_get_key(xref, "K")
+    if kind == "xref":
+        target = int(value.split(maxsplit=1)[0])
+        source = document.xref_object(target, compressed=True).strip()
+        if source.startswith("["):
+            return _kids(kind="array", value=source)
+    return _kids(kind=kind, value=value)
+
+
+def _error_message(error: Exception, *, about: str = "") -> str:
     """Describe an error from a malformed PDF briefly.
 
     Parameters
     ----------
     error
         The error raised while reading.
+    about
+        What could not be read, put before the error, such as ``Field name: ``.
 
     Returns
     -------
@@ -370,19 +496,61 @@ def _error_message(error: Exception) -> str:
         The error's type and message, cut to `_MAX_MESSAGE_CHARS` characters.
     """
 
-    message = f"{type(error).__name__}: {error}".strip()
+    message = f"{about}{type(error).__name__}: {error}".strip()
     if len(message) > _MAX_MESSAGE_CHARS:
         message = message[: _MAX_MESSAGE_CHARS - 3] + "..."
     return message
 
 
-def _form(document: pymupdf.Document) -> tuple[list[FormField], FormInfo]:
-    """Read the PDF's interactive form fields and which kinds of form it holds.
+def _field_error(
+    *, document: pymupdf.Document, error: Exception, xref: int
+) -> ProbeError:
+    """Describe a form field that could not be read, naming it.
 
     Parameters
     ----------
     document
         The open PDF.
+    error
+        The error raised while reading the field.
+    xref
+        The field's widget object number.
+
+    Returns
+    -------
+    ProbeError
+        A ``form`` error naming the field, or its object number when it has no name.
+    """
+
+    name = f"object {xref}"
+    # Object 0 is not a real object, and reading its keys raises.
+    for key in ("T", "Parent/T") if xref > 0 else ():
+        kind, value = document.xref_get_key(xref, key)
+        if kind == "string" and value:
+            name = value
+            break
+    return ProbeError(
+        fact="form", message=_error_message(error, about=f"Field {name}: ")
+    )
+
+
+def _form(
+    document: pymupdf.Document, *, errors: list[ProbeError]
+) -> tuple[list[FormField], FormInfo]:
+    """Read the PDF's interactive form fields and which kinds of form it holds.
+
+    Each field is read on its own, so a field that cannot be read is left out and
+    the others are kept. A field written inside the page's annotation list, with no
+    object number of its own, is left out too: PyMuPDF loads every such field on a
+    page as the first one, and its entries cannot be read by object number.
+
+    Parameters
+    ----------
+    document
+        The open PDF.
+    errors
+        The probe errors so far; each field that cannot be read or is left out adds
+        one.
 
     Returns
     -------
@@ -398,20 +566,49 @@ def _form(document: pymupdf.Document) -> tuple[list[FormField], FormInfo]:
     fields = []
     for index in range(len(document)):
         page = document[index]
-        for widget in page.widgets():
-            form_field = _form_field(index=index, page=page, widget=widget)
+        for xref, annotation_type, *_ in page.annot_xrefs():
+            if annotation_type != pymupdf.PDF_ANNOT_WIDGET:
+                continue
+            if xref == 0:
+                errors.append(
+                    ProbeError(
+                        fact="form",
+                        message=f"Page {index + 1} (index {index}): a form field "
+                        "written inside the page's annotation list has no object "
+                        "number, so it was not read",
+                    )
+                )
+                continue
+            # A malformed field can raise many kinds of exceptions, so catch them all.
+            # Only that field is lost.
+            try:
+                form_field = _form_field(
+                    document=document,
+                    index=index,
+                    page=page,
+                    widget=page.load_widget(xref),
+                )
+            except Exception as error:
+                errors.append(_field_error(document=document, error=error, xref=xref))
+                continue
             if form_field is not None:
                 fields.append(form_field)
     return fields, info
 
 
 def _form_field(
-    *, index: int, page: pymupdf.Page, widget: pymupdf.Widget
+    *,
+    document: pymupdf.Document,
+    index: int,
+    page: pymupdf.Page,
+    widget: pymupdf.Widget,
 ) -> FormField | None:
     """Describe one form field.
 
     Parameters
     ----------
+    document
+        The open PDF, for a button's entries.
     index
         The index of the page the field is on.
     page
@@ -429,14 +626,11 @@ def _form_field(
     if field_type is None:
         return None
 
+    checked: bool | None = None
     value = widget.field_value
-    checked = None
     if field_type in {"checkbox", "radio"}:
-        # A checkbox or radio button is on when its value is its on-state name.
-        checked = value is True or (
-            isinstance(value, str)
-            and value not in {"", "Off"}
-            and value == str(widget.on_state())
+        checked, value = _button_state(
+            document=document, field_type=field_type, xref=widget.xref
         )
     options = [
         str(choice[-1]) if isinstance(choice, (list, tuple)) else str(choice)
@@ -454,26 +648,35 @@ def _form_field(
     )
 
 
-def _has_page_labels(document: pymupdf.Document) -> bool:
-    """Check whether a PDF defines page labels, treating a failure as no labels.
+def _group_shows_on(*, document: pymupdf.Document, xref: int) -> bool:
+    """Tell whether any button of a radio button's group shows on.
 
     Parameters
     ----------
     document
         The open PDF.
+    xref
+        The radio button's object number.
 
     Returns
     -------
     bool
-        Whether the PDF defines page labels that could be read.
+        Whether a button in its group's ``Kids`` has an ``AS`` other than ``Off``;
+        ``False`` for a button with no group.
     """
 
-    # A damaged page-label tree can raise many kinds of exceptions, so catch them
-    # all. The pages then get their printed numbers from their text.
-    try:
-        return bool(document.get_page_labels())
-    except Exception:
+    kind, value = document.xref_get_key(xref, "Parent/Kids")
+    if kind == "xref":
+        value = document.xref_object(int(value.split(maxsplit=1)[0]), compressed=True)
+    elif kind != "array":
         return False
+    count = document.xref_length()
+    return any(
+        _name_value(document=document, key="AS", xref=int(reference))
+        not in {None, "Off"}
+        for reference, _, _ in _ARRAY_ITEM.findall(value)
+        if reference and 0 < int(reference) < count
+    )
 
 
 def _kids(*, kind: str, value: str) -> list[tuple[str, str]]:
@@ -513,31 +716,41 @@ def _kids(*, kind: str, value: str) -> list[tuple[str, str]]:
     return kids
 
 
-def _label_number(label: str) -> PrintedNumber:
+def _label_number(label: str, *, style: str) -> PrintedNumber:
     """Describe a page label as a printed number.
 
-    A PDF page label is an optional prefix followed by a number, such as ``12``,
-    ``Page 12`` or ``A-iv``. The number is read from the end of the label.
+    A PDF page label is an optional prefix followed by a number in its range's style,
+    such as ``12``, ``Page 12`` or ``A-iv``. The number is read from the end of the
+    label. Only decimal and roman styles give a number. A letter style, which numbers
+    pages ``A``, ``B``, ``C``, and a label with no style give none.
 
     Parameters
     ----------
     label
         The page's label.
+    style
+        The numbering style of the label's range: ``D``, ``R``, ``r``, ``A``, ``a``,
+        or empty for none.
 
     Returns
     -------
     PrintedNumber
-        An arabic or roman number when the label ends in one, otherwise a ``label``
-        with no value.
+        An arabic or roman number when the style gives one and the label ends in it,
+        otherwise a ``label`` with no value.
 
     Examples
     --------
-    >>> [_label_number(label).value for label in ("12", "Page 12", "A-iv", "Cover")]
-    [12, 12, 4, None]
+    >>> pairs = [("12", "D"), ("Page 12", "D"), ("A-iv", "r"), ("C", "A"), ("X", "")]
+    >>> [_label_number(label, style=style).value for label, style in pairs]
+    [12, 12, 4, None, None]
     """
 
     match = _LABEL_NUMBER.fullmatch(label.strip())
-    letters, digits = match.groups() if match else (None, None)
+    letters, digits = (
+        match.groups()
+        if match is not None and style in _NUMBERED_LABEL_STYLES
+        else (None, None)
+    )
     if digits is not None:
         return PrintedNumber(
             source="page_label", style="arabic", text=label, value=int(digits)
@@ -548,6 +761,43 @@ def _label_number(label: str) -> PrintedNumber:
             source="page_label", style="roman", text=label, value=roman
         )
     return PrintedNumber(source="page_label", style="label", text=label, value=None)
+
+
+def _label_styles(document: pymupdf.Document) -> list[str] | None:
+    """Find the numbering style of each page's page label.
+
+    Parameters
+    ----------
+    document
+        The open PDF.
+
+    Returns
+    -------
+    list[str] | None
+        Each page's style in page order (``D``, ``R``, ``r``, ``A``, ``a``, or empty
+        for none), or ``None`` when the PDF defines no page labels that can be read.
+    """
+
+    # A damaged page-label tree can raise many kinds of exceptions, so catch them
+    # all. The pages then get their printed numbers from their text.
+    try:
+        ranges = sorted(
+            document.get_page_labels(), key=lambda entry: entry["startpage"]
+        )
+    except Exception:
+        return None
+    if not ranges:
+        return None
+
+    page_count = len(document)
+    styles = [""] * page_count
+    for number, entry in enumerate(ranges):
+        end = (
+            ranges[number + 1]["startpage"] if number + 1 < len(ranges) else page_count
+        )
+        for index in range(max(entry["startpage"], 0), min(end, page_count)):
+            styles[index] = entry.get("style", "")
+    return styles
 
 
 def _lines(page: pymupdf.Page) -> list[_Line]:
@@ -566,7 +816,7 @@ def _lines(page: pymupdf.Page) -> list[_Line]:
 
     height = page.rect.height
     lines = []
-    for block in page.get_text("dict", flags=_TEXT_FLAGS)["blocks"]:
+    for block in page.get_text("dict", flags=TEXT_FLAGS)["blocks"]:
         for line in block.get("lines", []):
             text = "".join(span["text"] for span in line["spans"]).strip()
             if not text:
@@ -583,6 +833,7 @@ def _lines(page: pymupdf.Page) -> list[_Line]:
                     band=_band(page_height=height, rect=rect),
                     chars=sum(1 for char in text if not char.isspace()),
                     edge_distance=min(rect.y0, height - rect.y1),
+                    rect=rect,
                     text=text,
                 )
             )
@@ -611,30 +862,26 @@ def _map_types(*, role_map: dict[str, str], types: Counter[str]) -> Counter[str]
     return mapped
 
 
-def _normalize(text: str) -> str:
-    """Write a line in the form repeated lines are compared in.
+def _name_value(*, document: pymupdf.Document, key: str, xref: int) -> str | None:
+    """Read a name entry of a PDF object, such as ``AS``, without its slash.
 
     Parameters
     ----------
-    text
-        The line as printed.
+    document
+        The open PDF.
+    key
+        The entry's key, or a path of keys such as ``Parent/V``.
+    xref
+        The object's number.
 
     Returns
     -------
-    str
-        Without invisible formatting characters (Unicode category Cf, such as a
-        zero-width space), NFKC-normalized, case-folded, whitespace collapsed, each
-        run of digits ``#``. A line with nothing visible becomes empty.
-
-    Examples
-    --------
-    >>> _normalize("Page  12 of 30"), _normalize("Page 12\u200b"), _normalize("\u200b")
-    ('page # of #', 'page #', '')
+    str | None
+        The name, or ``None`` when the entry is missing or is not a name.
     """
 
-    visible = "".join(char for char in text if unicodedata.category(char) != "Cf")
-    folded = unicodedata.normalize("NFKC", visible).casefold()
-    return re.sub(r"\d+", "#", " ".join(folded.split()))
+    kind, value = document.xref_get_key(xref, key)
+    return value.removeprefix("/") if kind == "name" else None
 
 
 def _number_candidates(lines: list[_Line]) -> list[tuple[float, PrintedNumber]]:
@@ -723,6 +970,37 @@ def _offset_key(*, index: int, number: PrintedNumber) -> tuple[str, int]:
     return number.style, (number.value or 0) - index
 
 
+def _on_states(*, document: pymupdf.Document, xref: int) -> set[str]:
+    """Read the on states a button has appearances for: every state but ``Off``.
+
+    Parameters
+    ----------
+    document
+        The open PDF.
+    xref
+        The button's object number.
+
+    Returns
+    -------
+    set[str]
+        The names of its on states; empty when it has no appearances.
+    """
+
+    states: set[str] = set()
+    for key in ("AP/N", "AP/D"):
+        kind, value = document.xref_get_key(xref, key)
+        if kind == "xref":
+            target = int(value.split(maxsplit=1)[0])
+            if document.xref_is_stream(target):
+                # A single appearance, with no states to name.
+                continue
+            value = document.xref_object(target, compressed=True)
+        elif kind != "dict":
+            continue
+        states.update(_REFERENCE_KEY.findall(value))
+    return states - {"Off"}
+
+
 def _orientation(lines: list[_Line]) -> OrientationFacts:
     """Measure which way a page's text runs, weighting each line by its characters.
 
@@ -759,7 +1037,7 @@ def _orientation(lines: list[_Line]) -> OrientationFacts:
 
 
 def _page(
-    *, index: int, labels_defined: bool, page: pymupdf.Page
+    *, index: int, label_style: str | None, page: pymupdf.Page
 ) -> tuple[PageFacts, list[_Line]]:
     """Measure one page.
 
@@ -767,8 +1045,9 @@ def _page(
     ----------
     index
         The page's index.
-    labels_defined
-        Whether the PDF defines page labels.
+    label_style
+        The numbering style of the page's label, or ``None`` when the PDF defines no
+        page labels.
     page
         The page.
 
@@ -783,7 +1062,7 @@ def _page(
     total_chars = sum(line.chars for line in lines)
     vertical_chars = sum(line.chars for line in lines if line.angle is None)
     vertical_share = vertical_chars / total_chars if total_chars else 0.0
-    label = _page_label(page) if labels_defined else ""
+    label = _page_label(page) if label_style is not None else ""
     facts = PageFacts(
         direction=_direction(text=text, vertical_share=vertical_share),
         height_pt=round(page.rect.height, 2),
@@ -791,7 +1070,7 @@ def _page(
         orientation=_orientation(lines),
         # Use the page label's number if it has one. Otherwise `_choose_text_numbers`
         # looks for the number printed on the page.
-        printed_number=_label_number(label) if label else None,
+        printed_number=_label_number(label, style=label_style or "") if label else None,
         rotation_attribute=page.rotation,
         text=_text_facts(text),
         width_pt=round(page.rect.width, 2),
@@ -903,7 +1182,7 @@ def _repeated_lines(
     for index, lines in enumerate(lines_by_page):
         seen = set()
         for line in lines:
-            normalized = _normalize(line.text)
+            normalized = normalize_line(line.text)
             if normalized and normalized not in seen:
                 seen.add(normalized)
                 occurrences[normalized].append((index, line))
@@ -1036,7 +1315,7 @@ def _standard_type(*, name: str, role_map: dict[str, str]) -> str:
     return name
 
 
-def _structure(*, document: pymupdf.Document, text_pages: int) -> StructureFacts:
+def _structure(*, document: pymupdf.Document, text_pages: set[int]) -> StructureFacts:
     """Measure what the PDF's structure tags cover.
 
     Parameters
@@ -1044,7 +1323,7 @@ def _structure(*, document: pymupdf.Document, text_pages: int) -> StructureFacts
     document
         The open PDF.
     text_pages
-        How many pages have text.
+        The indexes of the pages with text.
 
     Returns
     -------
@@ -1079,13 +1358,19 @@ def _structure(*, document: pymupdf.Document, text_pages: int) -> StructureFacts
     )
 
 
-def _structure_quality(*, text_pages: int, walk: _StructureWalk) -> StructureQuality:
+def _structure_quality(
+    *, text_pages: set[int], walk: _StructureWalk
+) -> StructureQuality:
     """Rate the structure tags.
+
+    Coverage is the share of the pages with text that have tagged content. Tagged
+    pages without text do not count. A walk cut short at `STRUCTURE_ELEMENT_CAP` is
+    rated only on the pages with text up to the last page it reached.
 
     Parameters
     ----------
     text_pages
-        How many pages have text.
+        The indexes of the pages with text.
     walk
         What the structure walk found.
 
@@ -1101,7 +1386,12 @@ def _structure_quality(*, text_pages: int, walk: _StructureWalk) -> StructureQua
     has_content = any(kind not in STRUCTURE_GROUPING_TYPES for kind in walk.types)
     if total < STRUCTURE_MIN_ELEMENTS or not has_content:
         return "poor"
-    if text_pages and len(walk.pages) < text_pages * STRUCTURE_GOOD_PAGE_SHARE:
+    rated = text_pages
+    if walk.truncated and walk.pages:
+        last = max(walk.pages)
+        rated = {index for index in text_pages if index <= last}
+    covered = walk.pages & rated
+    if rated and len(covered) < len(rated) * STRUCTURE_GOOD_PAGE_SHARE:
         return "partial"
     return "good"
 
@@ -1278,8 +1568,7 @@ def _visit_object(
         return []
 
     walk.types[value.lstrip("/")] += 1
-    kind, value = document.xref_get_key(xref, "K")
-    return [(child, page) for child in _kids(kind=kind, value=value)]
+    return [(child, page) for child in _element_kids(document=document, xref=xref)]
 
 
 def _walk_structure(*, document: pymupdf.Document, root: int) -> _StructureWalk:
@@ -1301,9 +1590,8 @@ def _walk_structure(*, document: pymupdf.Document, root: int) -> _StructureWalk:
 
     page_indexes = {document.page_xref(index): index for index in range(len(document))}
     walk = _StructureWalk()
-    kind, value = document.xref_get_key(root, "K")
     stack: list[tuple[tuple[str, str], int | None]] = [
-        (kid, None) for kid in reversed(_kids(kind=kind, value=value))
+        (kid, None) for kid in reversed(_element_kids(document=document, xref=root))
     ]
     while stack and not walk.truncated:
         kid, page = stack.pop()
@@ -1320,6 +1608,27 @@ def _walk_structure(*, document: pymupdf.Document, root: int) -> _StructureWalk:
         role_map=_role_map(document=document, root=root), types=walk.types
     )
     return walk
+
+
+def line_boxes(page: pymupdf.Page) -> list[tuple[str, pymupdf.Rect]]:
+    """Read a page's text lines as the probe reads them, each with its box.
+
+    Page extraction finds the page furniture the survey found this way, so each
+    line is read and joined exactly as when the survey counted it.
+
+    Parameters
+    ----------
+    page
+        The page.
+
+    Returns
+    -------
+    list[tuple[str, pymupdf.Rect]]
+        Each line that holds text, stripped, with its box in points on the displayed
+        page, in PyMuPDF's reading order.
+    """
+
+    return [(line.text, line.rect) for line in _lines(page)]
 
 
 def probe_pdf(path: Path) -> Facts:
@@ -1341,12 +1650,14 @@ def probe_pdf(path: Path) -> Facts:
     """
 
     with pymupdf.open(path, filetype="pdf") as document:
-        labels_defined = _has_page_labels(document)
+        label_styles = _label_styles(document)
         pages: list[PageFacts] = []
         lines_by_page: list[list[_Line]] = []
         for index in range(len(document)):
             facts, lines = _page(
-                index=index, labels_defined=labels_defined, page=document[index]
+                index=index,
+                label_style=None if label_styles is None else label_styles[index],
+                page=document[index],
             )
             pages.append(facts)
             lines_by_page.append(lines)
@@ -1356,8 +1667,10 @@ def probe_pdf(path: Path) -> Facts:
         bookmarks = _read_fact(
             errors=errors, fact="bookmarks", read=lambda: _bookmarks(document)
         )
-        form = _read_fact(errors=errors, fact="form", read=lambda: _form(document))
-        text_pages = sum(1 for page in pages if page.text.quality != "none")
+        form = _read_fact(
+            errors=errors, fact="form", read=lambda: _form(document, errors=errors)
+        )
+        text_pages = {page.index for page in pages if page.text.quality != "none"}
         structure = _read_fact(
             errors=errors,
             fact="structure",

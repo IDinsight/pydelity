@@ -1,0 +1,940 @@
+{
+  "0": {
+    "extractor": {
+      "column_order": null,
+      "containers": [],
+      "items": [
+        {
+          "box": [
+            10,
+            10,
+            560,
+            50
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": null,
+          "figure": null,
+          "kind": "text",
+          "label": "Heading",
+          "language": "en",
+          "latex": null,
+          "ref": "h1",
+          "role": "heading",
+          "table": null,
+          "text": "1040A U.S. Individual Income Tax Return (Less than $10,000 total income)"
+        },
+        {
+          "box": [
+            880,
+            10,
+            990,
+            50
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": null,
+          "figure": null,
+          "kind": "text",
+          "label": "Heading",
+          "language": "en",
+          "latex": null,
+          "ref": "h2",
+          "role": "heading",
+          "table": null,
+          "text": "1965"
+        },
+        {
+          "box": [
+            70,
+            55,
+            580,
+            90
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "1. Name (If a joint return of husband and wife, use first names and middle initials of both)",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f1",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            70,
+            92,
+            580,
+            120
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "Home address (Number and street or rural route)",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f2",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            70,
+            122,
+            580,
+            150
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "City, town or post office, State and Postal ZIP code",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f3",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            590,
+            55,
+            790,
+            95
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "2. Your social security number (Husband's if joint return)",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f4",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            590,
+            100,
+            790,
+            150
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "3. Wife's number, if joint return",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f5",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            800,
+            60,
+            990,
+            80
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": false,
+            "field_type": "checkbox",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "4. Check one: a. Single",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f6",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            800,
+            82,
+            990,
+            110
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": false,
+            "field_type": "checkbox",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "b. Married filing joint return (even if only one had income)",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f7",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            800,
+            112,
+            990,
+            150
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": false,
+            "field_type": "checkbox",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "c. Married filing separately",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f8",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            10,
+            160,
+            450,
+            185
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": null,
+          "figure": null,
+          "kind": "text",
+          "label": "Instruction",
+          "language": "en",
+          "latex": null,
+          "ref": "t1",
+          "role": "body",
+          "table": null,
+          "text": "If item 7 is $10,000 or more, or if interest, dividends and non-withheld wages are over $200, use Form 1040."
+        },
+        {
+          "box": [
+            10,
+            190,
+            450,
+            250
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": null,
+          "figure": null,
+          "kind": "text",
+          "label": "Instruction",
+          "language": "en",
+          "latex": null,
+          "ref": "t2",
+          "role": "body",
+          "table": null,
+          "text": "Enter the name & address used on your return for 1964 (if the same as above, write \"Same\"). If none filed, give reason. If changing from separate to joint or joint to separate returns, enter 1964 names and addresses."
+        },
+        {
+          "box": [
+            460,
+            160,
+            990,
+            190
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "5. Enter total wages, salaries, tips, etc. Enclose Forms W-2, Copy B.",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f9",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            460,
+            195,
+            990,
+            215
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "6. Interest and dividends",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f10",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            460,
+            220,
+            990,
+            240
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "7. Total income (add items 5 and 6)",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f11",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            460,
+            245,
+            990,
+            265
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "8. Tax from Tax Table or tax computation schedule",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f12",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            460,
+            270,
+            990,
+            290
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "9. Total Federal income tax withheld (from Forms W-2)",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f13",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            10,
+            260,
+            450,
+            330
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": null,
+          "figure": null,
+          "kind": "text",
+          "label": "Instruction",
+          "language": "en",
+          "latex": null,
+          "ref": "t3",
+          "role": "body",
+          "table": null,
+          "text": "If your income was $5,000 or more, you must compute your tax. However, if your income was less than $5,000, you may have the Internal Revenue Service compute your tax by omitting items 8, 10, and 11. If you compute your own tax, pay balance (item 10) in full with return to your District Director."
+        },
+        {
+          "box": [
+            460,
+            295,
+            990,
+            315
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "10. If item 8 is larger than item 9, enter balance due",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f14",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            460,
+            320,
+            990,
+            340
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "11. If item 9 is larger than item 8, enter refund",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f15",
+          "role": "body",
+          "table": null,
+          "text": null
+        }
+      ]
+    },
+    "verifier": {
+      "corrected": null,
+      "passed": true,
+      "problems": []
+    }
+  },
+  "1": {
+    "extractor": {
+      "column_order": null,
+      "containers": [],
+      "items": [
+        {
+          "box": [
+            10,
+            20,
+            420,
+            60
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": false,
+            "field_type": "checkbox",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "12. Exemptions for yourself and wife (only if all her income is included in this return, or she had no income). Check boxes which apply: Yourself, Regular",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f1",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            430,
+            20,
+            560,
+            40
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": false,
+            "field_type": "checkbox",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "Yourself, 65 or over",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f2",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            570,
+            20,
+            700,
+            40
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": false,
+            "field_type": "checkbox",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "Yourself, Blind",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f3",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            10,
+            90,
+            990,
+            110
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "13. First names of your dependent children who lived with you",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f4",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            10,
+            120,
+            600,
+            135
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": null,
+          "figure": null,
+          "kind": "text",
+          "label": "Heading",
+          "language": "en",
+          "latex": null,
+          "ref": "h1",
+          "role": "heading",
+          "table": null,
+          "text": "14. DEPENDENTS OTHER THAN THOSE CLAIMED IN ITEM 13."
+        },
+        {
+          "box": [
+            10,
+            137,
+            990,
+            230
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": null,
+          "figure": null,
+          "kind": "table",
+          "label": "Dependents table",
+          "language": "en",
+          "latex": null,
+          "ref": "tb1",
+          "role": "body",
+          "table": {
+            "header_rows": 1,
+            "rows": [
+              [
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": "(a) NAME. Enter figure 1 in the last column to right for each name listed (If more space is needed, attach schedule)"
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": "(b) Relationship"
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": "(c) Months lived in your home. If born or died during year also write \"B\" or \"D\""
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": "(d) Did dependent have income of $600 or more?"
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": "(e) Amount YOU furnished for dependent's support. If 100% write \"ALL\""
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": "(f) Amount furnished by OTHERS including dependent. See instruction 14"
+                }
+              ],
+              [
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": null
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": null
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": null
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": null
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": null
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": null
+                }
+              ],
+              [
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": null
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": null
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": null
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": null
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": null
+                },
+                {
+                  "col_span": 1,
+                  "row_span": 1,
+                  "text": null
+                }
+              ]
+            ]
+          },
+          "text": null
+        },
+        {
+          "box": [
+            10,
+            235,
+            990,
+            250
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "15. TOTAL EXEMPTIONS FROM ITEMS 12, 13, AND 14 ABOVE",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f5",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            10,
+            255,
+            495,
+            270
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "Your present employer",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f6",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            500,
+            255,
+            990,
+            270
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "text",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "Wife's present employer",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f7",
+          "role": "body",
+          "table": null,
+          "text": null
+        },
+        {
+          "box": [
+            80,
+            300,
+            900,
+            315
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": null,
+          "figure": null,
+          "kind": "text",
+          "label": "Instruction",
+          "language": "en",
+          "latex": null,
+          "ref": "t1",
+          "role": "body",
+          "table": null,
+          "text": "Under penalties of perjury, I declare that to the best of my knowledge and belief this is a true, correct, and complete return."
+        },
+        {
+          "box": [
+            10,
+            320,
+            600,
+            340
+          ],
+          "caption_of": null,
+          "container": null,
+          "entries": null,
+          "field": {
+            "checked": null,
+            "field_type": "signature",
+            "fillable_name": null,
+            "options": [],
+            "prompt": "Sign here",
+            "value": null
+          },
+          "figure": null,
+          "kind": "field",
+          "label": "Form item",
+          "language": "en",
+          "latex": null,
+          "ref": "f8",
+          "role": "body",
+          "table": null,
+          "text": null
+        }
+      ]
+    },
+    "verifier": {
+      "corrected": null,
+      "passed": true,
+      "problems": []
+    }
+  }
+}

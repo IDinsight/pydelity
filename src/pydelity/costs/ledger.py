@@ -22,14 +22,43 @@ from pydantic import ValidationError
 from pydelity.costs.schemas import LedgerEntry
 from pydelity.errors import OutputError
 
-# The ledger's name in the output folder.
-LEDGER_FILE_NAME = "cost.jsonl"
-
 # Requests can finish at the same time, so appends hold this lock.
 _APPEND_LOCK = threading.Lock()
 
 # How much of the file's end is read at a time when looking for the last line break.
 _TAIL_CHUNK_BYTES = 4096
+
+# The ledger's name in the output folder.
+LEDGER_FILE_NAME = "cost.jsonl"
+
+
+def _drop_unfinished_line(handle: BinaryIO) -> None:
+    """Remove a last line that an interrupted append left without its line break.
+
+    Parameters
+    ----------
+    handle
+        The ledger file, open for reading and writing in binary mode.
+    """
+
+    end = handle.seek(0, os.SEEK_END)
+    if end == 0:
+        return
+    handle.seek(end - 1)
+    if handle.read(1) == b"\n":
+        return
+
+    # Look backwards for the last line break; everything after it is unfinished.
+    position = end
+    while position > 0:
+        start = max(position - _TAIL_CHUNK_BYTES, 0)
+        handle.seek(start)
+        found = handle.read(position - start).rfind(b"\n")
+        if found >= 0:
+            handle.truncate(start + found + 1)
+            return
+        position = start
+    handle.truncate(0)
 
 
 @dataclass(frozen=True)
@@ -61,35 +90,6 @@ class Ledger:
         """How many requests have no known cost."""
 
         return sum(1 for entry in self.entries if entry.cost_usd is None)
-
-
-def _drop_unfinished_line(handle: BinaryIO) -> None:
-    """Remove a last line that an interrupted append left without its line break.
-
-    Parameters
-    ----------
-    handle
-        The ledger file, open for reading and writing in binary mode.
-    """
-
-    end = handle.seek(0, os.SEEK_END)
-    if end == 0:
-        return
-    handle.seek(end - 1)
-    if handle.read(1) == b"\n":
-        return
-
-    # Look backwards for the last line break; everything after it is unfinished.
-    position = end
-    while position > 0:
-        start = max(position - _TAIL_CHUNK_BYTES, 0)
-        handle.seek(start)
-        found = handle.read(position - start).rfind(b"\n")
-        if found >= 0:
-            handle.truncate(start + found + 1)
-            return
-        position = start
-    handle.truncate(0)
 
 
 def append_entry(*, entry: LedgerEntry, path: Path) -> None:

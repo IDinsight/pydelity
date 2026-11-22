@@ -137,7 +137,7 @@ def _provider_error(
         and, for a temporary failure, the retries made.
     """
 
-    choice = config.model_choice
+    choice = config.survey_model
     provider_message = error.message
     body = error.body
     if isinstance(body, dict):
@@ -270,7 +270,7 @@ async def _upload(
         The provider's file ID, and when the file expires.
     """
 
-    profile = config.model_choice.profile
+    profile = config.survey_model.profile
     hours = config.advanced.uploads.expiry_hours or profile.max_upload_expiry_hours
     seconds = hours * 3600
     file = (pdf.name, data, _PDF_MEDIA_TYPE)
@@ -315,7 +315,7 @@ async def _upload_or_fall_back(
         If the provider rejects the upload for an invalid API key or as too large.
     """
 
-    choice = config.model_choice
+    choice = config.survey_model
     data = await asyncio.to_thread(pdf.path.read_bytes)
     try:
         file_id, expires_at = await _upload(
@@ -436,7 +436,7 @@ async def attach_pdf(
             code="damaged_output",
             details={"file": UPLOADS_FILE_NAME},
         )
-    provider = config.model_choice.provider
+    provider = config.survey_model.provider
     now = datetime.now(UTC)
     for record in records:
         if (record.provider, record.pdf_sha256) != (provider, pdf.sha256):
@@ -524,7 +524,7 @@ async def replace_missing_upload(
         "{provider} no longer has {file_id}; uploading {name} again",
         file_id=file_id,
         name=pdf.name,
-        provider=config.model_choice.provider,
+        provider=config.survey_model.provider,
     )
     return await _upload_or_fall_back(
         config=config, model=model, output_folder=output_folder, pdf=pdf

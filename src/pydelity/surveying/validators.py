@@ -1,39 +1,40 @@
-"""The survey's checks on the model's answer, and its comparison with the facts.
+"""The survey's checks and hints on the model's answer.
 
 Pydantic checks the answer's shape. Checks C1 to C7 test that the answer is well
 formed and complete: labels and regions fit together, page ranges lie inside the PDF
 without overlapping, every repeated line is accounted for and every language tag is
-valid. They use the facts only for the page count and the repeated-line IDs. Each
-check returns every failure it finds, one per affected page, so one retry message can
-name every problem and the last attempt can record them all.
+valid. They use the facts only for the page count and the repeated-line IDs. While
+retries remain, an answer that fails a check is sent back to the model. Each check
+returns every failure it finds, one per affected page, so one retry message can name
+every problem and the last attempt can record them all.
 
-The model's reading of the PDF takes precedence over the measured facts, so no check
-compares the answer with a measured value. Instead, `compare_with_facts` runs once on
-the accepted answer and records each page whose rotation or page number differs from
-what the probe measured, for a person to review. The checks and the comparison use
-page indexes, values and IDs only, never word lists.
+The hints compare the answer with what the probe measured: each page's rotation by
+its text angle, and each page's printed number. These measurements can be wrong, and
+the model's reading of the PDF decides. A hint difference never sends an answer
+back. `pdf_survey.json` records it, and the review list shows it unless the
+verifier passed the answer or its correction was kept. The checks and hints use page
+indexes, values and IDs only, never word lists.
 """
 
 # Standard Library
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Protocol
 
 # Package Library
 from pydelity.config.schemas import is_language_tag
+from pydelity.review import CheckFailure, ReviewIssue, SurveyCheckName, SurveyHintName
 from pydelity.surveying.schemas import (
-    CheckFailure,
-    CheckName,
     CheckResult,
-    ComparisonName,
     Facts,
+    HintResult,
     PageNumberingRange,
-    ReviewIssue,
     RotationRange,
     SurveyAnswer,
 )
 
-# Checks the answer against the facts and returns every failure found.
+# Checks the answer, or compares it with a hint, using the facts, and returns every
+# failure or difference found.
 type Check = Callable[[SurveyAnswer, Facts], list[CheckFailure]]
 
 
@@ -49,50 +50,24 @@ class _PageRange(Protocol):
         """The last page of the range, inclusive."""
 
 
-def _covering[RangeT: _PageRange](
-    ranges: Sequence[RangeT], *, page: int, page_count: int
-) -> RangeT | None:
-    """Find the first range that covers a page, ignoring ranges outside the PDF.
-
-    Parameters
-    ----------
-    ranges
-        The answer's ranges, in its order.
-    page
-        The page index.
-    page_count
-        The PDF's number of pages.
-
-    Returns
-    -------
-    RangeT | None
-        The range, or ``None`` when no range inside the PDF covers the page.
-    """
-
-    for page_range in ranges:
-        first, last = page_range.first_page_index, page_range.last_page_index
-        if 0 <= first <= last < page_count and first <= page <= last:
-            return page_range
-    return None
-
-
 def _failure(
-    check: CheckName,
+    check: SurveyCheckName | SurveyHintName,
     message: str,
     *,
     details: dict[str, object],
     page_index: int | None,
 ) -> CheckFailure:
-    """Make a failure whose message starts with the check's name.
+    """Make a failure or difference whose message starts with the check's name.
 
     Parameters
     ----------
     check
-        The check that failed.
+        The check that failed, or the hint the answer differs from.
     message
-        What is wrong.
+        What is wrong, or what differs.
     details
-        The proposed value and, where it applies, what it was checked against.
+        The proposed value and, where it applies, what it was checked against, or
+        the measured and profile values.
     page_index
         The page the problem is on, or ``None``.
 
@@ -107,65 +82,34 @@ def _failure(
     )
 
 
-def _issue(
-    comparison: ComparisonName,
-    message: str,
-    *,
-    details: dict[str, object],
-    page_index: int,
-) -> ReviewIssue:
-    """Make a review issue for a difference from the facts.
-
-    Parameters
-    ----------
-    comparison
-        The comparison that found the difference.
-    message
-        The page, the measured value and the profile's value.
-    details
-        The measured and profile values.
-    page_index
-        The page that differs.
-
-    Returns
-    -------
-    ReviewIssue
-        The issue, with its message starting with the comparison's name.
-    """
-
-    return ReviewIssue(
-        check=comparison,
-        details=details,
-        message=f"{comparison}: {message}",
-        page_index=page_index,
-        step="survey",
-    )
-
-
-def _page_number_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
+def _page_number_differences(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
     """List the pages whose measured printed number the profile does not give.
+
+    This is a hint. A page can differ only where the probe measured a printed
+    number with a value. The profile's number for a page comes from the first
+    numbering range inside the PDF that covers it.
 
     Parameters
     ----------
     answer
-        The accepted answer.
+        The answer.
     facts
         The measured facts.
 
     Returns
     -------
-    list[ReviewIssue]
-        One ``page_number_differs`` issue per differing page.
+    list[CheckFailure]
+        One ``page_number_differs`` difference per differing page.
     """
 
-    issues = []
+    differences = []
     page_count = len(facts.pages)
     for page in facts.pages:
         measured = page.printed_number
         if measured is None or measured.value is None:
             continue
-        numbering = _covering(
-            answer.page_numbering, page=page.index, page_count=page_count
+        numbering = covering_range(
+            answer.page_numbering, page_count=page_count, page_index=page.index
         )
         profile = _profile_number(numbering, page=page.index)
         if profile == measured.value:
@@ -176,11 +120,11 @@ def _page_number_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]
             else f"page text {measured.text!r}"
         )
         gives = "no number" if profile is None else f"{profile}"
-        issues.append(
-            _issue(
+        differences.append(
+            _failure(
                 "page_number_differs",
-                f"page {page.index} has the number {measured.value} in its {where}, "
-                f"but the profile gives {gives}",
+                f"page index {page.index} has the number {measured.value} in its "
+                f"{where}, but the profile gives {gives}",
                 details={
                     "measured": measured.value,
                     "profile": profile,
@@ -189,7 +133,7 @@ def _page_number_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]
                 page_index=page.index,
             )
         )
-    return issues
+    return differences
 
 
 def _pages(page_range: _PageRange) -> range:
@@ -236,7 +180,7 @@ def _profile_number(numbering: PageNumberingRange | None, *, page: int) -> int |
 
 
 def _range_failures(
-    check: CheckName, ranges: Sequence[_PageRange], page_count: int
+    check: SurveyCheckName, ranges: Sequence[_PageRange], page_count: int
 ) -> list[CheckFailure]:
     """Check that page ranges lie inside the PDF and do not overlap.
 
@@ -267,7 +211,7 @@ def _range_failures(
         failures.append(
             _failure(
                 check,
-                f"range {first}-{last} is not inside the PDF's pages 0-"
+                f"range {first}-{last} is not inside the PDF's page indexes 0-"
                 f"{page_count - 1}, or ends before it starts",
                 details={
                     "page_count": page_count,
@@ -283,7 +227,7 @@ def _range_failures(
             failures.append(
                 _failure(
                     check,
-                    f"page {page} is in {count} ranges; ranges must not overlap",
+                    f"page index {page} is in {count} ranges; ranges must not overlap",
                     details={"proposed": count},
                     page_index=page,
                 )
@@ -291,44 +235,84 @@ def _range_failures(
     return failures
 
 
-def _rotation_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
+def _review_issue(
+    failure: CheckFailure, *, name: SurveyCheckName | SurveyHintName
+) -> ReviewIssue:
+    """Turn a check failure or hint difference on the kept answer into a review issue.
+
+    Parameters
+    ----------
+    failure
+        The failure or difference.
+    name
+        The check or hint that found it.
+
+    Returns
+    -------
+    ReviewIssue
+        The issue.
+    """
+
+    return ReviewIssue(
+        check=name,
+        details=failure.details,
+        item_id=None,
+        message=failure.message,
+        page_index=failure.page_index,
+        step="survey",
+    )
+
+
+def _rotation_differences(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
     """List the pages whose confident measured rotation the profile does not give.
+
+    This is a hint. A page can differ only where the probe measured a confident text
+    angle. The profile's rotation for a page comes from the first rotation range
+    inside the PDF that covers it, and is 0 when none does.
 
     Parameters
     ----------
     answer
-        The accepted answer.
+        The answer.
     facts
         The measured facts.
 
     Returns
     -------
-    list[ReviewIssue]
-        One ``rotation_differs`` issue per differing page.
+    list[CheckFailure]
+        One ``rotation_differs`` difference per differing page.
     """
 
-    issues = []
+    differences = []
     page_count = len(facts.pages)
     for page in facts.pages:
         measured = page.orientation.dominant
         if not page.orientation.confident or measured is None:
             continue
-        turn: RotationRange | None = _covering(
-            answer.rotation, page=page.index, page_count=page_count
+        turn: RotationRange | None = covering_range(
+            answer.rotation, page_count=page_count, page_index=page.index
         )
         profile = 0 if turn is None else turn.degrees
         if profile == measured:
             continue
-        issues.append(
-            _issue(
+        differences.append(
+            _failure(
                 "rotation_differs",
-                f"page {page.index} needs {measured} degrees by its measured text "
-                f"angle, but the profile gives {profile}",
+                f"page index {page.index} needs {measured} degrees by its measured "
+                f"text angle, but the profile gives {profile}",
                 details={"measured": measured, "profile": profile},
                 page_index=page.index,
             )
         )
-    return issues
+    return differences
+
+
+# The hints an answer is compared with, in the order they run. A difference never
+# sends the answer back.
+HINTS: dict[SurveyHintName, Check] = {
+    "rotation_differs": _rotation_differences,
+    "page_number_differs": _page_number_differences,
+}
 
 
 def check_artifacts(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
@@ -448,8 +432,8 @@ def check_labels(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
         failures.append(
             _failure(
                 "labels",
-                f"a region on page {page} uses label {region.label!r}, which is not "
-                "one of the labels",
+                f"a region on page index {page} uses label {region.label!r}, which is "
+                "not one of the labels",
                 details={"proposed": region.label},
                 page_index=page if 0 <= page < page_count else None,
             )
@@ -542,8 +526,8 @@ def check_regions(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
             failures.append(
                 _failure(
                     "regions",
-                    f"a region is on page {page}, but the PDF has pages 0-"
-                    f"{page_count - 1}",
+                    f"a region is on page index {page}, but the PDF's page indexes "
+                    f"are 0-{page_count - 1}",
                     details={"page_count": page_count, "proposed": page},
                     page_index=None,
                 )
@@ -556,7 +540,7 @@ def check_regions(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
         failures.append(
             _failure(
                 "regions",
-                f"a region on page {page} has the box {values}; a box needs "
+                f"a region on page index {page} has the box {values}; a box needs "
                 "0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1",
                 details={"proposed": values},
                 page_index=page,
@@ -566,7 +550,7 @@ def check_regions(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
 
 
 def check_results(
-    failures: dict[CheckName, list[CheckFailure]], *, attempts: int
+    failures: dict[SurveyCheckName, list[CheckFailure]], *, attempts: int
 ) -> list[CheckResult]:
     """Record each check's result on the accepted answer, C1 to C7 in order.
 
@@ -634,32 +618,128 @@ def check_writing_direction(answer: SurveyAnswer, facts: Facts) -> list[CheckFai
     )
 
 
-def compare_with_facts(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
-    """Record where the accepted answer differs from the measured facts.
+# The checks, C1 to C7 in order.
+CHECKS: dict[SurveyCheckName, Check] = {
+    "labels": check_labels,
+    "regions": check_regions,
+    "rotation": check_rotation,
+    "page_numbering": check_page_numbering,
+    "artifacts": check_artifacts,
+    "writing_direction": check_writing_direction,
+    "languages": check_languages,
+}
 
-    A page can differ only where the probe measured a value: a confident text angle
-    for rotation, or a printed number with a value for page numbering. The profile's
-    value for a page comes from the first range inside the PDF that covers it. The
-    comparison never changes the answer and never sends it back to the model.
+
+def compare_with_hints(
+    answer: SurveyAnswer, facts: Facts
+) -> dict[SurveyHintName, list[CheckFailure]]:
+    """Compare an answer with every hint, in order.
+
+    A comparison never changes the answer and never sends it back to the model.
 
     Parameters
     ----------
     answer
-        The accepted answer.
+        The answer.
     facts
         The measured facts.
 
     Returns
     -------
-    list[ReviewIssue]
-        One ``rotation_differs`` issue per page whose rotation differs, then one
-        ``page_number_differs`` issue per page whose number differs.
+    dict[SurveyHintName, list[CheckFailure]]
+        Each hint's differences, ``rotation_differs`` then ``page_number_differs``;
+        an empty list when the answer agrees with it.
     """
 
-    return _rotation_issues(answer, facts) + _page_number_issues(answer, facts)
+    return {name: hint(answer, facts) for name, hint in HINTS.items()}
 
 
-def retry_message(failures: dict[CheckName, list[CheckFailure]]) -> str:
+def covering_range[RangeT: _PageRange](
+    ranges: Sequence[RangeT], *, page_count: int, page_index: int
+) -> RangeT | None:
+    """Find the first range that covers a page, ignoring ranges outside the PDF.
+
+    Every use of a profile's ranges reads them this way, so a range that a failed
+    check left in the profile, such as one running past the last page, gives the
+    same result everywhere.
+
+    Parameters
+    ----------
+    ranges
+        The ranges, in the answer's order.
+    page_count
+        The PDF's number of pages.
+    page_index
+        The page (0-based).
+
+    Returns
+    -------
+    RangeT | None
+        The range, or ``None`` when no range inside the PDF covers the page.
+
+    Examples
+    --------
+    On a 7-page PDF, a range that runs past the last page is skipped:
+
+    >>> ranges = [
+    ...     RotationRange(degrees=90, first_page_index=5, last_page_index=99),
+    ...     RotationRange(degrees=180, first_page_index=0, last_page_index=6),
+    ... ]
+    >>> covering_range(ranges, page_count=7, page_index=5).degrees
+    180
+    """
+
+    for page_range in ranges:
+        first, last = page_range.first_page_index, page_range.last_page_index
+        if 0 <= first <= last < page_count and first <= page_index <= last:
+            return page_range
+    return None
+
+
+def hint_issues(results: Sequence[HintResult]) -> list[ReviewIssue]:
+    """Turn the kept answer's hint differences into review issues.
+
+    Parameters
+    ----------
+    results
+        The hint results, from `hint_results`.
+
+    Returns
+    -------
+    list[ReviewIssue]
+        One issue per difference, in the order the hints run, with the hint's name
+        in ``check``.
+    """
+
+    return [
+        _review_issue(difference, name=result.name)
+        for result in results
+        for difference in result.differences
+    ]
+
+
+def hint_results(
+    differences: Mapping[SurveyHintName, list[CheckFailure]],
+) -> list[HintResult]:
+    """Record each hint's differences on the kept answer, in the order the hints run.
+
+    Parameters
+    ----------
+    differences
+        Each hint's differences on the kept answer, from `compare_with_hints`.
+
+    Returns
+    -------
+    list[HintResult]
+        The results for ``pdf_survey.json``'s ``hints``.
+    """
+
+    return [
+        HintResult(differences=found, name=name) for name, found in differences.items()
+    ]
+
+
+def retry_message(failures: dict[SurveyCheckName, list[CheckFailure]]) -> str:
     """Write the message that asks the model to fix its answer.
 
     Parameters
@@ -670,7 +750,8 @@ def retry_message(failures: dict[CheckName, list[CheckFailure]]) -> str:
     Returns
     -------
     str
-        Every failure, one per line, after a line asking for a corrected answer.
+        Every check failure, one per line, after a line asking for a corrected
+        answer. Hint differences are never part of it.
     """
 
     lines = [f"- {failure.message}" for name in CHECKS for failure in failures[name]]
@@ -695,13 +776,7 @@ def review_issues(results: list[CheckResult]) -> list[ReviewIssue]:
     """
 
     return [
-        ReviewIssue(
-            check=result.name,
-            details=failure.details,
-            message=failure.message,
-            page_index=failure.page_index,
-            step="survey",
-        )
+        _review_issue(failure, name=result.name)
         for result in results
         for failure in result.failures
     ]
@@ -709,7 +784,7 @@ def review_issues(results: list[CheckResult]) -> list[ReviewIssue]:
 
 def run_checks(
     answer: SurveyAnswer, facts: Facts
-) -> dict[CheckName, list[CheckFailure]]:
+) -> dict[SurveyCheckName, list[CheckFailure]]:
     """Run checks C1 to C7 on an answer.
 
     Parameters
@@ -721,20 +796,8 @@ def run_checks(
 
     Returns
     -------
-    dict[CheckName, list[CheckFailure]]
+    dict[SurveyCheckName, list[CheckFailure]]
         Each check's failures, C1 to C7 in order; an empty list when it passed.
     """
 
     return {name: check(answer, facts) for name, check in CHECKS.items()}
-
-
-# The checks, C1 to C7 in order.
-CHECKS: dict[CheckName, Check] = {
-    "labels": check_labels,
-    "regions": check_regions,
-    "rotation": check_rotation,
-    "page_numbering": check_page_numbering,
-    "artifacts": check_artifacts,
-    "writing_direction": check_writing_direction,
-    "languages": check_languages,
-}

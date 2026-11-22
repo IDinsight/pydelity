@@ -10,7 +10,6 @@ It also closes the client when the step is done with the model. The SDKs read
 # Standard Library
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Literal
 
 # Third Party Library
 from anthropic import AsyncAnthropic
@@ -25,13 +24,9 @@ from pydantic_ai.settings import ModelSettings
 
 # Package Library
 from pydelity.config.loading import read_api_key
-from pydelity.config.schemas import Config
+from pydelity.config.schemas import Config, ExtractionConfig, SurveyConfig
 from pydelity.providers.ledger_model import LedgerContext, LedgerModel
-from pydelity.providers.profiles import Effort, ModelChoice
-
-# How a model gives structured output: the provider's own structured output, or a
-# schema in the prompt. Forced tool choice is never used, since some models reject it.
-type OutputMode = Literal["native", "prompted"]
+from pydelity.providers.profiles import PROFILES, ModelChoice, OutputMode
 
 
 def _provider_model(
@@ -109,31 +104,31 @@ def _sdk_client(
 @asynccontextmanager
 async def build_model(
     *,
+    choice: ModelChoice,
     config: Config,
     context: LedgerContext,
-    effort: Effort,
-    max_output_tokens: int,
-    request_timeout_seconds: float,
+    step_settings: ExtractionConfig | SurveyConfig,
 ) -> AsyncGenerator[LedgerModel]:
-    """Build the selected model for one step, wrapped to check and record requests.
+    """Build one step's model, wrapped to check and record requests.
 
-    Use it in an ``async with`` block. The model's SDK client, which uploads use too,
-    is closed when the block ends, also when it ends with an error or is canceled.
-    PydanticAI closes only the clients it creates itself.
+    Use it in an ``async with`` block. The step uses one SDK client, which uploads
+    use too, and which is closed when the block ends, also when it ends with an error
+    or is canceled. PydanticAI closes only the clients it creates itself. A step that
+    sends requests about single pages makes a wrapper for each page and agent with
+    `LedgerModel.for_page`, on the same client.
 
     Parameters
     ----------
+    choice
+        The step's model.
     config
-        The run's settings: the model, the retry count and any price overrides.
+        The run's settings: the retry count and any price overrides.
     context
         The guard, ledger, PDF, run and step the requests belong to.
-    effort
-        How hard the model thinks: Anthropic's adaptive-thinking effort, or OpenAI's
-        reasoning effort.
-    max_output_tokens
-        The most tokens one answer may contain, thinking included.
-    request_timeout_seconds
-        How long one attempt at a request may take.
+    step_settings
+        The step's settings: its effort (Anthropic's adaptive-thinking effort, or
+        OpenAI's reasoning effort), the most tokens one answer may contain, thinking
+        included, and how long one attempt at a request may take.
 
     Yields
     ------
@@ -149,25 +144,26 @@ async def build_model(
     --------
     ::
 
-        async with build_model(config=config, context=context, effort="medium",
-                               max_output_tokens=32000,
-                               request_timeout_seconds=600) as model:
+        async with build_model(choice=config.survey_model, config=config,
+                               context=context,
+                               step_settings=config.advanced.survey) as model:
             survey, transport = await run_survey(model=model, ...)
     """
 
-    choice = config.model_choice
-    settings = choice.profile.effort_settings(effort)
-    settings["max_tokens"] = max_output_tokens
+    settings = choice.profile.effort_settings(step_settings.effort)
+    settings["max_tokens"] = step_settings.max_output_tokens
     client = _sdk_client(
-        choice=choice, config=config, request_timeout_seconds=request_timeout_seconds
+        choice=choice,
+        config=config,
+        request_timeout_seconds=step_settings.request_timeout_seconds,
     )
     async with client:
         model = _provider_model(choice=choice, client=client, settings=settings)
-        yield LedgerModel(model, config=config, context=context)
+        yield LedgerModel(model, choice=choice, config=config, context=context)
 
 
 def output_mode(model: Model) -> OutputMode:
-    """Return how a model gives structured output, from its PydanticAI profile.
+    """Return how a model gives structured output.
 
     Parameters
     ----------
@@ -177,10 +173,13 @@ def output_mode(model: Model) -> OutputMode:
     Returns
     -------
     OutputMode
-        ``native`` when the model supports the provider's structured output,
-        otherwise ``prompted``.
+        ``prompted`` when the provider's profile asks for it (Anthropic) or the model
+        has no JSON-schema output, otherwise ``native``.
     """
 
+    provider = PROFILES.get(model.system)
+    if provider is not None and provider.output_mode == "prompted":
+        return "prompted"
     return "native" if model.profile.get("supports_json_schema_output") else "prompted"
 
 
