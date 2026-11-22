@@ -99,9 +99,11 @@ accounted for. It sends a failing answer back to the model, up to
 goes on the list. The [Survey checks](../../reference/survey-checks/) reference
 lists every check.
 
-**Places where the survey and the measurements disagree.** pydelity keeps the
-model's reading, because the model sees the pages and is usually the better
-judge. Where it differs from what pydelity measured, the page goes on the list:
+**Places where the survey and the measurements disagree.** pydelity gives the
+survey's model what it measured as hints and keeps the model's reading, because
+the model sees the pages and is usually the better judge. It never sends an
+answer back for differing from a hint. Where the answer differs from what
+pydelity measured, the page goes on the list:
 
 - `rotation_differs`: the text on the page runs at an angle that needs a
   different rotation from the one the model gave.
@@ -122,10 +124,25 @@ the only place that shows it.
 **Checks a page's answer still fails.** Each page answer goes through the
 [page extraction checks](../../reference/extraction-checks/), with retries.
 Whatever the kept answer still gets wrong goes on the list, usually naming the
-item. Lines dropped or added compared with the PDF's stored text (`text_dropped`
-and `text_added`) are listed on every page no verifier reviewed. On a page the
-verifier reviewed, they are listed only when it didn't pass the page and its
-correction wasn't used.
+item.
+
+**Places where a page and its hints disagree.** Page extraction compares each
+answer with what pydelity measured in the PDF or the survey found, and keeps the
+model's reading:
+
+- `reading_order`: the items don't follow the writing direction the survey
+  found.
+- `artifacts`: a repeated line the survey found to be page furniture sits in no
+  item with role `artifact`.
+- `form_fields`: a fillable form field has no field item that names it, or its
+  field item gives a value other than the one the PDF stores.
+- `text_dropped` and `text_added`: a line of the PDF's stored text isn't in the
+  answer, or a line of the answer isn't in the stored text.
+
+These are listed on every page no verifier reviewed. On a page the verifier
+reviewed, they are listed only when it didn't pass the page and its correction
+wasn't used. As with the survey, either side can be wrong. See
+[How a page is checked](../page-extraction/#how-a-page-is-checked).
 
 **Problems a verifier found.** When the survey's or a page's verifier finds
 problems and its correction isn't kept, each problem goes on the list as a
@@ -149,6 +166,8 @@ Each page file in `pages/` holds one extracted page:
 - `containers`: the page's bordered or shaded boxes. Items inside one name it in
   `container`.
 - `checks`: each check's result on the kept answer, failures included
+- `hints`: each hint's differences from the kept answer, whether or not the
+  review list shows them
 - `issues`: the page's review issues, the same ones `run.json` lists
 - `verification`: `null` when no verifier reviewed the page. Otherwise the
   verifier's verdict as it gave it (`passed`, the `problems` it found and any
@@ -190,6 +209,9 @@ later.
 - `checks`: whether the kept answer passed each check, and how many answers it
   took. The kept answer is the survey's own, or the verifier's correction when
   it was kept.
+- `hints`: the kept answer's differences from the measured facts
+  (`rotation_differs` and `page_number_differs`), whether or not the review list
+  shows them
 - `issues`: the survey's review issues: the checks the kept answer still fails,
   the places it differs from the measured facts unless the verifier passed it or
   its correction was kept, and the verifier's problems when its correction

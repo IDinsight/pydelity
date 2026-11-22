@@ -78,18 +78,19 @@ class _Output(BaseModel):
 
 
 class CheckFailure(_Output):
-    """One problem a check found in a model's answer."""
+    """A problem a check found in a model's answer, or a difference from a hint."""
 
     details: dict[str, object]
     """The values the problem is about. A survey check gives the proposed value and,
     where it applies, what it was checked against, such as
-    ``{"proposed": 9, "page_count": 6}``. A page extraction check gives the ref that
-    the model's answer gave the item or container, or ``None`` when no single one
-    applies, such as ``{"item_ref": "t3"}``. That ref comes from the answer, and the
-    page file's items have IDs instead."""
+    ``{"proposed": 9, "page_count": 6}``, and a survey hint gives the measured value
+    and the profile's, such as ``{"measured": 90, "profile": 0}``. A page extraction
+    check or hint gives the ref that the model's answer gave the item or container,
+    or ``None`` when no single one applies, such as ``{"item_ref": "t3"}``. That ref
+    comes from the answer, and the page file's items have IDs instead."""
 
     message: str
-    """What is wrong, starting with the check's name."""
+    """What is wrong or differs, starting with the check's or hint's name."""
 
     page_index: int | None
     """The page the problem is on, or ``None`` when no single page applies."""

@@ -63,9 +63,19 @@ differ.
   accepted, a second request to the survey's model with the survey's
   instructions reviews it against the PDF (on the same upload) and may return a
   full corrected `SurveyAnswer`, kept only when it passes every survey check.
-- With a step's verifier off, every difference goes on the review list: every
-  failing check, page extraction's `text_dropped` and `text_added`, and the
-  survey's `rotation_differs` and `page_number_differs`. With it on, a
+- Code's measurements of the PDF are hints (the user's rework, 2026-11-22; see
+  **User decisions that apply to later steps**). Each step's `validators.py`
+  keeps `CHECKS` (`run_checks`) apart from `HINTS` (`compare_with_hints`). The
+  survey's checks are C1–C7 and its hints `rotation_differs` and
+  `page_number_differs`. Page extraction's checks are `labels`, `content`,
+  `languages`, `boxes`, `containers` and `captions`, and its hints
+  `reading_order`, `artifacts`, `form_fields`, `text_dropped` and `text_added`.
+  Only a check failure sends an answer or a verifier's correction back, and a
+  correction is kept when it passes every check, whatever its hint differences.
+  `PdfSurvey.hints` and `PageFile.hints` hold each hint's differences on the
+  kept answer, and `checks` holds checks only.
+- Every check still failing on the kept answer goes on the review list. With a
+  step's verifier off, every hint difference goes on it too. With it on, a hint
   difference is left off when the verdict passed or its correction was kept.
 - `PdfSurvey.verification` and `PageFile.verification` are `null` when no
   verifier ran. No fingerprint holds a verifier switch. A saved output with
@@ -119,12 +129,27 @@ The request's points for its Scoper and Architect:
 - The cycle's work merges with page extraction and ships with it as 0.2.0. Step
   3 follows, as the rest of this file describes.
 
+The user's rework (2026-11-22, during the cycle's synchronization), kept for
+reference: code's measurements of the PDF become hints only, in every step that
+calls a model. Code still measures facts such as stored text, page labels,
+rotation, repeated lines and form fields and gives them to the model as hints,
+and the survey's finding for each repeated line (page furniture, content or not
+decided) reaches page extraction as a hint too. The model's own reading decides
+the answer, and no message tells it to change an answer to match a hint or to
+put a repeated line in an artifact item. A difference from a hint goes on the
+review list and never causes a retry or a failed run. The reason: in the user's
+real runs on the GPF reading and math PDFs, the text check's retries pushed the
+model to merge each grade grid's nine grade cells into one cell to match stored
+lines such as "x x x x x" and "123456789", losing which grades the marks belong
+to, and its retry message made the verifier drop correct fixes.
+
 ## User decisions that apply to later steps
 
 Made while scoping the pipeline (2026-11-16), during the survey cycle
-(2026-11-17 to 2026-11-19) or during the page extraction cycle (2026-11-19 to
-2026-11-20). Where a rule was a design's choice rather than the user's, the
-bullet says so, and a later Architect may revisit it.
+(2026-11-17 to 2026-11-19), during the page extraction cycle (2026-11-19 to
+2026-11-20) or during the verifier cycle (2026-11-21 to 2026-11-22). Where a
+rule was a design's choice rather than the user's, the bullet says so, and a
+later Architect may revisit it.
 
 - Acceptance of each step rests on the user's review of real runs with Anthropic
   and OpenAI models on PDFs of their choice, covering two-column right-to-left,
@@ -142,24 +167,36 @@ bullet says so, and a later Architect may revisit it.
   hand-written per-document config, no domain Pydantic class and no
   language-specific word list or pattern. Document-specific knowledge comes only
   from the survey's profile and the instructions the user gives each step.
-- The model's reading is trusted over measured facts such as the text layer.
-  Code may send an answer back with the difference it found, but the model's
-  last answer is kept, and any difference left goes on the review list. Page
-  extraction applies this strictly. Its design (decision 21, after real runs)
-  sends no text-layer lines as hints, so the models read the text from the page
-  image. A text difference goes back with a note that the model may keep its
-  reading. On a page no verifier reviewed, every text difference is listed for
-  review. With the verifier on, text differences are listed only when the
-  verifier did not pass the page and the page keeps the extraction. The verifier
-  cycle applied the same rule to the survey's comparisons with the facts. A
-  PDF's stored text can be wrong (broken Arabic letter forms, ligatures,
-  private-use characters), so stored text is evidence, never the answer.
+- Code's measurements of the PDF are hints, in every step that calls a model
+  (the user's rework, 2026-11-22, which replaces the earlier rule that code may
+  send an answer back with a difference it found). Code measures facts such as
+  stored text, page labels, rotation, repeated lines and form fields, and gives
+  them, with the survey's findings, to the model as hints. The model's own
+  reading of the PDF decides the answer. No message asks a model to change an
+  answer to match a hint. A step's comparisons with what code measured or the
+  survey found are its hints, and a difference from one never sends an answer or
+  a correction back and never fails a page, a step or a run. It goes on the
+  review list unless that step's verifier passed the answer or its correction
+  was kept, and the output file's `hints` keeps it either way. A step's checks
+  are the answer's consistency checks (against itself and the survey's profile)
+  and its hard limits (the PDF's page count, each page's area). They may send an
+  answer back within the step's check retries, and a final answer still failing
+  one is kept and listed while the run goes on. A run stops only on an unusable
+  answer (no answer in the answer format within the retries, a refusal, or
+  output tokens used up) or a provider error after the provider retries. Page
+  extraction's request carries no stored text beyond the page's repeated lines
+  and its form fields' values, and the models read the rest of the text from the
+  page image (page extraction's decision 21, after real runs). A PDF's stored
+  text can be wrong (broken Arabic letter forms, ligatures, private-use
+  characters), so stored text is evidence, never the answer. Each later step
+  sorts its own comparisons into checks and hints the same way.
 - Each check sits where it can be enforced: Pydantic classes for shape,
   `<step>/validators.py` for what code can decide, and a verifying model for
   what code cannot judge. Each step's verifier is a second request to that
   step's own model with that step's instructions only, and it is opt-in (see
   **Pushed to later steps**). With its verifier on, page extraction sends every
-  page to it with the page image, the answer and its remaining check failures,
+  page to it with the page image, the answer, its remaining check failures and
+  its hint differences (quoting the stored lines a text difference is about),
   and the survey sends the PDF with the answer, its failing checks and its
   differences from the facts. Either may return a full correction. The brief's
   terms differ: there the "verifier" is the model that makes step 3's main
@@ -310,9 +347,9 @@ These decisions replace earlier plans in the brief:
   so are three of its **Step 2 (page extraction) design points**:
   - Text-layer hints and pre-matched artifact lines. A page request carries the
     page's repeated lines with how the survey classified them, and its form
-    fields with their values, but no other text-layer lines. Text-comparison
-    failures sent back to the extractor or the verifier do quote stored lines.
-    The `artifacts` check finds page furniture by position.
+    fields with their values, as hints, but no other text-layer lines. Only the
+    verifier's request quotes stored lines, in its list of text differences. The
+    `artifacts` hint finds page furniture by position.
   - A validator only on pages that failed checks or are hard, plus a random
     sample. A step's verifier runs on all of that step's work or on none of it.
     Step 3's option D proposes the conditional pattern for breaks.
@@ -398,11 +435,13 @@ The numbers follow **Open questions for Scoper to settle with the user** in
     `figure` uses `figure` (`description`, `text` and `crop`, the crop's path in
     the output folder); `field` uses `field` (`field_type`, `prompt`, `value`,
     `checked`, `options` and `fillable_name`).
-  - These rules are checks, not guarantees. The `content` check (and, for
-    `column_order`, the `reading_order` check) sends a wrong answer back while
-    check retries remain, but the last answer is kept with its failures listed.
-    `container` and `caption_of` are left `null` when the model's ref matches
-    nothing. Step 3 should read a page's `checks` rather than assume the shape.
+  - These rules are checks and hints, not guarantees. The `content` check sends
+    a wrong answer back while check retries remain, but the last answer is kept
+    with its failures listed. `column_order` against the survey's direction is
+    the `reading_order` hint, which never sends an answer back, so a page can
+    keep a `column_order` that does not fit `writing_direction`. `container` and
+    `caption_of` are left `null` when the model's ref matches nothing. Step 3
+    should read a page's `checks` and `hints` rather than assume the shape.
   - `bbox` is `[x0, y0, x1, y1]` in points on the displayed page, origin top
     left, as the survey's regions and form fields are.
   - Item IDs come from reading-order position, `p<NNNN>-<nnn>` from 1 (such as
@@ -419,9 +458,10 @@ The numbers follow **Open questions for Scoper to settle with the user** in
     they caption in `caption_of`.
   - Checks and review: `text_comparison` (`compared`, `no_text_layer`,
     `garbled_text_layer` or `text_layer_mismatch`), `checks` (each check's
-    `name`, `passed`, `failures` and `attempts` for the kept answer), `issues`
-    and `verification` (`verdict`, `correction_applied`, `correction_failures`
-    and `attempts`, or `null` when no verifier reviewed the page).
+    `name`, `passed`, `failures` and `attempts` for the kept answer), `hints`
+    (each hint's `name` and `differences` on the kept answer), `issues` and
+    `verification` (`verdict`, `correction_applied`, `correction_failures` and
+    `attempts`, or `null` when no verifier reviewed the page).
   - `inputs` (`context`, `model`, `pdf_sha256`, `prompt_version`, `rendering`,
     `settings`), `fingerprint`, `extracted_at` and `pydelity_version`.
 - **Page context.** `page_context` in `extracting/extraction.py` resolves each
@@ -495,8 +535,8 @@ The numbers follow **Open questions for Scoper to settle with the user** in
   `surveying.probe.line_boxes`, and normalizes text for comparison (NFKC,
   case-folded, letters, marks and numbers only, compared as character trigrams
   that ignore spaces, so scripts written without spaces work the same). A step 3
-  check that uses stored text can reuse it, keeping in mind that stored text can
-  be wrong.
+  hint that uses stored text can reuse it. Stored text can be wrong, so such a
+  comparison is a hint, never a check.
 - **Costs.** `cost.jsonl` lines carry `step`, `page_index` and a required
   `agent` (`surveyor`, `extractor` or `verifier`). Step 3 names its own agents
   the same way. `SpendGuard` holds a reservation for each request in flight, and
@@ -753,14 +793,20 @@ From the survey's and page extraction's designs and reviews, still open:
   noise; it changes the facts schema.
 - The model can be wrong where the facts were right, and the review list is the
   only signal. A verifier that wrongly passes a page, or whose correction drops
-  or adds a line, keeps that line off the review list; the failure stays in the
-  page file's `checks`. A survey verifier that wrongly passes the survey keeps
-  its differences from the facts off the list, visible only by comparing the
-  profile with the facts in `pdf_survey.json`.
+  or adds a line, keeps that line off the review list, and the difference stays
+  only in the page file's `hints`. A survey verifier that wrongly passes the
+  survey keeps its differences from the facts off the list, visible only in
+  `pdf_survey.json`'s `hints`.
 - With the verifiers off, which is the default, pages whose stored text is
   wrong, such as the Arabic and Japanese test pages, put their text differences
   on the review list, and nothing beyond the code checks catches missed or
   merged items, a wrong reading order or boxes on the wrong content.
+- No hint sends an answer back, so dropped or added text, uncovered page
+  furniture, a misread field value and a reading order against the page's
+  direction are not retried. With the verifier off, they reach the user only
+  through the review list. The page prompt no longer asks for furniture lines in
+  artifact items, so models may give fewer artifact items, each missing one an
+  `artifacts` review issue. The verifier cycle's real runs show how many.
 - A verified survey sends the PDF twice, so it costs about twice as much. The
   estimate's typical survey verdict (6,000 output tokens) is a guess that real
   runs have not measured yet. A survey verifier request that fails after a paid
@@ -776,18 +822,19 @@ From the survey's and page extraction's designs and reviews, still open:
 - The survey's region boxes are the model's estimates and are often off. Page
   boxes rest on the extraction and verifier models; snapping either to measured
   content is open (see **Pushed to later steps**).
-- The `artifacts` check trusts the model's boxes: furniture inside a loose
-  `artifact` box passes, and since one occurrence is enough, a page that marks a
-  body occurrence as an artifact and misses the real header or footer passes.
+- The `artifacts` hint trusts the model's boxes: furniture inside a loose
+  `artifact` box agrees, and since one occurrence is enough, a page that marks a
+  body occurrence as an artifact and misses the real header or footer agrees.
 - The text comparison can flag text read from raster images (slides with
-  pictured text), costing retries. Text layers that store right-to-left text in
-  visual order, or legacy encodings rated `good`, can mislead it.
+  pictured text), adding review issues. Text layers that store right-to-left
+  text in visual order, or legacy encodings rated `good`, can mislead it.
 - One run per output folder at a time. Concurrent runs in the same folder are
   unsupported and not detected.
 - Output folders from earlier builds do not carry over. A `pdf_survey.json`
-  without `verification` is surveyed again, and a `cost.jsonl` with survey lines
-  whose `agent` is `null` (0.1.x and page extraction's build) stops every run on
-  the folder with `OutputError`. Use a new folder.
+  without `verification` or `hints` is surveyed again, a page file without
+  `hints` is extracted again, and a `cost.jsonl` with survey lines whose `agent`
+  is `null` (0.1.x and page extraction's build) stops every run on the folder
+  with `OutputError`. Use a new folder.
 - On Windows, `os.replace` fails while another program holds the target open,
   and the error names the file.
 - Large PDFs make large reports, which is acceptable at Level 3.
@@ -946,9 +993,9 @@ whenever work is moved out of the current step.
   the probe measures as garbled, and one where fewer than half of the answer's
   three-character runs are in the text layer. Pages whose stored text is wrong
   in part, such as broken Arabic letter forms or private-use characters, still
-  spend their check retries on text differences that the model is right to keep.
+  put text differences that the model is right to keep on the review list.
   Comparing the stored text with the model's reading first, and skipping the
-  comparison when the stored text is wrong, would save those retries.
+  comparison when the stored text is wrong, would cut that noise.
 - **Two box rules for the page prompt (page extraction, not yet scheduled).**
   The prompt has no rule for a paragraph that continues at the top of the next
   column. On a Chinese page in the Anthropic run, two items' text held the

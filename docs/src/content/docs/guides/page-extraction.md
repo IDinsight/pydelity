@@ -167,43 +167,75 @@ For each page, pydelity:
    right way up. The image is as large as both providers accept without
    shrinking it, and never more than 300 DPI: about 2,200 pixels on the long
    edge for a Letter or A4 page.
-2. Sends that one image to the model, with the survey's labels, the page's
-   writing direction, the page's repeated lines with what the survey found each
-   one to be, and any fillable form fields on the page with their values. The
-   model reads all of the page's text from the image. pydelity doesn't send the
-   rest of the text stored in the PDF, because that text can be wrong, for
-   example with letters out of order in Arabic or broken ligatures.
-3. Checks the answer in code, and sends it back to the model with the problems
-   listed, up to `advanced.extraction.check_retries` times (2 by default). A
-   problem with the page's text can quote lines of the stored text.
-4. With the verifier on, sends the image and the answer to the verifier, a
-   second request to the same model, which reviews the page against the image.
+2. Sends that one image to the model, with the survey's labels and some hints
+   about the page: the writing direction the survey found, the page's repeated
+   lines with their stored text and what the survey found each one to be, and
+   any fillable form fields on the page with their stored values. The hints come
+   from the survey and the PDF's stored data, which can be wrong, so the model
+   gives what the image shows where the two disagree. The model reads all of the
+   page's text from the image. pydelity doesn't send the rest of the text stored
+   in the PDF, because that text can be wrong, for example with letters out of
+   order in Arabic or broken ligatures.
+3. Checks the answer in code, and sends it back to the model with the failed
+   checks listed, up to `advanced.extraction.check_retries` times (2 by
+   default). Differences from the hints are never sent back.
+4. With the verifier on, sends the image, the answer, the checks it still fails
+   and its differences from the hints to the verifier, a second request to the
+   same model, which reviews the page against the image.
 5. Turns each box back into points on the page as displayed, cuts out each
    figure as an image and writes the page file.
 
-Reading order follows the page's writing direction from the survey. Pages with
-columns are read column by column: from the left on left-to-right pages, from
-the right on right-to-left pages, and for vertical text, in the order its script
-reads its columns.
+The model reads the page in the direction it is written, with the survey's
+writing direction as a hint. Pages with columns are read column by column: from
+the left on left-to-right pages, from the right on right-to-left pages, and for
+vertical text, in the order its script reads its columns.
 
 ## How a page is checked
 
-The code checks cover what code can decide: that every label and role fits the
-survey's labels, that boxes sit on the page, that reading order fits the page's
-writing direction, that every fillable form field is read with its value, that
-page furniture is marked as such, and more. The
-[page extraction checks](../../reference/extraction-checks/) reference lists
-them all.
+pydelity looks at each answer in code in two ways: with checks and with hints.
+The [page extraction checks](../../reference/extraction-checks/) reference lists
+both.
 
-When retries run out, pydelity keeps the last answer and puts each check it
-still fails on the review list.
+**Checks** test the answer against itself, the survey's labels and the page:
+that every label fits the survey's labels and the item's role and kind, that
+each item holds the content its kind needs, that every item with text has a
+valid language tag, that boxes are well formed, sit on the page and aren't
+shared, and that containers and captions point at items that exist. An answer
+that fails a check goes back to the model with the failures listed. When retries
+run out, pydelity keeps the last answer, puts each check it still fails on the
+review list and goes on with the run.
+
+**Hints** compare the answer with what pydelity measured in the PDF or the
+survey found:
+
+- `reading_order`: whether the items follow the writing direction the survey
+  found
+- `artifacts`: whether each repeated line the survey found to be page furniture
+  sits in an item with role `artifact`
+- `form_fields`: whether each of the page's fillable form fields has a field
+  item that names it, with the value the PDF stores
+- `text_dropped` and `text_added`: lines of the PDF's stored text that the
+  answer doesn't have, and lines of the answer that the stored text doesn't
+  have. See
+  [Text compared with the PDF's stored text](#text-compared-with-the-pdfs-stored-text).
+
+Measurements and the survey can be wrong, so the model's reading of the page
+image decides. A difference from a hint is never sent back to the model and
+never fails a page or a run. It goes on the review list, unless a verifier
+passed the page or its correction was kept. The page file's `hints` keeps every
+difference either way.
+
+A page fails, and the run stops, only when no usable answer comes back, such as
+when the model refuses, runs out of output tokens or the provider keeps
+returning errors. See
+[When page extraction fails](../models-and-providers/#when-page-extraction-fails).
 
 Page extraction's verifier is off by default. When you turn it on, it looks for
 what code can't judge, such as a missed or merged item, a misread word, a wrong
 reading order on a complex page or a box on the wrong content. It either passes
 the page or lists the problems, usually with a corrected answer. The correction
-goes through the same code checks and retries. pydelity keeps it when it passes
-them, leaving aside the text comparison below. Otherwise pydelity keeps the
+goes through the same checks and retries. pydelity keeps it when it passes every
+check, whatever its differences from the hints. Otherwise pydelity keeps the
 first answer and puts each problem the verifier found on the review list. The
 page file keeps the verifier's verdict, whether or not its correction was used,
 and says when no verifier reviewed the page.
@@ -214,17 +246,15 @@ it costs.
 
 Many PDFs store their text as well as drawing it. On pages where that stored
 text reads well, pydelity compares it with the text in the answer, in any
-script, to find lines the model dropped or added. Differences go back to the
-model that gave the answer, with a note that it may keep its reading when the
-stored text is wrong or the text came from an image.
+script, to find lines the model dropped or added. Stored text can be wrong while
+the page looks right, so these differences are hints and are never sent back to
+the model. Each goes on the review list unless a verifier passed the page or its
+correction was kept. With the verifier on, its request quotes the stored lines
+each difference is about, and the page image decides whether the answer is
+wrong.
 
-Differences left after the retries go on the review list when no verifier
-reviewed the page. With the verifier on, they go on the list only when the
-verifier didn't pass the page and its correction wasn't used, because stored
-text can be wrong while the page looks right. They stay in the page file's
-`checks` either way. Pages whose stored text is missing, garbled or mostly
-unlike the answer skip the comparison, and the page file's `text_comparison`
-says why.
+Pages whose stored text is missing, garbled or mostly unlike the answer skip the
+comparison, and the page file's `text_comparison` says why.
 
 ## Pages run at the same time
 

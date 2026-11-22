@@ -75,7 +75,9 @@ page extraction's model and the `advanced.extraction` settings. Each step's
 
 **The survey's verifier** gets the whole PDF again, with the survey's answer,
 the [survey checks](../../reference/survey-checks/) the answer still fails and
-its differences from the measured facts. It looks for:
+its differences from the measured facts. The measured facts are hints that can
+be wrong, so a difference is a problem only when the PDF shows the answer is
+wrong. It looks for:
 
 - labels that don't fit their content, content that no label fits, and labels
   that should be one
@@ -93,20 +95,22 @@ its differences from the measured facts. It looks for:
 It may correct any part of the survey's answer. The measured facts never change,
 and the languages you set with `languages` stay first in the profile.
 
-**Page extraction's verifier** gets the page image, the extraction and the
-[page extraction checks](../../reference/extraction-checks/) it still fails. It
-looks for a missed or merged item, a misread word, a wrong reading order on a
-complex page and a box on the wrong content.
+**Page extraction's verifier** gets the page image, the extraction, the
+[page extraction checks](../../reference/extraction-checks/) it still fails and
+its differences from the page's hints, quoting the stored lines a text
+difference is about. It looks for a missed or merged item, a misread word, a
+wrong reading order on a complex page and a box on the wrong content. The page
+image decides whether a difference from a hint is a problem.
 
 ## What the verdict changes
 
 - **The verifier passes the answer.** pydelity keeps the answer.
 - **It finds problems and gives a correction.** The correction goes through the
   step's code checks. When it fails one, it goes back to the verifier with the
-  problems listed, up to `check_retries` times. pydelity keeps the correction
-  when it passes every check. On a page, the comparison with the PDF's stored
-  text doesn't count here, because stored text can be wrong. The problems the
-  verifier found then stay in its verdict, and none goes on the review list.
+  failed checks listed, up to `check_retries` times. pydelity keeps the
+  correction when it passes every check, whatever its differences from the
+  hints. The problems the verifier found then stay in its verdict, and none goes
+  on the review list.
 - **It finds problems and gives no correction, or its correction still fails the
   checks after the retries.** pydelity keeps the step's own answer and puts each
   problem on the review list as a `verifier` issue.
@@ -118,17 +122,17 @@ A kept correction is not reviewed again.
 Which issues go on the review list depends on whether a verifier ran and what it
 decided:
 
-| Issue                                                                                        | No verifier | Passed, or correction kept | Problems, correction not kept |
-| -------------------------------------------------------------------------------------------- | ----------- | -------------------------- | ----------------------------- |
-| A survey check that the kept answer still fails                                              | Listed      | Listed                     | Listed                        |
-| The survey's differences from the measured facts (`rotation_differs`, `page_number_differs`) | Listed      | Not listed                 | Listed                        |
-| A page check that the kept answer still fails, other than the text comparison                | Listed      | Listed                     | Listed                        |
-| A page's lines dropped or added compared with its stored text (`text_dropped`, `text_added`) | Listed      | Not listed                 | Listed                        |
-| Each problem the verifier found (`verifier`)                                                 | —           | Not listed                 | Listed                        |
+| Issue                                                                                                           | No verifier | Passed, or correction kept | Problems, correction not kept |
+| --------------------------------------------------------------------------------------------------------------- | ----------- | -------------------------- | ----------------------------- |
+| A check that the kept answer still fails, in the survey or on a page                                            | Listed      | Listed                     | Listed                        |
+| The survey's differences from the measured facts (`rotation_differs`, `page_number_differs`)                    | Listed      | Not listed                 | Listed                        |
+| A page's differences from its hints (`reading_order`, `artifacts`, `form_fields`, `text_dropped`, `text_added`) | Listed      | Not listed                 | Listed                        |
+| Each problem the verifier found (`verifier`)                                                                    | —           | Not listed                 | Listed                        |
 
-A difference left off the list is still saved. A page's text differences stay in
-its page file's `checks`, and the survey's show when you compare the profile
-with the facts in `pdf_survey.json`.
+A difference left off the list is still saved, in the `hints` of
+`pdf_survey.json` or of the page file. A difference from a hint never sends an
+answer or a correction back, with or without a verifier. See
+[How a page is checked](../page-extraction/#how-a-page-is-checked).
 
 [The review list](../outputs/#the-review-list) describes each kind of issue.
 
@@ -144,14 +148,14 @@ a 2-page scanned form with the default model, the survey's estimate without a
 verifier was about $0.24, at most $2.53, and with one:
 
 ```text
-Survey with its verifier cost estimate: about $0.47, at most $5.45 (up to 6 requests to anthropic:claude-opus-5-5)
+Survey with its verifier cost estimate: about $0.47, at most $5.46 (up to 6 requests to anthropic:claude-opus-5-5)
 ```
 
 Page extraction's estimate for both pages was about $0.23, at most $4.81, and
 with its verifier:
 
 ```text
-Extraction with its verifier cost estimate: about $0.45, at most $10.41 (2 pages, up to 12 requests to anthropic:claude-opus-5-5)
+Extraction with its verifier cost estimate: about $0.46, at most $10.42 (2 pages, up to 12 requests to anthropic:claude-opus-5-5)
 ```
 
 `pydelity.aestimate` gives the same figures without an API key, and each step's

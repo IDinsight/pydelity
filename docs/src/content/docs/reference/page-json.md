@@ -192,15 +192,18 @@ The verifier's review of the page's extraction.
 
 ## `checks[].failures[]`
 
-One problem a check found in a model's answer.
+A problem a check found in a model's answer, or a difference from a hint.
 
 - `details` (map of string to any value; required): The values the problem is
   about. A survey check gives the proposed value and, where it applies, what it
-  was checked against, such as `{"proposed": 9, "page_count": 6}`. A page
-  extraction check gives the ref that the model's answer gave the item or
-  container, or `None` when no single one applies, such as `{"item_ref": "t3"}`.
-  That ref comes from the answer, and the page file's items have IDs instead.
-- `message` (string; required): What is wrong, starting with the check's name.
+  was checked against, such as `{"proposed": 9, "page_count": 6}`, and a survey
+  hint gives the measured value and the profile's, such as
+  `{"measured": 90, "profile": 0}`. A page extraction check or hint gives the
+  ref that the model's answer gave the item or container, or `None` when no
+  single one applies, such as `{"item_ref": "t3"}`. That ref comes from the
+  answer, and the page file's items have IDs instead.
+- `message` (string; required): What is wrong or differs, starting with the
+  check's or hint's name.
 - `page_index` (integer or null; required): The page the problem is on, or
   `None` when no single page applies.
 

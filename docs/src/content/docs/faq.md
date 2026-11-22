@@ -34,11 +34,13 @@ with the model's regions drawn on it. See
 ### Why does pydelity keep the model's answer when it disagrees with what it measured?
 
 The model sees the pages, so it's usually the better reader. The measurements
-can go wrong, for example by taking numbers in a table for page numbers. Where
-the model's page number or rotation differs from what pydelity measured,
-pydelity keeps the model's answer and puts the page on the review list, so a
-person can decide. When the survey's verifier is on and accepts the answer, the
-difference stays off the list. See
+can go wrong, for example by taking numbers in a table for page numbers, so
+pydelity gives them to the model as hints only. Where the model's page number or
+rotation differs from what pydelity measured, pydelity keeps the model's answer
+and puts the page on the review list, so a person can decide. It never sends the
+answer back to make it match. When the survey's verifier is on and accepts the
+answer, the difference stays off the list. Page extraction treats its
+measurements the same way. See
 [The review list](../guides/outputs/#the-review-list).
 
 ### What should I check in the results?
@@ -72,10 +74,12 @@ viewer shows them. The survey still reads the whole PDF. See
 
 ### Does pydelity read the text stored in the PDF?
 
-The models read each page's text from an image of the page. pydelity compares
-their reading with the text stored in the PDF, where it reads well, to catch
-dropped or added lines. Stored text can be wrong, for example with Arabic
-letters out of order or broken ligatures, so the model's reading is kept. See
+The models read each page's text from an image of the page. pydelity sends the
+stored text of the page's repeated lines and its form fields' values as hints,
+and compares the model's reading with the rest of the stored text, where it
+reads well, to catch dropped or added lines. Stored text can be wrong, for
+example with Arabic letters out of order or broken ligatures, so the model's
+reading is kept and each difference goes on the review list. See
 [Text compared with the PDF's stored text](../guides/page-extraction/#text-compared-with-the-pdfs-stored-text).
 
 ### Can pydelity double-check the model's answers?
@@ -105,12 +109,13 @@ provider accepts works. See
 
 For the survey: the PDF, pydelity's instructions, a plain-text summary of what
 it measured, and your `languages` and `advanced.survey.instructions` if you set
-them. For page extraction: an image of each page, pydelity's instructions, the
+them. For page extraction: an image of each page, pydelity's instructions, your
+`advanced.extraction.instructions` if you set them, and these hints: the
 survey's results for that page, the page's repeated lines with their stored
-text, its fillable form fields with their values, and your
-`advanced.extraction.instructions` if you set them. A verifier, when it is on,
-also gets the step's answer to review. Only send a PDF that you're allowed to
-share with your provider. See
+text, and its fillable form fields with their values. A verifier, when it is on,
+also gets the step's answer to review, the checks it still fails and its
+differences from the hints. Only send a PDF that you're allowed to share with
+your provider. See
 [What is sent to the provider](../guides/models-and-providers/#what-is-sent-to-the-provider).
 
 ### How long does the provider keep my PDF?

@@ -57,8 +57,9 @@ the pages. Add `--no-pause` (or `-np`) to do both in one run.
 By default, pydelity prints only warnings, errors, the cost estimate and the
 summary at the end. Add `--verbose` (or `-v`) to also see each step as it
 happens: the settings in use, what was measured in the PDF, the text sent with
-the survey, the survey's verifier outcome, and each page's checks, verifier
-outcome and cost. The outcome is `no verifier` when the verifier is off. See
+the survey, the survey's verifier outcome, and each page's number of items and
+review issues, verifier outcome and cost. The outcome is `no verifier` when the
+verifier is off. See
 [Review answers with a verifier](../verifiers/#read-what-the-verifier-found).
 
 The summary lists each step's outcome and cost, and the first review issues,

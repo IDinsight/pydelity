@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DOCUMENTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `REVIEWING_FINAL` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -30,9 +30,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `REVIEWING_IMPLEMENTATION` `FailureType`: `NONE`
-`Reason`:
-`Implementation review of the hints rerun is COMPLETE with no material findings; Documenter updates the docs under recovery frame 1.`
+`Kind`: `FORWARD` `From`: `DOCUMENTING` `FailureType`: `NONE` `Reason`:
+`Documentation of the hints rerun is COMPLETE; final review (FINAL_DELIVERABLE) reassesses it as the last rerun state of recovery frame 1.`
 
 ## Recovery
 

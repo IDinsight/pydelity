@@ -54,7 +54,7 @@ For the survey, pydelity sends the provider:
 - the PDF itself
 - pydelity's instructions for the survey
 - a plain-text summary of what it measured in the PDF, and the repeated lines it
-  found
+  found, given as hints that the PDF itself overrides
 - your `languages` and `advanced.survey.instructions`, if you set them
 
 With the survey's verifier on, a second request sends the same PDF again, with
@@ -63,20 +63,21 @@ measured facts.
 
 For page extraction, each request carries one page:
 
-- an image of the page, turned upright
+- an image of the page, turned upright, and how far it was turned
 - pydelity's instructions for page extraction, with the labels the survey found
-- what the survey found for that page: its writing direction, its rotation, and
-  its repeated lines with their stored text and what each one is, such as page
-  furniture
-- the page's fillable form fields, if it has any, with their values
+- hints about the page, which the image overrides: the writing direction the
+  survey found, the page's repeated lines with their stored text and what the
+  survey found each one to be, such as page furniture, and its fillable form
+  fields, if it has any, with their stored values
 - your `advanced.extraction.instructions`, if you set them
-- with page extraction's verifier on, the extraction to review and the checks it
-  still fails, in a second request
+- with page extraction's verifier on, a second request with the extraction to
+  review, the checks it still fails and its differences from the hints
 
 Page extraction doesn't send the PDF. Of the text stored in the PDF, it sends
-only the page's repeated lines and its form fields' values. When an answer goes
-back for a text check, the message quotes the stored lines the problem is about.
-Run with `--verbose` to see the text sent with the survey.
+only the page's repeated lines and its form fields' values. The verifier's
+request also quotes the stored lines that a text difference is about. No request
+asks a model to change its answer to match a hint. Run with `--verbose` to see
+the text sent with the survey.
 
 ## How long the provider keeps your PDF
 
@@ -163,7 +164,8 @@ The same goes for the survey's verifier, when it is on. These raise a
 [survey checks](../../reference/survey-checks/) is not a failure. pydelity sends
 it back to the model with the problems listed, up to
 `advanced.survey.check_retries` times, then keeps the last answer and adds each
-remaining problem to the review list.
+remaining problem to the review list. A difference from the measured facts is
+never sent back and never fails the survey.
 
 ## When page extraction fails
 
@@ -181,5 +183,6 @@ that don't have one.
 An answer that fails one of the
 [page extraction checks](../../reference/extraction-checks/) is not a failure.
 pydelity sends it back up to `advanced.extraction.check_retries` times, then
-keeps the last answer and puts what is still wrong on the review list. See
+keeps the last answer and puts what is still wrong on the review list. A
+difference from the page's hints is never sent back and never fails a page. See
 [How a page is checked](../page-extraction/#how-a-page-is-checked).
