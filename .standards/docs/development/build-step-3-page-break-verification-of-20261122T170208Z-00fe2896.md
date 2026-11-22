@@ -303,7 +303,7 @@ appended, SHA-256 starting `5ba61e33cd0af3a7`.
 
 ### DEV-004 — Prompts, agents and requests
 
-`Status`: `PENDING` `Depends On`: `DEV-003` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-003` `Acceptance`:
 `AC-009, AC-019, AC-020, AC-022, AC-023, AC-025, AC-029, AC-038`
 
 **Goal**
@@ -352,6 +352,74 @@ and a hint difference never is, that the last failing verdict is accepted, that
 a failing correction is sent back, and that a refusal, used-up output tokens and
 no usable answer each raise `PageBreakError` naming the break and the agent; a
 read of the prompt text for language, document-type and direction words.
+
+Evidence, 2026-11-22, repo root, on `06471da` (the user's DEV-003 commit) plus
+the uncommitted DEV-004 changes. Assessed content: the new
+`src/pydelity/verifying/agents.py` (241 lines), `llm.py` (374 lines) and
+`prompts.py` (572 lines), with no other change under `src`, `scripts`,
+`examples` or `docs`, SHA-256 starting `34393b4b52d3e25e`.
+
+- `ruff check scripts src tests`, `ruff format --check` and
+  `ty check scripts src tests`: all passed. `interrogate scripts src tests`:
+  100%.
+- `.venv/bin/pytest --numprocesses auto`: 211 passed. `--doctest-modules src`:
+  33 passed, 1 skipped. The reference-page generator and the Markdown formatter
+  change no page.
+- Scratchpad `dev004_check.py`, run with `PYTHONPATH=src` on PydanticAI 2.69.0's
+  `FunctionModel` (native output, no network, no paid request) with a stand-in
+  for `LedgerModel.for_page`: 38 of 38 checks passed. The judge's content is the
+  earlier page's text, its image, the later page's text, its image and a cache
+  point. The first line is
+  `Page break between page indexes 3 and 4 (pages 4 and 5 of 10)`, the second
+  text starts `The page after the break: page index 4, page 5.`, and neither
+  holds `Page index <i> (`, `The extraction to review:`,
+  `The survey answer to review:` or any page-file `inputs`, `checks`, `hints`,
+  `issues` or fingerprint. Each page text states the turn, the survey's writing
+  direction and a set column order, and lists containers and items as JSON lines
+  with grid boxes, numbered rows and cells, spans other than 1, and missing
+  content as it is (`"table": null`, `"entries": null`). The judge's
+  instructions hold the eleven parts of **Judge request** in order, the hints
+  say `none` when the survey gave none, the user's instructions come last only
+  when set, and the instructions are the same for every break. A verdict that
+  passes the checks and differs from a hint gets one request. A failing verdict
+  is sent back with `retry_message` (no `start_markers` text, also when the
+  verdict fails a check and a hint), and the last failing verdict is kept, with
+  three requests at `check_retries` 2 and one at 0. The verifier's content
+  repeats the judge's page texts, then the review text
+  (`The page-break verdict to review:`, the checks with `none`, the hint
+  differences) and a cache point, and its instructions put the review list, the
+  verdict rules, the judge's rules, the hints and the user's instructions in
+  order. A failing correction is sent back with "Your corrected verdict does not
+  pass every check. Give the whole verdict again, with the correction fixed."
+  followed by `retry_message`, and a correction still failing at the last
+  attempt is accepted with its failures. A refusal, used-up output tokens and an
+  unusable answer raise `PageBreakError` with the design's message forms for the
+  judge and the verifier. Requests are recorded for the agents `judge` and
+  `verifier` on the earlier page. Anthropic requests cache the instructions, and
+  OpenAI requests set nothing.
+- The instructions of both prompts, without the survey's hints, hold none of 31
+  language, script, direction and document-type words checked (such as
+  "English", "Arabic", "left to right", "chapter", "article", "report", "law",
+  "paragraph").
+
+**Implementation Notes**
+
+- A page-break request has two or three text parts, so `prompts.py` returns a
+  `BreakPrompts` (instructions, `earlier_text`, `later_text`, `review_text`)
+  rather than a `PromptPair`. `verify_break` takes the judge's `BreakPrompts`
+  and repeats their page texts, which keeps it to five arguments.
+- `llm.py` names the answers `JudgeAnswer` (verdict, attempts, check failures)
+  and `VerifierAnswer` (the verifier's answer, attempts, correction failures),
+  as page extraction's `ModelPage` and `ModelVerdict`. `_model_settings` is
+  repeated from page extraction rather than shared, to leave that module as it
+  is.
+- Each item line lists the content fields its kind fills, also when null, and
+  any other content field that is set. Figures give their description and text,
+  and not their crop file.
+- PydanticAI 2.69 sends an output validator's `ModelRetry` text inside a user
+  prompt part wrapped in `<pyai:retry_feedback>`, not as a retry part. The
+  stand-in in DEV-005 routes on the request's first user content, which this
+  does not change.
 
 ### DEV-005 — Stand-in routing and canned break answers
 
