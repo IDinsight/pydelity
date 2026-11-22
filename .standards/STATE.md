@@ -1,8 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `REVIEWING_IMPLEMENTATION` `CycleMode`: `STANDARD`
-`PendingCycleMode`: `UNSET` `PendingCycleRequest`: `UNSET`
-`PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `DOCUMENTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -31,8 +30,9 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
-`Full verification of the hints rerun is COMPLETE on 3648a0b (CI green on pull request 13); Reviewer runs the implementation review under recovery frame 1.`
+`Kind`: `FORWARD` `From`: `REVIEWING_IMPLEMENTATION` `FailureType`: `NONE`
+`Reason`:
+`Implementation review of the hints rerun is COMPLETE with no material findings; Documenter updates the docs under recovery frame 1.`
 
 ## Recovery
 
