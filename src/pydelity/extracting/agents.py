@@ -60,7 +60,7 @@ def create_extraction_agent(
     model
         The model, wrapped for this page and agent.
     page_text
-        The page's text layer, for the text and furniture checks.
+        The page's text layer, which the checks are given.
 
     Returns
     -------
@@ -157,7 +157,7 @@ def create_verifier_agent(
     model
         The model, wrapped for this page and agent.
     page_text
-        The page's text layer, for the text and furniture checks.
+        The page's text layer, which the checks are given.
 
     Returns
     -------

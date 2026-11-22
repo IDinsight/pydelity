@@ -1226,8 +1226,8 @@ def survey_checks_page() -> _Page:
     return _Page(
         body=body,
         description=(
-            "The checks every survey answer goes through, its comparisons with the "
-            "facts, and the survey verifier's review issues."
+            "The checks every survey answer goes through, the hints it is compared "
+            "with, and the survey verifier's review issues."
         ),
         name="survey-checks",
         order=10,

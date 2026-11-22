@@ -1,11 +1,13 @@
 """A page's text layer, and the form text is compared in.
 
 The text layer is the text a PDF stores for a page. The models read the page image.
-Of the stored text, a page request carries only the page's repeated lines, and a
-retry message for a failed text check quotes the lines it is about. Page extraction
-compares the text layer's lines with the items' text to find text the answer dropped
-or added. It also finds where the page furniture the survey found sits on the page,
-from the stored text alone, so the furniture check compares boxes rather than text.
+Of the stored text, a page request carries only the page's repeated lines and its
+form fields' values, as hints the image overrides. With the verifier on, its request
+also quotes the stored lines that a text difference is about. Page extraction's text
+hints compare the text layer's lines with the items' text to find text the answer
+dropped or added. The text layer also shows where the page furniture the survey
+found sits on the page, from the stored text alone, so the furniture hint compares
+boxes rather than text. A hint difference never sends an answer back.
 
 Text is compared as overlapping runs of three characters, after Unicode NFKC
 normalization and case folding, keeping only letters, marks and digits. Spaces,
@@ -109,7 +111,7 @@ def _joined_lines(lines: Sequence[dict[str, Any]]) -> list[str]:
 
 @dataclass(frozen=True)
 class PageText:
-    """What a page's text layer gives the checks."""
+    """What a page's text layer gives the hints."""
 
     furniture: Mapping[str, tuple[tuple[int, ...], ...]]
     """Where the page furniture the survey found sits on the upright image's grid:

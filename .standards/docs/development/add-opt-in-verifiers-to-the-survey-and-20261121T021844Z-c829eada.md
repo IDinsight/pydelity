@@ -7,7 +7,7 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 
 `Cycle`: `add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada`
 `Mode`: `STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`PROPOSED` `Verification Cadence`: `INCREMENTAL` `Current Increment`: `NONE`
+`COMPLETE` `Verification Cadence`: `INCREMENTAL` `Current Increment`: `NONE`
 
 ## Implementation Contract
 
@@ -1737,7 +1737,7 @@ Python 3.13.9, `.venv`).
 
 ### DEV-015 — Docstrings and the generated checks pages
 
-`Status`: `PENDING` `Depends On`: `DEV-012, DEV-013, DEV-014` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-012, DEV-013, DEV-014` `Acceptance`:
 `AC-033, AC-051, AC-052`
 
 **Goal**
@@ -1775,6 +1775,47 @@ what page extraction sends.
 diff; a search of `src/`, `scripts/` and the reference pages for the old
 wording; ruff, ty and interrogate; the full test and doctest run, with
 replaced-contract failures listed.
+
+**Evidence**
+
+Evidence, 2026-11-22, repo root, on `716400f` (DEV-014) plus the uncommitted
+DEV-015 changes: `git diff HEAD -- src scripts examples docs pyproject.toml` has
+13 insertions and 11 deletions over 4 files, SHA-256 starting `c4eec2ad0a7df062`
+(macOS arm64, Python 3.13.9, `.venv`).
+
+- DEV-012 and DEV-013 already put the checks and hints under headings of their
+  own on both checks pages, with the rule text. That text says a check may send
+  an answer back within the check retries, a hint never does and never stops a
+  run, when a hint difference is a review issue, and that the last answer is
+  kept with each check it still fails listed (`AC-052`'s generated part).
+- Changed here:
+  - `extracting/text_layer.py`'s module docstring said a page request carries
+    only the repeated lines and that a retry message quotes stored lines for a
+    failed text check. It now says a page request carries the repeated lines and
+    the form fields' values as hints the image overrides, that the verifier's
+    request quotes the stored lines a text difference is about, and that a hint
+    difference never sends an answer back. `PageText` gives "the hints", not
+    "the checks".
+  - `extracting/agents.py`: `page_text` is "the page's text layer, which the
+    checks are given", not "for the text and furniture checks" (both agents).
+  - `scripts/generate_reference_docs.py`: the survey checks page's description
+    names "the hints it is compared with", not "its comparisons with the facts".
+- Search: in `src/` and `scripts/`, no match for "none of the PDF's stored",
+  "sends none", "text check", "furniture check", "comparisons with the facts",
+  `compare_with_facts`, `TEXT_CHECKS` or `SurveyComparisonName`. In the
+  reference pages, every "sent back" or "sending the answer back" is about a
+  check or about why `no_matching_label` is not one.
+- Reference pages: `generate_reference_docs.py` and `format_markdown.mjs` change
+  only `survey-checks.md`'s description. The formatter's STANDARDS check passed.
+- `ruff check` "All checks passed!"; `ruff format --check scripts src tests` "89
+  files already formatted"; `ty check scripts src` "All checks passed!";
+  `interrogate` 100.0%; doctests 28 passed, 1 skipped; the module order check
+  finds nothing in the 3 changed modules.
+- On the final tree, the DEV-012 and DEV-013 scratch modules pass 16 of 16, and
+  `dev014/compare_prompts.py` gives 13 of 13 with every message identical to
+  DEV-014's snapshot.
+- Tests: 191 passed, 16 failed, the same 16 as after DEV-014, listed under
+  DEV-012, DEV-013 and DEV-014. `ty check tests` reports the same 3 errors.
 
 ---
 
@@ -2114,3 +2155,57 @@ rerun. Reconciled on `5cb51ac`:
 
 The four steps are a material addition, so the plan returned to `PROPOSED`. The
 user approved plan revision 2 on 2026-11-22. The user style `tony` stays locked.
+
+### Full completion: hints rerun
+
+- Ready: DEV-001 to DEV-015 are `DONE`, with their self-check evidence under
+  each step. The plan is `COMPLETE`, `Current Increment` is `NONE`, and the user
+  style `tony` stays locked. No Developer-owned obligation or blocking question
+  remains. Developer ran as a downstream rerun under recovery frame 1 (owner
+  `SCOPING`, `RerunThrough` `REVIEWING_FINAL`, `ResumeAt` `SYNCHRONIZING`),
+  which stays on the stack.
+- Claim: code's measurements of the PDF are hints in the survey and page
+  extraction, their verifiers included, as the corrected design's decisions 14
+  to 16 say (`AC-043` to `AC-049`, `AC-054`, and `AC-011`, `AC-033`, `AC-051`,
+  `AC-052` in code):
+  - only checks send an answer or a correction back; hint messages describe the
+    difference;
+  - a page verifier's correction is kept when it passes every check;
+  - the page file and `pdf_survey.json` record `hints` apart from `checks`, and
+    the review lists follow decision 3;
+  - the prompts present the measured facts and the survey's findings as hints,
+    with no order to match one or to put a repeated line in an artifact item;
+  - a final answer still failing a check is kept and listed, and only an
+    unusable answer stops a run, as before.
+- Assessed content: `5cb51ac..716400f` (`0bfbfde` DEV-012, `4b552a6` DEV-013,
+  `716400f` DEV-014), plus the uncommitted DEV-015 changes to
+  `src/pydelity/extracting/text_layer.py`, `extracting/agents.py`,
+  `scripts/generate_reference_docs.py` and
+  `docs/src/content/docs/reference/survey-checks.md` (diff SHA-256 starting
+  `c4eec2ad0a7df062`). If the user commits them before Tester runs, the commit
+  holds the same content.
+- Tests of a replaced contract, for Tester: 16 fail, listed under DEV-012 (12),
+  DEV-013 (2) and DEV-014 (2), and `ty check tests` reports 3 errors (DEV-012
+  and DEV-013). They expect retries on hint differences, the old message and
+  prompt wording, the old text note, `run_checks` holding the hints, or
+  `verify_survey` taking a list of review issues. `AC-050` asks for tests of the
+  hint rule with both providers mocked.
+- What stops working, as the design says: a page file or `pdf_survey.json`
+  without `hints` is made again with `damaged_output`.
+- The scratch scripts (`dev012/` to `dev014/` in this session's scratchpad) are
+  not part of the deliverable. They show how each scenario was driven through
+  the stand-in.
+- Limitations: no real model ran, so how models take the new prompt wording
+  rests on the user's real runs (`AC-039`, `AC-040`); the wheel smoke test and
+  Python 3.14 were not run locally and rest on CI.
+- Not Developer's: the guides, README and FAQ wording on hints (`AC-051`'s and
+  `AC-052`'s docs parts) and `artifacts/next_cycle_inputs.md` (`AC-053`), for
+  Documenter; the tests (`AC-050`), for Tester.
+- Record correction: the header's `Status` stayed `PROPOSED` in the DEV-012 to
+  DEV-014 commits, because the edit that should have set `IN_PROGRESS` on the
+  user's approval missed the header's line break. The user approved plan
+  revision 2 on 2026-11-22 before DEV-012, and full completion now sets
+  `COMPLETE`.
+- Next: Tester's full verification (`Assessment Purpose` `FULL`), then the rerun
+  continues through the later phases to `REVIEWING_FINAL` before synchronization
+  resumes.

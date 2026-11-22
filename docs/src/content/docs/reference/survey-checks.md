@@ -1,7 +1,7 @@
 ---
 title: Survey checks
 description:
-  The checks every survey answer goes through, its comparisons with the facts,
+  The checks every survey answer goes through, the hints it is compared with,
   and the survey verifier's review issues.
 sidebar:
   order: 10
