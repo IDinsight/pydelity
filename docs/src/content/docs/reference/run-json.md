@@ -90,6 +90,10 @@ A problem a person should review.
 
 What one step of a run did.
 
+- `breaks` (object ([`steps[].breaks`](#stepsbreaks)) or null; required): How
+  many breaks the step judged and reused; `None` for a step other than
+  page-break verification, and for a page-break verification step that was
+  skipped.
 - `cost_usd` (number; required): What the step's priced requests in this run
   cost.
 - `ended_at` (date and time (ISO 8601) or null; required): When the step ended
@@ -99,9 +103,8 @@ What one step of a run did.
 - `outputs` (list of strings; required): The files the step wrote or reused, by
   name.
 - `pages` (object ([`steps[].pages`](#stepspages)) or null; required): How many
-  pages the step selected, extracted and reused; `None` for a step that reads
-  the whole PDF at once, such as the survey, and for a page extraction step that
-  was skipped.
+  pages the step selected, extracted and reused; `None` for a step other than
+  page extraction, and for a page extraction step that was skipped.
 - `pdf_transport` (one of `upload`, `request` or null; required): How the PDF
   went to the model: `upload` or `request`; `None` when no request carried it.
 - `requests` (integer; required): How many model requests the step made in this
@@ -123,6 +126,15 @@ A user-facing warning the run issued.
 - `message` (string; required): The warning's text.
 - `step` (string or null; required): The step that issued it, or `None` when no
   step was running.
+
+## `steps[].breaks`
+
+How many breaks between pages page-break verification judged and reused.
+
+- `judged` (integer; required): The breaks whose verdict file this run wrote,
+  with or without a request.
+- `reused` (integer; required): The breaks whose saved verdict file was reused.
+- `total` (integer; required): The breaks in the PDF, one fewer than its pages.
 
 ## `steps[].pages`
 

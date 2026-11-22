@@ -1,36 +1,41 @@
 """The run: open the PDF, prepare the output folder, run the steps, write ``run.json``.
 
-`run_pipeline` is the whole run: the survey, then page extraction. With ``pause`` on,
-a run that made a new survey stops after it, so the survey can be checked before the
-pages are paid for. `run_measure`, `run_estimate`, `run_survey_step` and
-`run_extraction_step` do parts of it for the Python API's ``measure``, ``estimate``,
-``survey`` and ``extract``, which write no ``run.json`` and no report and never pause.
-`load_run` reads a folder back.
+`run_pipeline` is the whole run: the survey, page extraction, then page-break
+verification. With ``pause`` on, a run stops after a step that wrote new output, a new
+survey or new page files, so that output can be checked before the next step is paid
+for. Page-break verification runs only when every page of the PDF has a current page
+file, and a PDF of one page has no breaks to verify. `run_measure`, `run_estimate`,
+`run_survey_step` and `run_extraction_step` do parts of it for the Python API's
+``measure``, ``estimate``, ``survey`` and ``extract``, which write no ``run.json`` and
+no report and never pause. `load_run` reads a folder back.
 
 The cost estimate, the question before spending, the ``max_cost`` check on it and the
-API-key checks cover every step the run will perform, once, before its first model
-request: in the survey step when the survey runs, otherwise in page extraction.
+API-key checks cover every step the run will reach, once, before its first model
+request: in the survey step when the survey runs, otherwise in page extraction when it
+has pages to extract, otherwise in page-break verification.
 
 ``run.json`` is written when the run starts, with status ``running``, and again when
-it ends: ``completed``, ``paused`` (after a new survey), ``failed``, ``stopped`` (a
-``max_cost`` no or a declined confirmation) or ``interrupted`` (Ctrl+C, or a
-cancelled ``arun``). The run writes it, and then ``report.html``, before the error
+it ends: ``completed``, ``paused`` (after a new survey or new page files), ``failed``,
+``stopped`` (a ``max_cost`` no or a declined confirmation) or ``interrupted`` (Ctrl+C,
+or a canceled ``arun``). The run writes it, and then ``report.html``, before the error
 goes on to the caller, so every file in the folder stays valid. The run then logs a
 summary of how it ended, what it cost and the review issues.
 """
 
 # Standard Library
 import asyncio
+import hashlib
 import json
 import secrets
 
 from collections import Counter
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Collection, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from importlib.metadata import version
+from itertools import groupby
 from pathlib import Path
 
 # Third Party Library
@@ -51,6 +56,7 @@ from pydelity.costs.budget import (
     SpendDeclinedError,
     SpendGuard,
     estimate_extraction,
+    estimate_page_breaks,
     estimate_run,
     estimate_survey,
     format_usd,
@@ -70,6 +76,7 @@ from pydelity.extracting.extraction import (
 from pydelity.extracting.llm import StepModel
 from pydelity.extracting.schemas import PageFile
 from pydelity.pipeline.schemas import (
+    BreakCounts,
     PageCounts,
     PdfRecord,
     RunCost,
@@ -87,6 +94,7 @@ from pydelity.report.html import REPORT_FILE_NAME, ReportInputs, write_report
 from pydelity.report.images import REPORT_FOLDER_NAME, render_pages
 from pydelity.review import ReviewIssue
 from pydelity.schema_versions import (
+    BREAK_SCHEMA_VERSION,
     FACTS_SCHEMA_VERSION,
     PAGE_SCHEMA_VERSION,
     RUN_SCHEMA_VERSION,
@@ -115,6 +123,21 @@ from pydelity.utils.coroutines import (
 )
 from pydelity.utils.files import load_model, remove_stale_temp_files, write_model_atomic
 from pydelity.utils.pdf import PdfInfo, open_pdf
+from pydelity.verifying.llm import StepModel as BreakStepModel
+from pydelity.verifying.schemas import BreakFile
+from pydelity.verifying.verification import (
+    BREAKS_FOLDER_NAME,
+    CurrentPage,
+    PlannedBreak,
+    current_pages,
+    plan_breaks,
+    request_sizes_before_pages,
+    verify_breaks,
+)
+from pydelity.verifying.verification import request_sizes as break_request_sizes
+
+# Page-break verification's name in ``run.json``, ``cost.jsonl`` and the review list.
+_BREAKS_STEP = "page_breaks"
 
 # Page extraction's name in ``run.json``, ``cost.jsonl`` and the review list.
 _EXTRACTION_STEP = "extraction"
@@ -124,6 +147,13 @@ _REVIEW_ISSUES_LISTED = 10
 
 # The survey step's name in ``run.json``, ``cost.jsonl`` and the review list.
 _SURVEY_STEP = "survey"
+
+# Each step's title in the cost estimate's lines.
+_TITLES = {
+    _BREAKS_STEP: "Page-break verification",
+    _EXTRACTION_STEP: "Extraction",
+    _SURVEY_STEP: "Survey",
+}
 
 # The run record's file name in the output folder.
 RUN_FILE_NAME = "run.json"
@@ -146,6 +176,8 @@ class _Step:
         The step, such as ``survey``.
     started_at
         When the step started (UTC).
+    breaks
+        How many breaks the step judged and reused, for page-break verification.
     ended_at
         When the step ended (UTC), once it has.
     error
@@ -163,6 +195,7 @@ class _Step:
 
     name: str
     started_at: datetime
+    breaks: BreakCounts | None = None
     ended_at: datetime | None = None
     error: str | None = None
     outputs: list[str] = field(default_factory=list)
@@ -216,6 +249,10 @@ class _Run:
         When the run started (UTC).
     warnings
         The warnings issued so far, in order, each with the step that issued it.
+    breaks
+        The verdict files by the page before each break, reused or written so far.
+    extracted
+        The pages page extraction wrote a page file for in this run.
     facts
         The facts, once measured or reused.
     pages
@@ -234,11 +271,34 @@ class _Run:
     run_id: str
     started_at: datetime
     warnings: list[IssuedWarning] = field(default_factory=list)
+    breaks: dict[int, BreakFile] = field(default_factory=dict)
+    extracted: set[int] = field(default_factory=set)
     facts: PdfFacts | None = None
     pages: dict[int, PageFile] = field(default_factory=dict)
     selected: list[int] = field(default_factory=list)
     steps: list[_Step] = field(default_factory=list)
     survey: PdfSurvey | None = None
+
+
+def _amount_text(step: StepEstimate) -> str:
+    """Write how many pages or breaks a step's estimate covers, for its line.
+
+    Parameters
+    ----------
+    step
+        The step's estimate.
+
+    Returns
+    -------
+    str
+        Such as ``8 pages, `` or ``7 breaks, ``, or nothing for the survey.
+    """
+
+    if step.pages is not None:
+        return f"{_pages_text(step.pages)}, "
+    if step.breaks is not None:
+        return f"{_breaks_text(step.breaks)}, "
+    return ""
 
 
 async def _ask_before_spending(
@@ -277,6 +337,177 @@ async def _ask_before_spending(
         )
 
 
+def _breaks_ahead(
+    *,
+    config: Config,
+    facts: PdfFacts,
+    survey: PdfSurvey | None,
+    to_extract: Collection[int],
+) -> list[StepEstimate]:
+    """Estimate page-break verification in an earlier step, and check its API key.
+
+    Parameters
+    ----------
+    config
+        The run's settings.
+    facts
+        The facts.
+    survey
+        The survey, or ``None`` when the survey is about to run.
+    to_extract
+        The pages (0-based) page extraction will extract in this run.
+
+    Returns
+    -------
+    list[StepEstimate]
+        The step's estimate, or nothing when the run will not reach the step.
+
+    Raises
+    ------
+    MissingApiKeyError
+        If the models would judge a break and the API key of the step's provider is
+        not set.
+    """
+
+    estimates = _breaks_estimate(
+        config=config, facts=facts, survey=survey, to_extract=to_extract
+    )
+    if any(estimate.breaks for estimate in estimates):
+        read_api_key(config.page_breaks_model.provider)
+    return estimates
+
+
+def _breaks_estimate(
+    *,
+    config: Config,
+    facts: PdfFacts,
+    survey: PdfSurvey | None,
+    to_extract: Collection[int],
+) -> list[StepEstimate]:
+    """Estimate page-break verification before page extraction runs.
+
+    A break with a page to extract is always judged. A break between two page files
+    that are current now is judged unless its verdict file would be reused.
+
+    Parameters
+    ----------
+    config
+        The run's settings.
+    facts
+        The facts, for the page count and each page's text-layer characters.
+    survey
+        The survey, or ``None`` when it has not run yet.
+    to_extract
+        The pages (0-based) page extraction will extract.
+
+    Returns
+    -------
+    list[StepEstimate]
+        The step's estimate, or nothing when the run will not reach the step because
+        the PDF has one page or a page would have no current page file.
+    """
+
+    count = facts.pdf.page_count
+    if count == 1:
+        return []
+    if survey is None:
+        return _breaks_estimate_before_survey(
+            config=config, facts=facts, to_extract=to_extract
+        )
+
+    extracting = set(to_extract)
+    current = current_pages(
+        config=config, extracted=(), output_folder=config.output_folder, survey=survey
+    )
+    if any(index not in current and index not in extracting for index in range(count)):
+        return []
+    touched = [index for index in range(count - 1) if {index, index + 1} & extracting]
+    unchanged = [
+        planned
+        for index in range(count - 1)
+        if not {index, index + 1} & extracting
+        for planned in plan_breaks(
+            config=config,
+            output_folder=config.output_folder,
+            pages=[current[index], current[index + 1]],
+            quiet=True,
+            survey=survey,
+        )
+    ]
+    sizes = break_request_sizes(
+        [planned for planned in unchanged if planned.saved is None]
+    ) + request_sizes_before_pages(
+        config=config, earlier_page_indexes=touched, facts=facts.facts, survey=survey
+    )
+    return [estimate_page_breaks(breaks=sizes, config=config)]
+
+
+def _breaks_estimate_before_survey(
+    *, config: Config, facts: PdfFacts, to_extract: Collection[int]
+) -> list[StepEstimate]:
+    """Estimate page-break verification before the survey runs.
+
+    A new survey has page extraction redo the selected pages, so every break is
+    counted when each other page has a page file made from this PDF, which page
+    extraction might reuse. With ``overwrite`` set, it reuses none.
+
+    Parameters
+    ----------
+    config
+        The run's settings.
+    facts
+        The facts, for the PDF's hash, the page count and each page's text-layer
+        characters.
+    to_extract
+        The pages (0-based) page extraction will extract: the selected pages.
+
+    Returns
+    -------
+    list[StepEstimate]
+        The step's estimate, or nothing when a page that is not selected would have
+        no page file to reuse.
+    """
+
+    extracting = set(to_extract)
+    others = [index for index in range(facts.pdf.page_count) if index not in extracting]
+    if others and (
+        config.overwrite
+        or not all(
+            _has_page_file(
+                output_folder=config.output_folder,
+                page_index=index,
+                sha256=facts.pdf.sha256,
+            )
+            for index in others
+        )
+    ):
+        return []
+    sizes = request_sizes_before_pages(
+        config=config,
+        earlier_page_indexes=range(facts.pdf.page_count - 1),
+        facts=facts.facts,
+        survey=None,
+    )
+    return [estimate_page_breaks(breaks=sizes, config=config)]
+
+
+def _breaks_text(count: int) -> str:
+    """Write a number of breaks between pages.
+
+    Parameters
+    ----------
+    count
+        How many breaks.
+
+    Returns
+    -------
+    str
+        Such as ``1 break`` or ``7 breaks``.
+    """
+
+    return f"{count} break{'' if count == 1 else 's'}"
+
+
 def _cost(*, ledger: Ledger, run_id: str) -> tuple[RunCost, list[int]]:
     """Sum what the run's requests cost, from ``cost.jsonl``.
 
@@ -313,6 +544,55 @@ def _cost(*, ledger: Ledger, run_id: str) -> tuple[RunCost, list[int]]:
         unpriced_requests=unpriced,
     )
     return cost, mine
+
+
+def _current_page_files(run: _Run, *, survey: PdfSurvey) -> list[CurrentPage] | None:
+    """Read every page's current page file, for page-break verification.
+
+    A PDF of one page gets an info line, and a page without a current page file the
+    ``missing_page_files`` warning.
+
+    Parameters
+    ----------
+    run
+        The run, for its settings, the PDF and the pages it extracted.
+    survey
+        The survey.
+
+    Returns
+    -------
+    list[CurrentPage] | None
+        Every page's current page file, in page order, or ``None`` when the PDF has
+        one page or a page has no current page file.
+    """
+
+    count = run.pdf.page_count
+    if count == 1:
+        logger.info("The PDF has one page and so no page breaks to verify")
+        return None
+    current = current_pages(
+        config=run.config,
+        extracted=run.extracted,
+        output_folder=run.config.output_folder,
+        survey=survey,
+    )
+    missing = [index for index in range(count) if index not in current]
+    if missing:
+        ranges = _page_ranges(missing)
+        subject, them = (
+            (f"page {ranges} has", "it")
+            if len(missing) == 1
+            else (f"pages {ranges} have", "them")
+        )
+        warn(
+            "Page-break verification needs a current page file for every page, and "
+            f"{subject} none. Run pydelity again without --pages (pages in the config "
+            f"file), or with pages that include {them}, to verify the page breaks.",
+            code="missing_page_files",
+            details={"page_indexes": missing},
+        )
+        return None
+    return [current[index] for index in range(count)]
 
 
 def _describe_error(error: BaseException) -> str:
@@ -365,19 +645,26 @@ def _estimate_cost(*, config: Config, steps: list[StepEstimate]) -> CostEstimate
 
 
 async def _extraction(
-    run: _Run, *, confirm: SpendConfirmation | None, estimate: bool
+    run: _Run,
+    *,
+    breaks_follow: bool,
+    confirm: SpendConfirmation | None,
+    estimate: bool,
 ) -> None:
     """Run page extraction: reuse page files, or extract the selected pages.
 
     The step is added to ``run.steps`` when it starts and ended when every page file
-    is reused or written; a step that raises is ended by the caller. Its page counts
-    and ``run.pages`` follow each page written, so they stay right when a page
-    fails.
+    is reused or written; a step that raises is ended by the caller. Its page counts,
+    ``run.pages`` and ``run.extracted`` follow each page written, so they stay right
+    when a page fails.
 
     Parameters
     ----------
     run
-        The run, which the step updates. Its survey is set.
+        The run, which the step updates. Its facts and survey are set.
+    breaks_follow
+        Whether page-break verification follows in this run without a pause, so an
+        estimate made here covers it and checks its API key.
     confirm
         Called with the cost estimate; returns whether to continue. ``None``
         continues without asking.
@@ -386,9 +673,9 @@ async def _extraction(
         here, because the survey was reused; otherwise the survey step made them.
     """
 
-    config, survey = run.config, run.survey
-    if survey is None:
-        raise RuntimeError("page extraction needs the survey")
+    config, facts, survey = run.config, run.facts, run.survey
+    if facts is None or survey is None:
+        raise RuntimeError("page extraction needs the facts and the survey")
     step = _Step(
         name=_EXTRACTION_STEP,
         outputs=[f"{PAGES_FOLDER_NAME}/", f"{FIGURES_FOLDER_NAME}/"],
@@ -417,6 +704,7 @@ async def _extraction(
         def written(page_file: PageFile) -> None:
             """Count a page file once it is written."""
 
+            run.extracted.add(page_file.page_index)
             run.pages[page_file.page_index] = page_file
             counts.extracted += 1
 
@@ -430,15 +718,19 @@ async def _extraction(
             step_settings=settings,
         ) as model:
             if estimate:
-                cost = _estimate_cost(
-                    config=config,
-                    steps=[
-                        estimate_extraction(
-                            config=config,
-                            pages=request_sizes(to_extract, survey=survey),
-                        )
-                    ],
-                )
+                steps = [
+                    estimate_extraction(
+                        config=config, pages=request_sizes(to_extract, survey=survey)
+                    )
+                ]
+                if breaks_follow:
+                    steps += _breaks_ahead(
+                        config=config,
+                        facts=facts,
+                        survey=survey,
+                        to_extract={page.page_index for page in to_extract},
+                    )
+                cost = _estimate_cost(config=config, steps=steps)
                 await _ask_before_spending(
                     confirm=confirm, estimate=cost, guard=run.guard
                 )
@@ -488,6 +780,184 @@ async def _finish(
     report = await _write_report(record, run=run)
     _log_summary(record, report=report, run=run)
     return record
+
+
+def _has_page_file(*, output_folder: Path, page_index: int, sha256: str) -> bool:
+    """Tell whether a page has a valid page file made from the PDF.
+
+    Parameters
+    ----------
+    output_folder
+        The output folder.
+    page_index
+        The page (0-based).
+    sha256
+        The PDF's SHA-256 hex digest.
+
+    Returns
+    -------
+    bool
+        Whether the page's page file validates and was made from that PDF.
+    """
+
+    page_file = load_model(
+        model_type=PageFile,
+        path=page_file_path(output_folder=output_folder, page_index=page_index),
+    ).model
+    return page_file is not None and page_file.inputs.pdf_sha256 == sha256
+
+
+def _issue_place(issue: ReviewIssue) -> str:
+    """Name where a review issue is, for the summary.
+
+    Parameters
+    ----------
+    issue
+        The review issue.
+
+    Returns
+    -------
+    str
+        Such as ``extraction, page 4, item p0003-012`` or ``page_breaks, pages 4 and
+        5``.
+    """
+
+    where = [issue.step]
+    if issue.page_index is not None:
+        number = issue.page_index + 1
+        where.append(
+            f"pages {number} and {number + 1}"
+            if issue.step == _BREAKS_STEP
+            else f"page {number}"
+        )
+    if issue.item_id is not None:
+        where.append(f"item {issue.item_id}")
+    return ", ".join(where)
+
+
+async def _judge_breaks(
+    planned: Sequence[PlannedBreak],
+    *,
+    confirm: SpendConfirmation | None,
+    counts: BreakCounts,
+    estimate: bool,
+    run: _Run,
+) -> None:
+    """Judge the breaks that have no verdict file to reuse.
+
+    Parameters
+    ----------
+    planned
+        Every break, from `plan_breaks`.
+    confirm
+        Called with the cost estimate; returns whether to continue. ``None``
+        continues without asking.
+    counts
+        The step's break counts, which follow each verdict file written.
+    estimate
+        Whether the cost estimate, the question and the ``max_cost`` check happen
+        here, because no earlier step of the run made a request.
+    run
+        The run, whose verdict files follow each one written.
+    """
+
+    config = run.config
+
+    def written(break_file: BreakFile) -> None:
+        """Count a verdict file once it is written."""
+
+        run.breaks[break_file.earlier_page_index] = break_file
+        counts.judged += 1
+
+    settings = config.advanced.page_breaks
+    # Page-break requests carry images of two pages, never the PDF.
+    async with _step_model(
+        choice=config.page_breaks_model,
+        pdf=None,
+        run=run,
+        step=_BREAKS_STEP,
+        step_settings=settings,
+    ) as model:
+        to_judge = [one for one in planned if one.saved is None]
+        sizes = break_request_sizes(to_judge) if estimate else []
+        if sizes:
+            cost = _estimate_cost(
+                config=config,
+                steps=[estimate_page_breaks(breaks=sizes, config=config)],
+            )
+            await _ask_before_spending(confirm=confirm, estimate=cost, guard=run.guard)
+        await verify_breaks(
+            breaks=planned,
+            model=BreakStepModel(
+                choice=config.page_breaks_model,
+                model=model,
+                settings=settings,
+                verify=config.verify_page_breaks,
+            ),
+            on_written=written,
+            output_folder=config.output_folder,
+            pdf_path=run.pdf.path,
+        )
+
+
+def _load_breaks(
+    folder: Path, *, pages: Sequence[PageFile], sha256: str | None
+) -> list[BreakFile]:
+    """Read the verdict files made from the folder's PDF and page files for `load_run`.
+
+    Parameters
+    ----------
+    folder
+        The output folder.
+    pages
+        The page files `load_run` returns.
+    sha256
+        The SHA-256 of the PDF in ``pdf_facts.json``, or ``None`` when the folder has
+        no facts, so which PDF it holds is unknown.
+
+    Returns
+    -------
+    list[BreakFile]
+        The verdict files in ``page_breaks/`` whose PDF hash is ``sha256`` and whose
+        two page-file hashes are those of the files of ``pages``, in break order,
+        or none when ``sha256`` is ``None``.
+
+    Raises
+    ------
+    OutputError
+        If a verdict file is not valid JSON, does not match its schema or has another
+        major schema version.
+    """
+
+    if sha256 is None:
+        return []
+    hashes = {
+        page.page_index: "sha256:"
+        + hashlib.sha256(
+            page_file_path(
+                output_folder=folder, page_index=page.page_index
+            ).read_bytes()
+        ).hexdigest()
+        for page in pages
+    }
+    breaks = []
+    for path in (folder / BREAKS_FOLDER_NAME).glob("*-*.json"):
+        earlier, _, later = path.stem.partition("-")
+        if not (earlier.isdigit() and later.isdigit()):
+            continue
+        break_file = _load_part(
+            model_type=BreakFile, path=path, version=BREAK_SCHEMA_VERSION
+        )
+        if break_file is None:
+            continue
+        inputs = break_file.inputs
+        if (
+            inputs.pdf_sha256 == sha256
+            and hashes.get(inputs.earlier.page_index) == inputs.earlier.page_file_sha256
+            and hashes.get(inputs.later.page_index) == inputs.later.page_file_sha256
+        ):
+            breaks.append(break_file)
+    return sorted(breaks, key=lambda break_file: break_file.earlier_page_index)
 
 
 def _load_pages(folder: Path, *, sha256: str | None) -> list[PageFile]:
@@ -583,8 +1053,9 @@ def _load_part[ModelT: BaseModel](
 def _log_estimate(estimate: CostEstimate) -> None:
     """Log the cost estimate, the folder's spend so far and ``max_cost``.
 
-    The lines are marked with `SUMMARY_LOG_KEY`. A step whose figures include its
-    verifier's requests is named with it, such as ``Extraction with its verifier``.
+    The lines are marked with `SUMMARY_LOG_KEY`. Each step is named by its title, and
+    a step whose figures include its verifier's requests is named with it, such as
+    ``Extraction with its verifier``.
 
     Parameters
     ----------
@@ -594,7 +1065,7 @@ def _log_estimate(estimate: CostEstimate) -> None:
 
     summary = logger.bind(**{SUMMARY_LOG_KEY: True})
     for step in estimate.steps:
-        name = step.name.capitalize() + (" with its verifier" if step.verifier else "")
+        name = _TITLES[step.name] + (" with its verifier" if step.verifier else "")
         if step.reused:
             summary.info(
                 "{name}: the saved output would be reused, nothing to spend", name=name
@@ -608,15 +1079,14 @@ def _log_estimate(estimate: CostEstimate) -> None:
                 requests=step.requests_max,
             )
         else:
-            pages = "" if step.pages is None else f"{_pages_text(step.pages)}, "
             summary.info(
                 "{name} cost estimate: about {expected}, at most {maximum} "
-                "({pages}up to {requests} requests to {model})",
+                "({amount}up to {requests} requests to {model})",
+                amount=_amount_text(step),
                 expected=format_usd(step.expected_usd),
                 maximum=format_usd(step.max_usd),
                 model=step.model,
                 name=name,
-                pages=pages,
                 requests=step.requests_max,
             )
     limit = "not set" if estimate.max_cost is None else format_usd(estimate.max_cost)
@@ -625,6 +1095,76 @@ def _log_estimate(estimate: CostEstimate) -> None:
         limit=limit,
         spent=format_usd(estimate.spent_usd),
     )
+
+
+def _log_pause(record: RunRecord, *, overwrite: bool) -> None:
+    """Log why the run paused and how to go on.
+
+    The step the run paused after is the last one that was not skipped. The lines
+    are marked with `SUMMARY_LOG_KEY`.
+
+    Parameters
+    ----------
+    record
+        The run's final record.
+    overwrite
+        Whether the run had ``overwrite`` set.
+    """
+
+    summary = logger.bind(**{SUMMARY_LOG_KEY: True})
+    ran = [step.name for step in record.steps if step.status != "skipped"]
+    if ran[-1] == _EXTRACTION_STEP:
+        summary.info(
+            "Paused after page extraction wrote new page files. Check {pages}/ and "
+            "{report}, then run pydelity again to verify the page breaks, or pass "
+            "--no-pause (pause=False in Python) to run every step at once.",
+            pages=PAGES_FOLDER_NAME,
+            report=REPORT_FILE_NAME,
+        )
+        return
+    summary.info(
+        "Paused after the new survey. Check {survey} and {report}, then run "
+        "pydelity again to extract the pages, or pass --no-pause (pause=False in "
+        "Python) to run every step at once.",
+        report=REPORT_FILE_NAME,
+        survey=SURVEY_FILE_NAME,
+    )
+    # With overwrite set the survey always runs, so a run that pauses pauses here.
+    if overwrite:
+        summary.info(
+            "Leave --overwrite off next time, or the survey runs again; "
+            "--overwrite --no-pause redoes every step in one run."
+        )
+
+
+def _log_review(issues: Sequence[ReviewIssue]) -> None:
+    """Log the review issues by check, and the first of them.
+
+    The lines are marked with `SUMMARY_LOG_KEY`.
+
+    Parameters
+    ----------
+    issues
+        The run's review issues, in order.
+    """
+
+    if not issues:
+        return
+    summary = logger.bind(**{SUMMARY_LOG_KEY: True})
+    counts = Counter(issue.check for issue in issues)
+    summary.info(
+        "Review issues by check: {counts}",
+        counts=", ".join(f"{check} {count}" for check, count in counts.items()),
+    )
+    for issue in issues[:_REVIEW_ISSUES_LISTED]:
+        summary.info(
+            "  {where}: {message}", message=issue.message, where=_issue_place(issue)
+        )
+    if len(issues) > _REVIEW_ISSUES_LISTED:
+        summary.info(
+            "  ...and {more} more in run.json",
+            more=len(issues) - _REVIEW_ISSUES_LISTED,
+        )
 
 
 def _log_summary(record: RunRecord, *, report: Path | None, run: _Run) -> None:
@@ -667,43 +1207,14 @@ def _log_summary(record: RunRecord, *, report: Path | None, run: _Run) -> None:
         steps=steps,
         unpriced=unpriced,
     )
-    if record.review:
-        counts = Counter(issue.check for issue in record.review)
-        summary.info(
-            "Review issues by check: {counts}",
-            counts=", ".join(f"{check} {count}" for check, count in counts.items()),
-        )
-        for issue in record.review[:_REVIEW_ISSUES_LISTED]:
-            where = [issue.step]
-            if issue.page_index is not None:
-                where.append(f"page {issue.page_index + 1}")
-            if issue.item_id is not None:
-                where.append(f"item {issue.item_id}")
-            summary.info(
-                "  {where}: {message}", message=issue.message, where=", ".join(where)
-            )
-        if issues > _REVIEW_ISSUES_LISTED:
-            summary.info(
-                "  ...and {more} more in run.json", more=issues - _REVIEW_ISSUES_LISTED
-            )
+    _log_review(record.review)
     if record.status == "stopped":
         summary.info(
             "Run pydelity again to continue. The saved files are reused, and the "
             "spend so far still counts toward max_cost."
         )
     if record.status == "paused":
-        summary.info(
-            "Paused after the new survey. Check {survey} and {report}, then run "
-            "pydelity again to extract the pages, or pass --no-pause (pause=False in "
-            "Python) to run every step at once.",
-            report=REPORT_FILE_NAME,
-            survey=SURVEY_FILE_NAME,
-        )
-        if run.config.overwrite:
-            summary.info(
-                "Leave --overwrite off next time, or the survey runs again; "
-                "--overwrite --no-pause redoes every step in one run."
-            )
+        _log_pause(record, overwrite=run.config.overwrite)
     outputs = [name for step in record.steps for name in step.outputs]
     files = [RUN_FILE_NAME, *dict.fromkeys(outputs)]
     if report is not None:
@@ -785,6 +1296,103 @@ async def _open(config: Config) -> PdfInfo:
         size=pdf.bytes,
     )
     return pdf
+
+
+async def _page_breaks(
+    run: _Run, *, confirm: SpendConfirmation | None, estimate: bool, pause: bool
+) -> RunStatus:
+    """Run page-break verification: reuse verdict files, or judge the breaks.
+
+    The step is skipped for a PDF of one page, for a page without a current page
+    file, and when the run pauses after new page files, in that order. It is added
+    to ``run.steps`` when it starts and ended when every verdict file is reused or
+    written; a step that raises is ended by the caller. Its break counts and
+    ``run.breaks`` follow each verdict file written, so they stay right when a break
+    fails.
+
+    Parameters
+    ----------
+    run
+        The run, which the step updates. Its survey is set.
+    confirm
+        Called with the cost estimate; returns whether to continue. ``None``
+        continues without asking.
+    estimate
+        Whether the cost estimate, the question and the ``max_cost`` check happen
+        here, because no earlier step of the run made a request.
+    pause
+        Whether the run pauses before judging, because page extraction wrote new
+        page files and ``pause`` is on.
+
+    Returns
+    -------
+    RunStatus
+        ``paused`` when the run pauses here, otherwise ``completed``.
+    """
+
+    config, survey = run.config, run.survey
+    if survey is None:
+        raise RuntimeError("page-break verification needs the survey")
+    step = _Step(name=_BREAKS_STEP, started_at=datetime.now(UTC))
+    run.steps.append(step)
+    with running_step(_BREAKS_STEP):
+        pages = _current_page_files(run, survey=survey)
+        if pages is None or pause:
+            step.end("skipped")
+            return "completed" if pages is None else "paused"
+
+        step.outputs.append(f"{BREAKS_FOLDER_NAME}/")
+        planned = plan_breaks(
+            config=config,
+            output_folder=config.output_folder,
+            pages=pages,
+            survey=survey,
+        )
+        run.breaks = {
+            one.earlier_page_index: one.saved
+            for one in planned
+            if one.saved is not None
+        }
+        counts = BreakCounts(judged=0, reused=len(run.breaks), total=len(planned))
+        step.breaks = counts
+        if len(run.breaks) == len(planned):
+            step.end("reused")
+            return "completed"
+        await _judge_breaks(
+            planned, confirm=confirm, counts=counts, estimate=estimate, run=run
+        )
+    step.end("completed")
+    return "completed"
+
+
+def _page_ranges(page_indexes: Sequence[int]) -> str:
+    """Write pages as ranges of page numbers.
+
+    Parameters
+    ----------
+    page_indexes
+        The pages (0-based), in increasing order.
+
+    Returns
+    -------
+    str
+        Such as ``1-3, 7, 9-10``.
+
+    Examples
+    --------
+    >>> _page_ranges([0, 1, 2, 6, 8, 9])
+    '1-3, 7, 9-10'
+    """
+
+    parts = []
+    for _, group in groupby(
+        enumerate(page_indexes), key=lambda pair: pair[1] - pair[0]
+    ):
+        numbers = [index + 1 for _, index in group]
+        parts.append(
+            str(numbers[0]) if len(numbers) == 1 else f"{numbers[0]}-{numbers[-1]}"
+        )
+    return ", ".join(parts)
 
 
 def _pages_text(count: int) -> str:
@@ -911,6 +1519,7 @@ def _record(run: _Run, *, error: BaseException | None, status: RunStatus) -> Run
     cost, mine = _cost(ledger=ledger, run_id=run.run_id)
     steps = [
         StepRecord(
+            breaks=step.breaks,
             cost_usd=cost.by_step.get(step.name, Decimal(0)),
             ended_at=step.ended_at,
             error=step.error,
@@ -990,7 +1599,7 @@ def _report_files(record: RunRecord, *, run: _Run) -> Path:
 
 
 def _review(run: _Run) -> list[ReviewIssue]:
-    """List the run's review issues: the survey's, then each selected page's.
+    """List the run's review issues: the survey's, each selected page's, each break's.
 
     Parameters
     ----------
@@ -1001,12 +1610,15 @@ def _review(run: _Run) -> list[ReviewIssue]:
     -------
     list[ReviewIssue]
         The survey's issues, then the issues of each selected page that has a page
-        file, in page order.
+        file, in page order, then those of each break that has a verdict file, in
+        break order.
     """
 
     issues = [] if run.survey is None else list(run.survey.issues)
     for page_index in sorted(run.pages):
         issues += run.pages[page_index].issues
+    for page_index in sorted(run.breaks):
+        issues += run.breaks[page_index].issues
     return issues
 
 
@@ -1044,6 +1656,23 @@ def _selected_pages(*, config: Config, pdf: PdfInfo) -> list[int]:
             f"{pdf.name} has {count} {noun}"
         )
     return [index for first, last in ranges for index in range(first - 1, last)]
+
+
+def _skip_steps(run: _Run, names: Sequence[str]) -> None:
+    """Record steps the run will not reach as skipped.
+
+    Parameters
+    ----------
+    run
+        The run.
+    names
+        The steps, in order.
+    """
+
+    for name in names:
+        step = _Step(name=name, started_at=datetime.now(UTC))
+        step.end("skipped")
+        run.steps.append(step)
 
 
 @asynccontextmanager
@@ -1110,24 +1739,36 @@ def _step_summary(step: StepRecord) -> str:
     Returns
     -------
     str
-        Such as ``survey reused`` or ``extraction completed (8 pages selected: 6
-        extracted, 2 reused)``.
+        Such as ``survey reused``, ``extraction completed (8 pages selected: 6
+        extracted, 2 reused)`` or ``page_breaks completed (7 breaks: 5 judged, 2
+        reused)``.
     """
 
     text = f"{step.name} {step.status}"
     if step.pages is not None:
-        counts = step.pages
+        pages = step.pages
         text += (
-            f" ({_pages_text(counts.selected)} selected: {counts.extracted} "
-            f"extracted, {counts.reused} reused)"
+            f" ({_pages_text(pages.selected)} selected: {pages.extracted} "
+            f"extracted, {pages.reused} reused)"
+        )
+    if step.breaks is not None:
+        breaks = step.breaks
+        text += (
+            f" ({_breaks_text(breaks.total)}: {breaks.judged} judged, "
+            f"{breaks.reused} reused)"
         )
     return text
 
 
 async def _steps(
-    run: _Run, *, confirm: SpendConfirmation | None, pause: bool
+    run: _Run, *, confirm: SpendConfirmation | None, page_breaks: bool, pause: bool
 ) -> RunStatus:
-    """Run the survey, then page extraction unless the run pauses.
+    """Run the survey, page extraction and page-break verification, or pause.
+
+    The step that makes the run's first request makes the cost estimate first: the
+    survey when it runs, otherwise page extraction when it has pages to extract,
+    otherwise page-break verification. Each step the run does not reach after a
+    pause is recorded as skipped.
 
     Parameters
     ----------
@@ -1136,34 +1777,56 @@ async def _steps(
     confirm
         Called with the cost estimate; returns whether to continue. ``None``
         continues without asking.
+    page_breaks
+        Whether page-break verification follows page extraction.
     pause
-        Whether to stop after a new survey.
+        Whether to stop after a step that wrote new output, a new survey or new page
+        files, before the next step.
 
     Returns
     -------
     RunStatus
-        ``paused`` when the survey is new and ``pause`` is set, otherwise
-        ``completed``.
+        ``paused`` when the run paused, otherwise ``completed``.
     """
 
-    await _survey(run, confirm=confirm, extraction_follows=not pause)
+    breaks_follow = page_breaks and not pause
+    await _survey(
+        run,
+        breaks_follow=breaks_follow,
+        confirm=confirm,
+        extraction_follows=not pause,
+    )
     new_survey = run.steps[-1].status == "completed"
     if new_survey and pause:
-        skipped = _Step(name=_EXTRACTION_STEP, started_at=datetime.now(UTC))
-        skipped.end("skipped")
-        run.steps.append(skipped)
+        _skip_steps(
+            run, [_EXTRACTION_STEP, _BREAKS_STEP] if page_breaks else [_EXTRACTION_STEP]
+        )
         return "paused"
-    await _extraction(run, confirm=confirm, estimate=not new_survey)
-    return "completed"
+    await _extraction(
+        run, breaks_follow=breaks_follow, confirm=confirm, estimate=not new_survey
+    )
+    if not page_breaks:
+        return "completed"
+    new_pages = run.steps[-1].status == "completed"
+    return await _page_breaks(
+        run,
+        confirm=confirm,
+        estimate=not (new_survey or new_pages),
+        pause=pause and new_pages,
+    )
 
 
 async def _survey(
-    run: _Run, *, confirm: SpendConfirmation | None, extraction_follows: bool
+    run: _Run,
+    *,
+    breaks_follow: bool,
+    confirm: SpendConfirmation | None,
+    extraction_follows: bool,
 ) -> PdfSurvey:
     """Run the survey step: measure the PDF, then reuse or make the survey.
 
     A new survey first checks the API keys and the cost estimate of every step the
-    run will perform, and asks before spending. The step is added to ``run.steps``
+    run will reach, and asks before spending. The step is added to ``run.steps``
     when it starts and ended when it reuses or makes the survey; a step that raises
     is ended by the caller.
 
@@ -1171,6 +1834,10 @@ async def _survey(
     ----------
     run
         The run, which the step updates.
+    breaks_follow
+        Whether page-break verification runs after a new survey in this run without
+        a pause, so the estimate covers the breaks the run would judge and the step's
+        API key is checked before the survey spends anything.
     confirm
         Called with the cost estimate; returns whether to continue. ``None``
         continues without asking.
@@ -1218,6 +1885,10 @@ async def _survey(
                             facts=run.facts.facts, page_indexes=run.selected
                         ),
                     )
+                )
+            if breaks_follow:
+                steps += _breaks_ahead(
+                    config=config, facts=run.facts, survey=None, to_extract=run.selected
                 )
             estimate = _estimate_cost(config=config, steps=steps)
             await _ask_before_spending(
@@ -1332,17 +2003,19 @@ def load_run(output_dir: Path) -> RunResult:
     -------
     RunResult
         The folder's ``run.json``, ``pdf_facts.json``, ``pdf_survey.json``,
-        ``cost.jsonl``, and the page files in ``pages/`` made from the PDF in
-        ``pdf_facts.json``, in page order. A part is ``None``, or empty, when its
-        files are absent; the pages are empty without ``pdf_facts.json``.
+        ``cost.jsonl``, the page files in ``pages/`` made from the PDF in
+        ``pdf_facts.json``, in page order, and the verdict files in ``page_breaks/``
+        made from that PDF and from two of those page files as written, in break
+        order. A part is ``None``, or empty, when its files are absent; the pages
+        and verdicts are empty without ``pdf_facts.json``.
 
     Raises
     ------
     OutputError
         If the folder does not exist, holds none of those files, or holds one that
         is not valid JSON, does not match its schema or has another major schema
-        version, or a page file of the folder's PDF names a figure image that is
-        missing.
+        version, verdict files included, or a page file of the folder's PDF names a
+        figure image that is missing.
     """
 
     folder = output_dir.resolve()
@@ -1371,11 +2044,14 @@ def load_run(output_dir: Path) -> RunResult:
             f"{folder} holds none of {RUN_FILE_NAME}, {FACTS_FILE_NAME}, "
             f"{SURVEY_FILE_NAME} and {LEDGER_FILE_NAME}"
         )
+    sha256 = None if facts is None else facts.pdf.sha256
+    pages = _load_pages(folder, sha256=sha256)
     return RunResult(
+        breaks=_load_breaks(folder, pages=pages, sha256=sha256),
         facts=facts,
         ledger=ledger.entries,
         output_dir=folder,
-        pages=_load_pages(folder, sha256=None if facts is None else facts.pdf.sha256),
+        pages=pages,
         record=record,
         survey=survey,
     )
@@ -1385,10 +2061,13 @@ async def run_estimate(*, config: Config) -> CostEstimate:
     """Estimate what a run would cost, writing nothing and calling no model.
 
     The saved facts are used when they match; otherwise the PDF is measured without
-    saving the facts. A survey or page file that would be reused costs nothing. When
-    the survey would be reused, the estimate covers the selected pages that have no
-    page file to reuse. When it would run, it covers every selected page too, unless
-    the run would pause after it.
+    saving the facts. A survey, page file or verdict file that would be reused costs
+    nothing. When the survey would be reused, the estimate covers the selected pages
+    that have no page file to reuse and the breaks whose verdict would not be
+    reused. When it would run, it covers every selected page and every break too,
+    unless the run would pause after it. Page-break verification is left out when
+    the run would not reach it, because the PDF has one page, the run would pause
+    before it, or a page would have no current page file.
 
     Parameters
     ----------
@@ -1434,6 +2113,13 @@ async def run_estimate(*, config: Config) -> CostEstimate:
                 config=config, pages=request_sizes(to_extract, survey=survey)
             )
         )
+        if not (config.pause and to_extract):
+            steps += _breaks_estimate(
+                config=config,
+                facts=facts,
+                survey=survey,
+                to_extract={page.page_index for page in to_extract},
+            )
     elif not config.pause:
         steps.append(
             estimate_extraction(
@@ -1442,6 +2128,9 @@ async def run_estimate(*, config: Config) -> CostEstimate:
                     facts=facts.facts, page_indexes=selected
                 ),
             )
+        )
+        steps += _breaks_estimate(
+            config=config, facts=facts, survey=None, to_extract=selected
         )
     return _estimate_cost(config=config, steps=steps)
 
@@ -1498,7 +2187,7 @@ async def run_extraction_step(
         pdf=pdf,
         selected=selected,
     )
-    await _steps(run, confirm=None, pause=False)
+    await _steps(run, confirm=None, page_breaks=False, pause=False)
     return [run.pages[index] for index in selected]
 
 
@@ -1541,9 +2230,9 @@ async def run_pipeline(
 
     The PDF is opened, and ``pages`` checked against it, before anything is written.
     Then the output folder is prepared: created, cleared of temporary files left by
-    interrupted writes, and checked for results of another PDF. The survey runs, and
-    then page extraction, unless ``pause`` is on and the survey is new; the run then
-    ends ``paused``.
+    interrupted writes, and checked for results of another PDF. The survey runs,
+    then page extraction, then page-break verification. With ``pause`` on, the run
+    ends ``paused`` after a new survey, or after page extraction wrote new page files.
 
     Parameters
     ----------
@@ -1559,8 +2248,8 @@ async def run_pipeline(
     Returns
     -------
     RunResult
-        The run's record, facts, survey, selected pages' page files and the
-        folder's ledger.
+        The run's record, facts, survey, selected pages' page files, verdict files
+        and the folder's ledger.
 
     Raises
     ------
@@ -1573,6 +2262,9 @@ async def run_pipeline(
         answer for a page.
     MissingApiKeyError
         If the API key of a step's provider is not set.
+    PageBreakError
+        If a model refuses, runs out of output tokens, or never gives a usable
+        answer for a break.
     PdfError
         If the PDF is empty, password-protected or cannot be opened.
     ProviderError
@@ -1604,7 +2296,9 @@ async def run_pipeline(
             path=folder / RUN_FILE_NAME,
         )
         try:
-            status = await _steps(run, confirm=confirm, pause=config.pause)
+            status = await _steps(
+                run, confirm=confirm, page_breaks=True, pause=config.pause
+            )
         except (BudgetExceededError, SpendDeclinedError) as error:
             await _finish(run, error=error, status="stopped")
             raise
@@ -1617,6 +2311,7 @@ async def run_pipeline(
         record = await _finish(run, error=None, status=status)
 
     return RunResult(
+        breaks=[run.breaks[index] for index in sorted(run.breaks)],
         facts=run.facts,
         ledger=read_ledger(folder / LEDGER_FILE_NAME).entries,
         output_dir=folder.resolve(),
@@ -1669,4 +2364,6 @@ async def run_survey_step(
     run = _new_run(
         config=config, decide_over_max_cost=decide_over_max_cost, pdf=pdf, selected=[]
     )
-    return await _survey(run, confirm=None, extraction_follows=False)
+    return await _survey(
+        run, breaks_follow=False, confirm=None, extraction_follows=False
+    )

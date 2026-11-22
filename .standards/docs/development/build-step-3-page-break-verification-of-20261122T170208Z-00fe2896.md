@@ -701,7 +701,7 @@ no other change under `src`, `scripts`, `examples` or `docs`.
 
 ### DEV-008 — Page-break verification in runs
 
-`Status`: `PENDING` `Depends On`: `DEV-007` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-007` `Acceptance`:
 `AC-001, AC-002, AC-003, AC-004, AC-005, AC-007, AC-031, AC-032, AC-033, AC-034, AC-038`
 
 **Goal**
@@ -742,6 +742,115 @@ through the stand-in on the 1965 scan: pause after new page files, then a second
 run that judges the break; `pause=False` in one run; `pages` narrowed with and
 without the other pages current; a one-page PDF; spend control with the estimate
 in each of the three steps; `load` after each.
+
+Evidence, 2026-11-22, repo root, on `cc61f50` (the user's DEV-007 commit) plus
+the uncommitted DEV-008 changes. Assessed content, lines and SHA-256 prefix:
+`src/pydelity/pipeline/runner.py` (2,369, `d1b64c8616b11ba6`),
+`src/pydelity/pipeline/schemas.py` (229, `fd9148c191c58db9`) and
+`docs/src/content/docs/reference/run-json.md` (147, `b44358da74f1d4b8`), with no
+other change under `src`, `scripts`, `examples` or `docs`.
+
+- `ruff check scripts src tests`, `ruff format --check` and
+  `ty check scripts src tests`: all passed. `interrogate scripts src tests`:
+  100%.
+- `.venv/bin/pytest --numprocesses auto`: 200 passed, 11 failed, each from a
+  replaced contract, for Tester:
+  - Runs that now reach page-break verification with no break answer given to
+    the stand-in, which answers "No judge answer for the break after page index
+    0":
+    `costs/test_budget.py::test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing`,
+    `pipeline/test_runner.py::test_a_rerun_with_unchanged_inputs_reuses_everything`,
+    `pipeline/test_runner.py::test_no_output_file_holds_the_api_key`,
+    `pipeline/test_runner.py::test_run_json_records_each_step_its_pages_cost_and_review_issues`,
+    `report/test_html.py::test_a_page_no_verifier_reviewed_says_so_in_the_report`,
+    `surveying/test_survey.py::test_turning_the_survey_s_verifier_on_surveys_again_only_what_no_verifier_reviewed`
+    and
+    `test_api.py::test_async_run_gives_what_run_gives_with_the_same_warnings`.
+  - Runs that now record a third step:
+    `test_cli.py::test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment`
+    (a survey pause skips `page_breaks` too) and
+    `test_cli.py::test_pages_and_no_pause_extract_only_those_pages_in_one_run`
+    (`page_breaks` skipped with `missing_page_files`).
+  - A run that now pauses after page extraction:
+    `extracting/test_extraction.py::test_a_failed_page_stops_the_run_and_the_next_run_extracts_only_what_is_missing`.
+  - An estimate with a third step:
+    `costs/test_budget.py::test_the_estimate_covers_page_extraction_and_its_verifier_only_when_it_runs`.
+  - Five passing tests in `report/test_html.py` and
+    `extracting/test_extraction.py` narrow `pages` and now issue
+    `missing_page_files`.
+- `--doctest-modules src`: 34 passed, 1 skipped (the new `_page_ranges`
+  example). The reference-page generator followed by the Markdown formatter
+  changes only `run-json.md`, which now shows `steps[].breaks` and its counts.
+  `markdownlint-cli2 --all-files`: passed.
+- Scratchpad `dev008_check.py` (`PYTHONPATH=src:.`, the stand-in with the canned
+  1965 scan answers): 132 of 132 checks passed.
+  - Pause on: the first run pauses after the survey with page extraction and
+    page-break verification skipped and an estimate of the survey only. The
+    second extracts both pages, skips the step with no break counts and no
+    outputs, pauses with the page-extraction message and estimates page
+    extraction only. The third makes one judge request and no page request,
+    estimates the step in it (1 break), records
+    `page_breaks completed (1 break: 1 judged, 0 reused)` with its request and
+    cost, and returns the verdict file as written. The fourth asks nothing,
+    sends nothing and records `reused`.
+  - Pause off: one estimate of all three steps, the judge request after the last
+    page request, and titled estimate lines (`Survey`, `Extraction` with
+    `2 pages`, `Page-break verification` with `1 break`).
+  - Narrowed `pages`: page 1 alone completes with one `missing_page_files`
+    warning in the step naming page index 1 and the exact message, an estimate
+    without the step and no judge request. Page 2 next, with page 1 current,
+    estimates page extraction and the break in page extraction and judges it.
+    `--overwrite` with page 2 leaves the break out of the estimate, warns about
+    page index 0, keeps the old verdict file on disk, and `load` leaves it out.
+    A missing page file wins over the pause, and a narrowed run that leaves
+    every page current judges the break.
+  - One-page PDF: a survey pause skips both later steps; the next run completes
+    after page extraction with the info line, no warning and no request; the
+    run's estimate and `aestimate` leave the step out.
+  - Spend control: a no in the survey, in page extraction and in page-break
+    verification stops the run with that step `stopped`, nothing sent, and the
+    estimate covering exactly the steps the run would reach. A `max_cost` no in
+    page-break verification stops it before `confirm`. With the step's model on
+    OpenAI and no OpenAI key, the run fails with `MissingApiKeyError` before any
+    request, whether the estimate is in the survey, page extraction or the step.
+    With pause on, page extraction does not need that key. With the key, the
+    break is judged on OpenAI.
+  - `aestimate`: covers the step only when the run would reach it, counts the
+    break when only the survey is saved and pause is off, and when only the
+    pages are saved, shows it as reused when the verdict is saved, and counts it
+    with its verifier when `verify` is on and pause off. It writes nothing.
+  - Review: a verdict failing `continues` with no retries is kept; `run.json`
+    lists the survey's, the pages' and then the break's issues, and the summary
+    shows `page_breaks, pages 1 and 2: ...` and `continues 1`.
+  - Failure: a break with no answer fails the run and the step with
+    `ProviderError` and counts 0 judged; the next run judges only that break.
+    `extract()` makes no page-break request and writes no `page_breaks/`.
+  - `load`: returns the verdict file; leaves it out when a page file's bytes
+    change, when its PDF hash differs, or without `pdf_facts.json`; raises
+    `OutputError` on an invalid file and on schema version 2.0; ignores
+    `notes.json` and temporary files.
+
+**Implementation Notes**
+
+- The estimate made before the survey also leaves the step out when `overwrite`
+  is set and `pages` is narrowed, since then no unselected page can be current
+  (decision 8 and the first rule of **Cost estimate**).
+- Before page extraction, each break between two pages that are current now is
+  planned on its own with `plan_breaks(quiet=True)` and measured if it is to be
+  judged. Breaks with a page to extract use `request_sizes_before_pages`.
+- In page-break verification the estimate counts the breaks the models judge.
+  When only `no_content` verdicts are to be written, no estimate is shown and
+  nothing is asked, but the step still builds its model and so needs its
+  provider's API key.
+- A run that fails or stops records the steps it started, as before. Steps not
+  reached are recorded `skipped` after a pause, as decision 10 says.
+- The `--overwrite` note cannot follow a page-extraction pause, because
+  `--overwrite` always runs the survey again and the run pauses there, so the
+  note stays the survey pause's.
+- A break issue's summary line reads
+  `page_breaks, pages 1 and 2: pages 1 and 2: continues: ...`, since the design
+  names the pages in both the line and the issue's message. It is left as
+  designed.
 
 ### DEV-009 — Python functions and the CLI
 

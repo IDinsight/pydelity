@@ -19,6 +19,7 @@ from pydelity.extracting.schemas import PageFile
 from pydelity.providers.profiles import PdfTransport
 from pydelity.review import ReviewIssue
 from pydelity.surveying.schemas import PdfFacts, PdfSurvey
+from pydelity.verifying.schemas import BreakFile
 
 # How a run ended, or ``running`` while it lasts. A ``paused`` run stopped after a step
 # that wrote new output, so it can be checked before the next step.
@@ -34,6 +35,19 @@ class _Output(BaseModel):
     """Base for the models stored in output files."""
 
     model_config = ConfigDict(use_attribute_docstrings=True)
+
+
+class BreakCounts(_Output):
+    """How many breaks between pages page-break verification judged and reused."""
+
+    judged: int
+    """The breaks whose verdict file this run wrote, with or without a request."""
+
+    reused: int
+    """The breaks whose saved verdict file was reused."""
+
+    total: int
+    """The breaks in the PDF, one fewer than its pages."""
 
 
 class PageCounts(_Output):
@@ -84,6 +98,11 @@ class RunCost(_Output):
 class StepRecord(_Output):
     """What one step of a run did."""
 
+    breaks: BreakCounts | None
+    """How many breaks the step judged and reused; ``None`` for a step other than
+    page-break verification, and for a page-break verification step that was
+    skipped."""
+
     cost_usd: Money
     """What the step's priced requests in this run cost."""
 
@@ -101,8 +120,7 @@ class StepRecord(_Output):
 
     pages: PageCounts | None
     """How many pages the step selected, extracted and reused; ``None`` for a step
-    that reads the whole PDF at once, such as the survey, and for a page extraction
-    step that was skipped."""
+    other than page extraction, and for a page extraction step that was skipped."""
 
     pdf_transport: PdfTransport | None
     """How the PDF went to the model: ``upload`` or ``request``; ``None`` when no
@@ -184,6 +202,11 @@ class RunResult(BaseModel):
     """
 
     model_config = ConfigDict(use_attribute_docstrings=True)
+
+    breaks: list[BreakFile]
+    """Verdict files, in break order. A run returns its verdicts, none when
+    page-break verification was skipped. `pydelity.load` returns the verdict files
+    made from the PDF in ``pdf_facts.json`` and from the page files it returns."""
 
     facts: PdfFacts | None
     """The contents of ``pdf_facts.json``."""
