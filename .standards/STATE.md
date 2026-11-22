@@ -1,8 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `AWAITING_USER_SIGNOFF` `CycleMode`: `STANDARD`
-`PendingCycleMode`: `UNSET` `PendingCycleRequest`: `UNSET`
-`PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `SIGNED_OFF` `CycleMode`: `UNSET` `PendingCycleMode`: `UNSET`
+`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -31,8 +30,9 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `SYNCHRONIZING` `FailureType`: `NONE` `Reason`:
-`Synchronization passed: the final review, implementation review and verification apply to the current work, and every current AC has current evidence.`
+`Kind`: `SIGNOFF` `From`: `AWAITING_USER_SIGNOFF` `FailureType`: `NONE`
+`Reason`:
+`The user signed off the verifier cycle after synchronization passed on unchanged inputs.`
 
 ## Recovery
 
