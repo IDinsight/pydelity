@@ -17,7 +17,8 @@
 `.standards/docs/specs/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
 `Development`:
 `.standards/docs/development/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
+`Tester needs CI on the final content (Python 3.14, wheel install on three runners; AC-026, AC-027, AC-028, AC-029): will the user commit the test changes with the verification report and STATE.md and open a draft pull request to main?`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

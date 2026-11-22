@@ -73,6 +73,11 @@ _DOMAIN_WORDS = (
     "textbook",
 )
 
+# What PydanticAI puts around a retry message in the request that follows it.
+_RETRY_FEEDBACK = re.compile(
+    r"<pyai:retry_feedback>(.*?)</pyai:retry_feedback>", flags=re.DOTALL
+)
+
 # The 2-page scanned test PDF, with no text layer.
 _SCAN = "irs_form_1040a_1965_scan.pdf"
 
@@ -242,14 +247,21 @@ def test_an_answer_that_fails_a_check_is_sent_back_with_each_failure(
     pdf_path: Callable[[str], Path],
     survey_answer: Callable[..., dict],
 ) -> None:
-    """A first answer missing a repeated line is sent back; the second is accepted.
+    """A first answer missing a repeated line is sent back, and the second is kept.
 
-    The retry message names the check and the missing line, both answers are
-    ledger lines, and the stored checks record two attempts and no failure.
+    Both answers turn only half the pages, so they differ from the measured
+    rotation on 4 pages. The retry message names the failed check and the missing
+    line and nothing of the rotation differences. Both answers are ledger lines, the
+    stored checks record two attempts and no failure, and the rotation differences
+    of the kept answer are its hints and its review list.
     """
 
     facts = facts_of(_CAPS)
-    complete = _caps_answer(facts, survey_answer)
+    complete = _caps_answer(
+        facts,
+        survey_answer,
+        rotation=[{"degrees": 90, "first_page_index": 0, "last_page_index": 3}],
+    )
     missing = dict(complete, non_artifact_lines=complete["non_artifact_lines"][:-1])
     mock = mock_providers(answers=[missing, complete])
 
@@ -257,13 +269,19 @@ def test_an_answer_that_fails_a_check_is_sent_back_with_each_failure(
 
     requests = _model_requests(mock)
     assert len(requests) == 2
-    assert "artifacts: repeated line R8" not in requests[0]
-    assert "artifacts: repeated line R8" in requests[1]
+    assert _RETRY_FEEDBACK.findall(requests[0]) == []
+    (retry,) = _RETRY_FEEDBACK.findall(requests[1])
+    assert "artifacts: repeated line R8" in retry
+    assert "rotation_differs" not in retry
     assert result.survey is not None
     assert {(check.passed, check.attempts) for check in result.survey.checks} == {
         (True, 2)
     }
-    assert result.survey.issues == []
+    assert [
+        (hint.name, [difference.page_index for difference in hint.differences])
+        for hint in result.survey.hints
+    ] == [("rotation_differs", [4, 5, 6, 7]), ("page_number_differs", [])]
+    assert [issue.check for issue in result.survey.issues] == ["rotation_differs"] * 4
     assert [entry.request for entry in result.ledger] == [1, 2]
 
 
@@ -303,7 +321,8 @@ def test_answers_that_differ_from_the_facts_are_kept_and_listed_by_page(
     """A well-formed answer that disagrees with the facts is accepted at once.
 
     The profile keeps the model's rotation and numbering. Each page whose measured
-    turn or printed number differs gets one review issue; pages that agree get none.
+    turn or printed number differs is one difference in the survey's hints and one
+    review issue, and pages that agree have none.
     """
 
     facts = facts_of(_CAPS)
@@ -347,6 +366,17 @@ def test_answers_that_differ_from_the_facts_are_kept_and_listed_by_page(
     ]
     assert "page index 4" in rotation[0].message
     assert "27" in numbers[0].message
+    assert [hint.name for hint in survey.hints] == [
+        "rotation_differs",
+        "page_number_differs",
+    ]
+    assert [
+        (issue.check, issue.message, issue.page_index) for issue in survey.issues
+    ] == [
+        (hint.name, difference.message, difference.page_index)
+        for hint in survey.hints
+        for difference in hint.differences
+    ]
 
 
 def test_checks_still_failing_after_the_retries_are_listed_for_review(  # noqa: PLR0913, PLR0917 - fixtures
@@ -478,7 +508,7 @@ def test_prompt_schema_and_vocabulary_name_no_document_type(
     )
     verifier = verify_survey(
         answer=SurveyAnswer.model_validate(survey_answer()),
-        differences=[],
+        differences={},
         failures={},
         instructions=None,
         survey_message=prompts.user_message,
@@ -559,9 +589,13 @@ def test_the_verifier_request_carries_the_survey_s_file_text_failures_and_differ
 
     Its request names the survey request's file, so the run makes one upload. Its
     text is the survey's, then the answer, the check it still fails and its
-    differences from the facts. Its instructions hold the review list and the
+    differences from the facts, under a heading that calls the facts hints the PDF
+    overrides. Its instructions hold the review list, the verdict rules, which say a
+    correction must pass the checks and need not agree with the facts, and the
     survey's rules, then the user's survey instructions. Each request is a survey
-    ledger line of its own agent, and the survey's cost is their sum.
+    ledger line of its own agent, and the survey's cost is their sum. The verdict
+    passes the answer, which still fails its check with no retries left, so the
+    answer is kept, its failure is the only review issue and the survey completes.
     """
 
     facts = facts_of(_CAPS)
@@ -595,7 +629,9 @@ def test_the_verifier_request_carries_the_survey_s_file_text_failures_and_differ
     reviewed, rest = text.removeprefix(survey_text).split(
         "\n\nChecks it still fails:\n"
     )
-    failing, differences = rest.split("\n\nDifferences from the measured facts:\n")
+    failing, differences = rest.split(
+        "\n\nDifferences from the measured facts, which are hints the PDF overrides:\n"
+    )
     assert json.loads(reviewed.split(":\n", 1)[1]) == (
         SurveyAnswer.model_validate(answer).model_dump(mode="json")
     )
@@ -621,6 +657,11 @@ def test_the_verifier_request_carries_the_survey_s_file_text_failures_and_differ
         system.index(marker) for marker in markers
     )
     assert "Review the survey" not in json.dumps(surveyor.body["system"])
+    assert (
+        "The measured facts are hints, which can be wrong. A difference from them is "
+        "a problem only when the PDF shows that the survey is wrong, and a "
+        "correction need not agree with them."
+    ) in system
     ledger = result.ledger
     assert [(line.step, line.page_index, line.agent) for line in ledger] == [
         ("survey", None, "surveyor"),
@@ -630,6 +671,13 @@ def test_the_verifier_request_carries_the_survey_s_file_text_failures_and_differ
     paid = sum(line.cost_usd for line in ledger if line.cost_usd is not None)
     assert result.record.cost.by_step["survey"] == paid
     assert result.record.steps[0].cost_usd == paid
+    assert result.record.steps[0].status == "completed"
+    assert result.survey is not None
+    assert result.survey.verification is not None
+    assert result.survey.verification.verdict.passed
+    assert [(issue.check, issue.message) for issue in result.survey.issues] == [
+        ("languages", failure.removeprefix("- "))
+    ]
 
 
 @pytest.mark.parametrize(
@@ -648,10 +696,12 @@ def test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues(  # noqa:
 
     The answer turns only half the pages, so it differs from the facts on 4 pages.
     A passed verdict keeps it with no review issue. A correction that fails a check is
-    sent back, and its fixed version is kept, with the user's language first and the
-    facts unchanged. A correction that still fails on the last attempt is not kept,
-    so the differences and each problem are listed. ``pdf_survey.json``, the report
-    and the log line give the verifier's outcome.
+    sent back with that failure alone, and its fixed version, which still differs
+    from the facts, is kept, with the user's language first and the facts unchanged.
+    A correction that still fails on the last attempt is not kept, so the
+    differences and each problem are listed. The survey's hints hold the 4
+    differences whatever the verdict. ``pdf_survey.json``, the report and the log
+    line give the verifier's outcome.
     """
 
     facts = facts_of(_CAPS)
@@ -742,6 +792,12 @@ def test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues(  # noqa:
         assert "Your corrected survey does not pass every check." in retried
         assert json.dumps(sent_back)[1:-1] in retried
         assert "does not pass every check" not in _model_requests(mock)[1]
+        (feedback,) = _RETRY_FEEDBACK.findall(retried)
+        assert "rotation_differs" not in feedback
+    assert [
+        (hint.name, [difference.page_index for difference in hint.differences])
+        for hint in survey.hints
+    ] == [("rotation_differs", [4, 5, 6, 7]), ("page_number_differs", [])]
     listed = [] if outcome != "correction_not_kept" else [labels, regions]
     differences = list(range(4, 8)) if listed else []
     assert [

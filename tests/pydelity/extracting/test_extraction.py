@@ -8,6 +8,7 @@ page and three lines of their own.
 
 # Standard Library
 import json
+import re
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -21,7 +22,15 @@ import pytest
 import pydelity
 
 from pydelity.errors import ExtractionError, ProviderError, PydelityWarning
-from pydelity.extracting.schemas import AnswerItem, PageFile
+from pydelity.extracting.prompts import extract_page, verify_page
+from pydelity.extracting.schemas import (
+    AnswerItem,
+    PageAnswer,
+    PageContext,
+    PageFile,
+    PageRepeatedLine,
+)
+from pydelity.surveying.schemas import FormField
 from tests.fixtures.mock_providers import MockProviders, RecordedRequest
 
 # A code item's text, with indentation and a line break to keep.
@@ -32,6 +41,11 @@ _HEADER = "Quarterly Notice Header"
 
 # The verdict of a verifier that finds nothing wrong.
 _PASSED = {"corrected": None, "passed": True, "problems": []}
+
+# What PydanticAI puts around a retry message in the request that follows it.
+_RETRY_FEEDBACK = re.compile(
+    r"<pyai:retry_feedback>(.*?)</pyai:retry_feedback>", flags=re.DOTALL
+)
 
 # The lines of each text page, below its header.
 _TEXT_LINES = (
@@ -52,8 +66,11 @@ _TEXT_LINES = (
     ),
 )
 
-# Words the message holds that sends an answer back for a text difference.
-_TEXT_NOTE = "keep what the image shows"
+# The heading of the checks section in a page verifier's request.
+_VERIFIER_CHECKS = "Checks it still fails, which a correction must pass:\n"
+
+# The heading of the hint differences section in a page verifier's request.
+_VERIFIER_HINTS = "Differences from the hints, which the page image overrides:\n"
 
 
 def _answer(
@@ -172,6 +189,24 @@ def _page_requests(mock: MockProviders) -> list[tuple[int | None, str | None]]:
         for request in mock.requests
         if request.route == "model"
     ]
+
+
+def _retry_messages(request: RecordedRequest) -> list[str]:
+    """Give the retry messages a model request sends after earlier answers.
+
+    Parameters
+    ----------
+    request
+        The recorded request.
+
+    Returns
+    -------
+    list[str]
+        The text of each retry message, oldest first, as the request's JSON holds
+        it.
+    """
+
+    return _RETRY_FEEDBACK.findall(json.dumps(request.body, ensure_ascii=False))
 
 
 def _survey_answer(
@@ -294,6 +329,29 @@ def _user_text(request: RecordedRequest, *, provider: str) -> str:
     return str(messages[0]["content"][0]["text"])
 
 
+def _verifier_sections(mock: MockProviders) -> tuple[list[str], list[str]]:
+    """Give the checks and hint differences of the first page verifier request.
+
+    Parameters
+    ----------
+    mock
+        The Anthropic stand-in server.
+
+    Returns
+    -------
+    tuple[list[str], list[str]]
+        The lines under the checks heading and under the hint differences heading.
+    """
+
+    request = next(r for r in mock.requests if r.agent == "verifier")
+    checks, hints = (
+        _user_text(request, provider="anthropic")
+        .split(_VERIFIER_CHECKS)[1]
+        .split(f"\n\n{_VERIFIER_HINTS}")
+    )
+    return checks.splitlines(), hints.splitlines()
+
+
 def test_a_failed_page_stops_the_run_and_the_next_run_extracts_only_what_is_missing(
     answer_item: Callable[..., AnswerItem],
     mock_providers: Callable[..., MockProviders],
@@ -404,13 +462,13 @@ def test_a_page_no_verifier_reviewed_keeps_its_extraction_and_lists_each_differe
     mock_providers: Callable[..., MockProviders],
     profile_labels: list[dict[str, object]],
 ) -> None:
-    """With the verifier off, a page keeps its extraction and lists both text checks.
+    """With the verifier off, a page keeps its extraction and lists each difference.
 
     The extraction leaves out the page's last line and adds a line the page does not
-    have, so it fails both text checks on every attempt. After the check retries the
-    extraction is kept and no verifier request is made. Both differences are review
-    issues, the page file holds no verification, the ledger has no verifier line,
-    and the page's log line says no verifier ran.
+    have, so it differs from both text hints but passes every check. It is kept at
+    once, with no retry and no verifier request. Both differences are in the page
+    file's hints and are review issues, the page file holds no verification, the
+    ledger has one extractor line, and the page's log line says no verifier ran.
     """
 
     lines = _TEXT_LINES[0]
@@ -425,21 +483,29 @@ def test_a_page_no_verifier_reviewed_keeps_its_extraction_and_lists_each_differe
 
     (page,) = pydelity.extract(pdf, output_dir="out", pages="1")
 
-    assert _page_requests(mock)[1:] == [(0, "extractor")] * 3
+    assert _page_requests(mock)[1:] == [(0, "extractor")]
     assert [item.text for item in page.items] == [_HEADER, *lines[:2], added]
-    failed = {check.name for check in page.checks if not check.passed}
-    assert failed == {"text_added", "text_dropped"}
+    assert all(check.passed and check.attempts == 1 for check in page.checks)
+    assert [(hint.name, len(hint.differences)) for hint in page.hints] == [
+        ("reading_order", 0),
+        ("artifacts", 0),
+        ("form_fields", 0),
+        ("text_dropped", 1),
+        ("text_added", 1),
+    ]
+    assert [(issue.check, issue.message) for issue in page.issues] == [
+        (hint.name, difference.message)
+        for hint in page.hints
+        for difference in hint.differences
+    ]
     issues = {issue.check: issue.message for issue in page.issues}
-    assert set(issues) == {"text_added", "text_dropped"}
     assert added in issues["text_added"]
     assert lines[2] in issues["text_dropped"]
     assert page.verification is None
     stored = json.loads(Path("out/pages/0000.json").read_text(encoding="utf-8"))
     assert stored["verification"] is None
     ledger = pydelity.load("out").ledger
-    assert [line.agent for line in ledger if line.step == "extraction"] == [
-        "extractor"
-    ] * 3
+    assert [line.agent for line in ledger if line.step == "extraction"] == ["extractor"]
     (logged,) = [
         text
         for _, text in log_messages
@@ -577,6 +643,76 @@ def test_an_answer_becomes_a_page_file_with_ids_points_and_links(
     assert all(check.passed for check in page.checks)
 
 
+@pytest.mark.parametrize("verify", [False, True], ids=["no_verifier", "passed"])
+def test_an_answer_failing_a_check_is_sent_back_then_kept_with_its_failure_listed(
+    answer_item: Callable[..., AnswerItem],
+    mock_providers: Callable[..., MockProviders],
+    profile_labels: list[dict[str, object]],
+    verify: bool,
+) -> None:
+    """Only a check failure sends an answer back, and the last answer is kept.
+
+    The extraction gives an item a label not in the profile and leaves out the
+    page's last line, on every attempt. Each retry message names the label failure
+    and nothing of the hint difference or the page's stored text. After the check
+    retries the extraction is kept and the run completes. The label failure is a
+    review issue with or without the verifier. The left-out line is one only when no
+    verifier passed the page, and the page file's hints keep it either way.
+    """
+
+    lines = _TEXT_LINES[0]
+    extraction = _text_answer(answer_item, lines=lines[:2])
+    items = extraction["items"]
+    assert isinstance(items, list)
+    items[2]["label"] = "Sidebar"
+    pdf = _text_pdf()
+    mock = mock_providers(
+        answers=[_survey_answer(profile_labels)],
+        page_answers={0: {"extractor": extraction, "verifier": _PASSED}},
+    )
+
+    result = pydelity.run(
+        pdf,
+        advanced={"extraction": {"verify": verify}},
+        output_dir="out",
+        pages="1",
+        pause=False,
+    )
+
+    agents = [agent for _, agent in _page_requests(mock)[1:]]
+    assert agents == ["extractor"] * 3 + ["verifier"] * verify
+    extractor_requests = [r for r in mock.requests if r.agent == "extractor"]
+    retries = _retry_messages(extractor_requests[-1])
+    assert len(retries) == 2
+    assert all(
+        "labels: item 't1' has the label 'Sidebar'" in message
+        and "text_dropped" not in message
+        and all(line not in message for line in [_HEADER, *lines])
+        for message in retries
+    )
+    assert result.record is not None
+    assert result.record.status == "completed"
+    (page,) = result.pages
+    assert page == PageFile.model_validate_json(
+        Path("out/pages/0000.json").read_text(encoding="utf-8")
+    )
+    assert [item.text for item in page.items] == [_HEADER, *lines[:2]]
+    assert [
+        (check.name, check.passed, check.attempts)
+        for check in page.checks
+        if not check.passed
+    ] == [("labels", False, 3)]
+    assert [hint.name for hint in page.hints if hint.differences] == ["text_dropped"]
+    listed = [issue.check for issue in page.issues]
+    assert listed == (["labels"] if verify else ["labels", "text_dropped"])
+    assert page.issues[0].item_id == "p0000-003"
+    assert result.record.review == page.issues
+    if verify:
+        checks, hints = _verifier_sections(mock)
+        assert [line.split(":")[0] for line in checks] == ["- labels"]
+        assert [line.split(":")[0] for line in hints] == ["- text_dropped"]
+
+
 def test_an_inconsistent_survey_still_gives_every_page_a_context(
     answer_item: Callable[..., AnswerItem],
     mock_providers: Callable[..., MockProviders],
@@ -651,9 +787,11 @@ def test_each_page_request_carries_one_upright_image_and_only_its_own_instructio
 ) -> None:
     """Each page request sends one page image, no PDF and no stored text lines.
 
-    With the verifier on, the page's running header is named as page furniture in
-    both of the page's requests. Page extraction's instructions go to the
-    extraction model and the verifier only, and the survey's to the survey only.
+    With the verifier on, both of the page's requests give the writing direction as
+    what the survey found, and the running header, with the survey's finding that it
+    is page furniture, under a heading that calls it a hint the image overrides.
+    Page extraction's instructions go to the extraction model and the verifier only,
+    and the survey's to the survey only.
     Anthropic requests ask for the answer as JSON in the instructions; OpenAI
     requests ask for a JSON-schema answer and send the image at its original
     detail.
@@ -695,8 +833,13 @@ def test_each_page_request_carries_one_upright_image_and_only_its_own_instructio
         assert "application/pdf" not in sent
         assert request.file_ids == []
         assert "Page index 0 (page 1 of 3)" in sent
-        assert "The page is written left to right." in sent
-        assert _HEADER in sent
+        text = _user_text(request, provider=provider)
+        assert "The survey found the page written left to right." in text
+        hints = text.split(
+            "Hints from the PDF's stored text and the survey, which the image "
+            "overrides."
+        )[1]
+        assert f'- R1: "{_HEADER}", page furniture' in hints
         assert "Stamps are content." in _instructions(request, provider=provider)
         assert "Margin notes are content." not in sent
     for line in _TEXT_LINES[0]:
@@ -816,6 +959,84 @@ def test_page_files_rerun_only_when_their_inputs_change(
     assert overwritten == [*both_pages, (2, "extractor"), (None, "surveyor")]
 
 
+def test_page_prompts_give_what_the_pdf_and_the_survey_say_as_hints(
+    page_context: Callable[..., PageContext],
+) -> None:
+    """Both page prompts give the survey's findings and the PDF's data as hints.
+
+    The writing direction is what the survey found. Each repeated line comes with
+    its stored text and the survey's finding, and each fillable field with its
+    stored value, under headings that call them hints the image overrides. Both
+    prompts' rules say the image decides, and no sentence in them tells the model to
+    put a repeated line in an item with role artifact. The extraction model is told
+    that code checks form and consistency, and the verifier that a correction need
+    not agree with the hints.
+    """
+
+    lines = [
+        PageRepeatedLine(id="R1", normalized="#", text="12", use="artifact"),
+        PageRepeatedLine(
+            id="R2", normalized="chapter notes", text="Chapter notes", use="content"
+        ),
+        PageRepeatedLine(
+            id="R3", normalized="draft copy", text="Draft copy", use="unclassified"
+        ),
+    ]
+    field = FormField.model_validate(
+        {
+            "bbox": (100.0, 100.0, 300.0, 120.0),
+            "checked": None,
+            "name": "city",
+            "options": [],
+            "page_index": 0,
+            "type": "text",
+            "value": "Springfield",
+        }
+    )
+    context = page_context(
+        form_fields=[field], repeated_lines=lines, writing_direction="rtl"
+    )
+    empty = PageAnswer(column_order=None, containers=[], items=[])
+
+    extractor = extract_page(context)
+    verifier = verify_page(context, answer=empty, differences={}, failures={})
+
+    page, repeated, fields = extractor.user_message.split("\n\n")
+    assert page == (
+        "Page index 0 (page 1 of 1)\nThe survey found the page written right to "
+        "left. The image shows the page as it is displayed."
+    )
+    assert repeated.splitlines() == [
+        "Hints from the PDF's stored text and the survey, which the image overrides. "
+        "Repeated lines on this page, with the text the PDF stores and what the "
+        "survey found each one to be:",
+        '- R1: "12", page furniture',
+        '- R2: "Chapter notes", content',
+        '- R3: "Draft copy", not decided',
+    ]
+    assert fields.splitlines()[0] == (
+        "Hints from the PDF's stored form data, which the image overrides. Fillable "
+        "form fields on this page, with the values the PDF stores:"
+    )
+    assert fields.splitlines()[1].startswith('- "city", text, value "Springfield", ')
+    assert verifier.user_message.startswith(extractor.user_message + "\n\n")
+    for prompts in (extractor, verifier):
+        assert "Where a hint and the image disagree, give what the image shows." in (
+            prompts.system_message
+        )
+        sentences = re.split(r"(?<=\.)\s+", prompts.system_message)
+        assert [
+            sentence
+            for sentence in sentences
+            if "repeated line" in sentence and "artifact" in sentence
+        ] == []
+    assert extractor.system_message.endswith(
+        "Your answer is checked by code for form and consistency, and you will be "
+        "told what to fix if a check fails."
+    )
+    assert "a correction need not agree with the hints" in verifier.system_message
+
+
 def test_the_same_answer_gives_the_same_items_and_containers_again(
     answer_item: Callable[..., AnswerItem],
     mock_providers: Callable[..., MockProviders],
@@ -881,19 +1102,25 @@ def test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues(
 ) -> None:
     """A verdict keeps the extraction or its correction, and decides what is listed.
 
-    With the verifier on, the extraction leaves out the page's last line, so it
-    fails the dropped-text check on every attempt, each retry saying the model may
-    keep what the image shows. A passing verdict keeps it and lists no text
-    difference. A correction that fails only a text check, here by adding a line,
-    is sent back to the verifier with the same note and then kept, with nothing
-    listed. A correction with a label not in the profile is rejected: the
-    extraction is kept, and its text difference and the verifier's problem, naming
-    the item's ID, are listed. The check results keep every failure either way.
+    With the verifier on, the extraction leaves out the page's last line. That is a
+    hint difference, so the extraction is kept at once, and the verifier's request
+    gives no check failure and quotes the left-out line under the hints heading. A
+    passing verdict keeps the extraction and lists no hint difference. A correction
+    that adds a line and gives the running header as body text differs from two
+    hints but passes every check, so it is kept on the verifier's first answer, with
+    nothing listed. A correction with a label not in the profile is sent back with
+    the label failure alone and then rejected: the extraction is kept, and its hint
+    difference and the verifier's problem, naming the item's ID, are listed. The
+    page file's hints keep every difference on the kept answer either way.
     """
 
     lines = _TEXT_LINES[0]
+    added = "Bring a packed lunch."
     extraction = _text_answer(answer_item, lines=lines[:2])
-    corrected = _text_answer(answer_item, lines=[*lines, "Bring a packed lunch."])
+    corrected = _text_answer(answer_item, lines=[*lines, added])
+    corrected_items = corrected["items"]
+    assert isinstance(corrected_items, list)
+    corrected_items[0].update({"label": "Body", "role": "body"})
     problem = {
         "category": "missing",
         "description": "A line is left out.",
@@ -925,33 +1152,38 @@ def test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues(
     )
 
     agents = [agent for _, agent in _page_requests(mock)[1:]]
-    verifier_requests = 1 if outcome == "passed" else 3
-    assert agents == ["extractor"] * 3 + ["verifier"] * verifier_requests
-    extractor_retries = [r for r in mock.requests if r.agent == "extractor"][1:]
-    assert all(_TEXT_NOTE in json.dumps(r.body) for r in extractor_retries)
-    failed = {check.name for check in page.checks if not check.passed}
+    assert agents == ["extractor"] + ["verifier"] * (
+        3 if outcome == "correction_rejected" else 1
+    )
+    checks, differences = _verifier_sections(mock)
+    assert (checks, [line.split(":")[0] for line in differences]) == (
+        ["none"],
+        ["- text_dropped"],
+    )
+    assert lines[2] in differences[0]
+    assert all(check.passed for check in page.checks)
+    hints = {hint.name: hint.differences for hint in page.hints if hint.differences}
     verification = page.verification
     assert verification is not None
     if outcome == "passed":
-        assert (page.items[-1].text, failed) == (lines[1], {"text_dropped"})
+        assert page.items[-1].text == lines[1]
+        assert list(hints) == ["text_dropped"]
         assert verification.correction_applied is False
         assert page.issues == []
     elif outcome == "correction_kept":
-        assert [item.text for item in page.items] == [
-            _HEADER,
-            *lines,
-            "Bring a packed lunch.",
+        assert [(item.text, item.role) for item in page.items] == [
+            (_HEADER, "body"),
+            *((line, "body") for line in [*lines, added]),
         ]
-        assert failed == {"text_added"}
+        assert list(hints) == ["artifacts", "text_added"]
+        assert added in hints["text_added"][0].message
         assert verification.correction_applied is True
         assert verification.correction_failures == []
         assert verification.verdict.problems[0].description == "A line is left out."
         assert page.issues == []
-        retries = [r for r in mock.requests if r.agent == "verifier"][1:]
-        assert all(_TEXT_NOTE in json.dumps(r.body) for r in retries)
     else:
         assert page.items[-1].text == lines[1]
-        assert failed == {"text_dropped"}
+        assert list(hints) == ["text_dropped"]
         assert verification.correction_applied is False
         assert [result.name for result in verification.correction_failures] == [
             "labels"
@@ -961,6 +1193,15 @@ def test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues(
             ("verifier", "p0000-003"),
         ]
         assert lines[2] in page.issues[0].message
+        last = [request for request in mock.requests if request.agent == "verifier"]
+        assert [
+            (
+                "labels: item 't1' has the label 'Sidebar'" in message,
+                "text_dropped" in message,
+                lines[2] in message,
+            )
+            for message in _retry_messages(last[-1])
+        ] == [(True, False, False)] * 2
 
 
 def test_turning_the_verifier_on_extracts_again_only_pages_it_has_not_reviewed(

@@ -1,12 +1,16 @@
-"""Tests for page extraction's checks on a model's answer for one page.
+"""Tests for page extraction's checks and hints on a model's answer for one page.
 
 Each check must find every problem of its kind, name the item it is about, and pass a
-well-formed answer. The text checks also run on the first page of four committed PDFs,
-in Arabic, Chinese, Japanese and English, against an answer built from the page's own
-text layer.
+well-formed answer. Each hint must find every difference of its kind and describe it
+without telling the model what to change, and a hint difference is never a check
+failure. The text hints also run on the first page of four committed PDFs, in Arabic,
+Chinese, Japanese and English, against an answer built from the page's own text
+layer.
 """
 
 # Standard Library
+import re
+
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import NamedTuple
@@ -37,12 +41,15 @@ from pydelity.extracting.validators import (
     check_reading_order,
     check_text_added,
     check_text_dropped,
+    compare_with_hints,
     comparison_status,
+    hint_issues,
+    hint_results,
     retry_message,
     run_checks,
     unmatched_labels,
 )
-from pydelity.review import CheckFailure, ExtractionCheckName
+from pydelity.review import CheckFailure
 from pydelity.surveying.schemas import Direction, FormField
 
 # Item boxes on the upright image's grid. Horizontal text in two columns, each with a
@@ -59,8 +66,8 @@ _BOXES = {
     "upper_right": [800, 50, 950, 450],
 }
 
-# Words that tell the model to keep its own reading when a text check sent it back.
-_KEEP_IMAGE_READING = "keep what the image shows"
+# Words that tell a model what to change, which no hint difference may hold.
+_ORDER_WORDS = re.compile(r"\b(fix|must|need|needs|set it|should)\b", re.IGNORECASE)
 
 
 class _ReadingOrder(NamedTuple):
@@ -70,7 +77,7 @@ class _ReadingOrder(NamedTuple):
     """A ``column_order`` that does not fit the page's direction."""
 
     bad_column_order_words: str
-    """Words the failure for `bad_column_order` holds."""
+    """Words the difference for `bad_column_order` holds."""
 
     column_order: ColumnOrder | None
     """The answer's ``column_order`` that fits the page."""
@@ -82,7 +89,8 @@ class _ReadingOrder(NamedTuple):
     """Refs from `_BOXES`, in an order that reads the page column by column."""
 
     jumps_back: tuple[tuple[str, str], ...]
-    """Each item of `out_of_order` that jumps back, with words its failure holds."""
+    """Each item of `out_of_order` that jumps back, with words its difference
+    holds."""
 
     out_of_order: tuple[str, ...]
     """Refs from `_BOXES`, in an order that reads the columns the wrong way."""
@@ -285,17 +293,17 @@ def _form_field(
 
 
 def _found(failures: list[CheckFailure]) -> list[tuple[object, str]]:
-    """Reduce failures to the ref they name and their message, for comparing.
+    """Reduce failures or differences to the ref they name and their message.
 
     Parameters
     ----------
     failures
-        One check's failures.
+        One check's failures, or one hint's differences.
 
     Returns
     -------
     list[tuple[object, str]]
-        Each failure's item ref and message.
+        Each one's item ref and message.
     """
 
     return [(failure.details.get("item_ref"), failure.message) for failure in failures]
@@ -325,14 +333,14 @@ def _items(
 def _matches(
     found: list[tuple[object, str]], expected: list[tuple[str | None, str]]
 ) -> bool:
-    """Tell whether failures name the expected refs and hold the expected words.
+    """Tell whether failures or differences name the expected refs and words.
 
     Parameters
     ----------
     found
-        Each failure's item ref and message, from `_found`.
+        Each one's item ref and message, from `_found`.
     expected
-        Each expected failure's item ref and words its message holds, in order.
+        Each expected one's item ref and words its message holds, in order.
 
     Returns
     -------
@@ -382,12 +390,15 @@ def _read_page(
         return context, read_page_text(document, context=context)
 
 
-def test_a_page_answered_as_one_full_page_figure_passes_every_check(
+def test_a_page_answered_as_one_full_page_figure_passes_every_check_and_hint(
     answer_item: Callable[..., AnswerItem],
     no_page_text: PageText,
     page_context: Callable[..., PageContext],
 ) -> None:
-    """A page that is one picture may be answered as one figure covering the page."""
+    """A page that is one picture may be answered as one figure covering the page.
+
+    The six checks run, each passing, and the five hints run, each agreeing.
+    """
 
     figure = answer_item(
         box=[0, 0, 1000, 1000],
@@ -399,6 +410,7 @@ def test_a_page_answered_as_one_full_page_figure_passes_every_check(
     )
 
     failures = run_checks(_answer(figure), page_context(), no_page_text)
+    differences = compare_with_hints(_answer(figure), page_context(), no_page_text)
 
     assert failures == {
         "labels": [],
@@ -407,6 +419,8 @@ def test_a_page_answered_as_one_full_page_figure_passes_every_check(
         "boxes": [],
         "containers": [],
         "captions": [],
+    }
+    assert differences == {
         "reading_order": [],
         "artifacts": [],
         "form_fields": [],
@@ -445,13 +459,13 @@ def test_a_page_answered_as_one_full_page_figure_passes_every_check(
     ],
     ids=["arabic", "chinese", "japanese", "english"],
 )
-def test_adding_a_line_fails_the_added_text_check(
+def test_adding_a_line_is_an_added_text_difference(
     answer_item: Callable[..., AnswerItem],
     page_context: Callable[..., PageContext],
     pdf_path: Callable[[str], Path],
     script: _ScriptLine,
 ) -> None:
-    """A line in the page's script that the page does not hold is named as added."""
+    """A line in the page's script that the page does not hold differs as added."""
 
     context, page_text = _read_page(
         script, page_context=page_context, pdf_path=pdf_path
@@ -474,11 +488,52 @@ def test_adding_a_line_fails_the_added_text_check(
     assert check_text_dropped(answer, context, page_text) == []
 
 
-def test_artifacts_check_names_uncovered_furniture_and_skips_what_it_cannot_judge(
+def test_artifacts_hint_agrees_when_furniture_is_covered_at_one_of_its_places(
     answer_item: Callable[..., AnswerItem],
     page_context: Callable[..., PageContext],
 ) -> None:
-    """Furniture no artifact item covers fails, naming the line and its places.
+    """One covered place is enough, and the item's text is never compared.
+
+    The furniture line sits at three places. An artifact item whose box reaches
+    within 20 grid units of one place's center covers it, though its text shares
+    nothing with the stored line.
+    """
+
+    context = page_context(
+        repeated_lines=[
+            PageRepeatedLine(
+                id="R1",
+                normalized="annual report #",
+                text="Annual Report 2024",
+                use="artifact",
+            )
+        ]
+    )
+    page_text = PageText(
+        furniture={
+            "R1": ((100, 30, 300, 45), (420, 480, 580, 495), (700, 955, 900, 970))
+        },
+        lines=(),
+    )
+    answer = _answer(
+        answer_item(
+            box=[700, 930, 900, 945],
+            label="Page furniture",
+            language="fr",
+            ref="footer",
+            role="artifact",
+            text="Bulletin officiel",
+        )
+    )
+
+    assert check_artifacts(answer, context, page_text) == []
+
+
+def test_artifacts_hint_names_uncovered_furniture_and_skips_what_it_cannot_judge(
+    answer_item: Callable[..., AnswerItem],
+    page_context: Callable[..., PageContext],
+) -> None:
+    """Furniture no artifact item covers differs, naming the line and its places.
 
     Body text over the furniture's places does not count. An artifact item with a
     malformed box is left out without an error, even when its first four values
@@ -536,53 +591,13 @@ def test_artifacts_check_names_uncovered_furniture_and_skips_what_it_cannot_judg
         [
             (
                 None,
-                "artifacts: the repeated line R1, '2', is page furniture at "
-                "[480, 960, 520, 975], [120, 300, 140, 315], [120, 340, 140, 355] "
-                "and 1 more on the grid, but no item with role artifact covers it",
+                "artifacts: the survey found the repeated line R1, '2', to be page "
+                "furniture, at [480, 960, 520, 975], [120, 300, 140, 315], "
+                "[120, 340, 140, 355] and 1 more on the grid, and no item with role "
+                "artifact covers it",
             )
         ],
     ), found
-
-
-def test_artifacts_check_passes_furniture_covered_at_one_of_its_places(
-    answer_item: Callable[..., AnswerItem],
-    page_context: Callable[..., PageContext],
-) -> None:
-    """One covered place is enough, and the item's text is never compared.
-
-    The furniture line sits at three places. An artifact item whose box reaches
-    within 20 grid units of one place's center covers it, though its text shares
-    nothing with the stored line.
-    """
-
-    context = page_context(
-        repeated_lines=[
-            PageRepeatedLine(
-                id="R1",
-                normalized="annual report #",
-                text="Annual Report 2024",
-                use="artifact",
-            )
-        ]
-    )
-    page_text = PageText(
-        furniture={
-            "R1": ((100, 30, 300, 45), (420, 480, 580, 495), (700, 955, 900, 970))
-        },
-        lines=(),
-    )
-    answer = _answer(
-        answer_item(
-            box=[700, 930, 900, 945],
-            label="Page furniture",
-            language="fr",
-            ref="footer",
-            role="artifact",
-            text="Bulletin officiel",
-        )
-    )
-
-    assert check_artifacts(answer, context, page_text) == []
 
 
 def test_boxes_check_finds_malformed_off_page_and_shared_boxes(
@@ -788,14 +803,100 @@ def test_content_check_finds_wrong_fields_for_the_kind_and_bad_table_grids(
     ), found
 
 
-def test_form_fields_check_compares_fillable_fields_with_field_items(
+def test_every_hint_difference_is_a_review_issue_and_never_a_check_failure(
+    answer_item: Callable[..., AnswerItem],
+    page_context: Callable[..., PageContext],
+) -> None:
+    """An answer that differs from all five hints passes every check.
+
+    The answer reads an item against the page's direction, gives the running header
+    as body text, gives a fillable field another value, leaves out a stored line and
+    adds one. Each hint finds its difference, in the order the hints run, and each
+    difference becomes a review issue naming its item's ID where it is about one
+    item. No difference tells the model what to change.
+    """
+
+    header = "Quarterly Notice Header"
+    stored = (
+        header,
+        "Payments are due by the end of March.",
+        "Late payments add a penalty of five percent.",
+        "Ask the office for a form.",
+    )
+    context = page_context(
+        form_fields=[_form_field(name="city", value="Springfield")],
+        repeated_lines=[
+            PageRepeatedLine(
+                id="R1",
+                normalized="quarterly notice header",
+                text=header,
+                use="artifact",
+            )
+        ],
+    )
+    page_text = PageText(furniture={"R1": ((100, 20, 600, 60),)}, lines=stored)
+    answer = _answer(
+        answer_item(box=[100, 20, 600, 60], ref="h", text=header),
+        answer_item(box=[100, 400, 900, 440], ref="t2", text=stored[2]),
+        answer_item(box=[100, 200, 900, 240], ref="t1", text=stored[1]),
+        answer_item(
+            box=[100, 500, 900, 540], ref="added", text="Bring a packed lunch today."
+        ),
+        answer_item(
+            box=[100, 600, 900, 640],
+            field=_field(fillable_name="city", value="Shelbyville"),
+            kind="field",
+            label="Form item",
+            ref="city",
+            text=None,
+        ),
+    )
+    item_ids = {
+        "added": "p0000-004",
+        "city": "p0000-005",
+        "h": "p0000-001",
+        "t1": "p0000-003",
+        "t2": "p0000-002",
+    }
+
+    failures = run_checks(answer, context, page_text)
+    results = hint_results(compare_with_hints(answer, context, page_text))
+    issues = hint_issues(results, item_ids=item_ids)
+
+    assert not any(failures.values()), failures
+    assert [(result.name, len(result.differences)) for result in results] == [
+        ("reading_order", 1),
+        ("artifacts", 1),
+        ("form_fields", 1),
+        ("text_dropped", 1),
+        ("text_added", 1),
+    ]
+    assert [(issue.check, issue.item_id) for issue in issues] == [
+        ("reading_order", "p0000-003"),
+        ("artifacts", None),
+        ("form_fields", "p0000-005"),
+        ("text_dropped", None),
+        ("text_added", "p0000-004"),
+    ]
+    assert all(
+        (issue.page_index, issue.step) == (0, "extraction")
+        and issue.message.startswith(f"{issue.check}: ")
+        for issue in issues
+    )
+    assert stored[3] in issues[3].message
+    assert [
+        issue.message for issue in issues if _ORDER_WORDS.search(issue.message)
+    ] == []
+
+
+def test_form_fields_hint_compares_fillable_fields_with_field_items(
     answer_item: Callable[..., AnswerItem],
     no_page_text: PageText,
     page_context: Callable[..., PageContext],
 ) -> None:
-    """Each fillable field is named once, with its value or checked state.
+    """Each fillable field agrees when named once, with its value or checked state.
 
-    A value that differs only in spacing passes. No item has to name the push button.
+    A value that differs only in spacing agrees. No item has to name the push button.
     """
 
     context = page_context(
@@ -837,20 +938,24 @@ def test_form_fields_check_compares_fillable_fields_with_field_items(
         [
             (
                 "city",
-                "the form field 'city' holds ['Springfield'], but its field items "
-                "say ['Shelbyville']",
+                "form_fields: the PDF stores the values ['Springfield'] for the form "
+                "field 'city', but its field items say ['Shelbyville']",
             ),
             (
                 "agree",
-                "the form field 'agree' is checked [True], but its field items say "
-                "[False]",
+                "form_fields: the PDF stores the checked states [True] for the form "
+                "field 'agree', but its field items say [False]",
             ),
             (
                 "zip_1",
                 "the form field 'zip' is on the page 1 time(s), but 2 field item(s) "
                 "name it",
             ),
-            ("extra", "item 'extra' names the form field 'fax', which is not on this"),
+            (
+                "extra",
+                "item 'extra' names the form field 'fax', which the PDF does not "
+                "have on this page",
+            ),
         ],
     ), found
 
@@ -964,7 +1069,10 @@ def test_languages_check_finds_invalid_tags_and_text_without_a_language(
     [
         _ReadingOrder(
             bad_column_order="left_to_right",
-            bad_column_order_words="column_order is only for pages written top to",
+            bad_column_order_words=(
+                "column_order is left_to_right, but the survey found the page "
+                "written left to right"
+            ),
             column_order=None,
             direction="ltr",
             in_order=("left_top", "left_bottom", "right_top", "right_bottom"),
@@ -972,14 +1080,18 @@ def test_languages_check_finds_invalid_tags_and_text_without_a_language(
                 (
                     "left_top",
                     "starts 300 units above item 'left_bottom', which comes before "
-                    "it, without moving 200 units to the right to a new column",
+                    "it, without a move of 200 units to the right to a new column, "
+                    "for the direction the survey found",
                 ),
             ),
             out_of_order=("left_bottom", "left_top", "right_top", "right_bottom"),
         ),
         _ReadingOrder(
             bad_column_order="right_to_left",
-            bad_column_order_words="column_order is only for pages written top to",
+            bad_column_order_words=(
+                "column_order is right_to_left, but the survey found the page "
+                "written right to left"
+            ),
             column_order=None,
             direction="rtl",
             in_order=("right_top", "right_bottom", "left_top", "left_bottom"),
@@ -987,14 +1099,18 @@ def test_languages_check_finds_invalid_tags_and_text_without_a_language(
                 (
                     "right_top",
                     "starts 300 units above item 'left_bottom', which comes before "
-                    "it, without moving 200 units to the left to a new column",
+                    "it, without a move of 200 units to the left to a new column, "
+                    "for the direction the survey found",
                 ),
             ),
             out_of_order=("left_top", "left_bottom", "right_top", "right_bottom"),
         ),
         _ReadingOrder(
             bad_column_order=None,
-            bad_column_order_words="so column_order must say which way its columns",
+            bad_column_order_words=(
+                "the survey found the page written top to bottom, but column_order "
+                "is null"
+            ),
             column_order="right_to_left",
             direction="ttb",
             in_order=("upper_right", "upper_left", "lower_right", "lower_left"),
@@ -1002,19 +1118,24 @@ def test_languages_check_finds_invalid_tags_and_text_without_a_language(
                 (
                     "upper_right",
                     "lies 200 units to the right of item 'upper_left', which comes "
-                    "before it, without moving 200 units down to a new band",
+                    "before it, without a move of 200 units down to a new band, for "
+                    "the direction the survey found",
                 ),
                 (
                     "lower_right",
                     "lies 200 units to the right of item 'lower_left', which comes "
-                    "before it, without moving 200 units down to a new band",
+                    "before it, without a move of 200 units down to a new band, for "
+                    "the direction the survey found",
                 ),
             ),
             out_of_order=("upper_left", "upper_right", "lower_left", "lower_right"),
         ),
         _ReadingOrder(
             bad_column_order=None,
-            bad_column_order_words="so column_order must say which way its columns",
+            bad_column_order_words=(
+                "the survey found the page written top to bottom, but column_order "
+                "is null"
+            ),
             column_order="left_to_right",
             direction="ttb",
             in_order=("upper_left", "upper_right", "lower_left", "lower_right"),
@@ -1022,12 +1143,14 @@ def test_languages_check_finds_invalid_tags_and_text_without_a_language(
                 (
                     "upper_left",
                     "lies 200 units to the left of item 'upper_right', which comes "
-                    "before it, without moving 200 units down to a new band",
+                    "before it, without a move of 200 units down to a new band, for "
+                    "the direction the survey found",
                 ),
                 (
                     "lower_left",
                     "lies 200 units to the left of item 'lower_right', which comes "
-                    "before it, without moving 200 units down to a new band",
+                    "before it, without a move of 200 units down to a new band, for "
+                    "the direction the survey found",
                 ),
             ),
             out_of_order=("upper_right", "upper_left", "lower_right", "lower_left"),
@@ -1035,17 +1158,17 @@ def test_languages_check_finds_invalid_tags_and_text_without_a_language(
     ],
     ids=["ltr", "rtl", "ttb-right-to-left", "ttb-left-to-right"],
 )
-def test_reading_order_check_allows_new_columns_but_not_jumps_back(
+def test_reading_order_hint_allows_new_columns_but_not_jumps_back(
     answer_item: Callable[..., AnswerItem],
     case: _ReadingOrder,
     no_page_text: PageText,
     page_context: Callable[..., PageContext],
 ) -> None:
-    """Reading column by column passes, and reading the columns the wrong way fails.
+    """Reading column by column agrees, and reading the columns the wrong way differs.
 
-    A jump back against the flow needs a move to the next column, or down to the
-    next band on a page written top to bottom. ``column_order`` must be set on such
-    a page and only there.
+    A jump back against the direction the survey found agrees with it only with a
+    move to the next column, or down to the next band on a page written top to
+    bottom. ``column_order`` agrees when it is set on such a page and only there.
     """
 
     context = page_context(writing_direction=case.direction)
@@ -1100,13 +1223,13 @@ def test_reading_order_check_allows_new_columns_but_not_jumps_back(
     ],
     ids=["arabic", "chinese", "japanese", "english"],
 )
-def test_removing_a_line_fails_the_dropped_text_check(
+def test_removing_a_line_is_a_dropped_text_difference(
     answer_item: Callable[..., AnswerItem],
     page_context: Callable[..., PageContext],
     pdf_path: Callable[[str], Path],
     script: _ScriptLine,
 ) -> None:
-    """A text-layer line left out of an otherwise correct answer is named as dropped."""
+    """A text-layer line left out of an otherwise correct answer differs as dropped."""
 
     context, page_text = _read_page(
         script, page_context=page_context, pdf_path=pdf_path
@@ -1127,16 +1250,17 @@ def test_removing_a_line_fails_the_dropped_text_check(
     assert check_text_added(answer, context, page_text) == []
 
 
-def test_text_checks_are_skipped_when_the_text_layer_cannot_be_compared(
+def test_text_hints_are_skipped_when_the_text_layer_cannot_be_compared(
     answer_item: Callable[..., AnswerItem],
     page_context: Callable[..., PageContext],
 ) -> None:
-    """Without a text layer that can be relied on, neither text check fails.
+    """Without a text layer that can be relied on, neither text hint differs.
 
-    The same answer, which leaves out a line of a good text layer, fails there but
-    passes when the layer is measured as none or garbled, or holds only blank lines;
-    an answer whose text is mostly not in a good layer finds it mismatched. Only a
-    text failure tells the model it may keep what the image shows.
+    The same answer, which leaves out a line of a good text layer, differs there but
+    not when the layer is measured as none or garbled, or holds only blank lines; an
+    answer whose text is mostly not in a good layer finds it mismatched. The checks
+    never compare text, so the retry message for an answer that both fails a check
+    and leaves out the line names the check failure and quotes no stored line.
     """
 
     layer = PageText(
@@ -1157,17 +1281,10 @@ def test_text_checks_are_skipped_when_the_text_layer_cannot_be_compared(
         (unrelated, page_context(text_quality="good"), layer),
     ]
     dropped = check_text_dropped(partial, page_context(), layer)
-    labeled = check_labels(_answer(answer_item(label="Sidebar")), page_context(), layer)
-    text_failures: dict[ExtractionCheckName, list[CheckFailure]] = {
-        "labels": [],
-        "text_dropped": dropped,
-        "text_added": [],
-    }
-    other_failures: dict[ExtractionCheckName, list[CheckFailure]] = {
-        "labels": labeled,
-        "text_dropped": [],
-        "text_added": [],
-    }
+    mislabeled = _answer(
+        answer_item(label="Sidebar", text="Payments are due by the end of March.")
+    )
+    failures = run_checks(mislabeled, page_context(), layer)
 
     found = [
         (
@@ -1177,8 +1294,7 @@ def test_text_checks_are_skipped_when_the_text_layer_cannot_be_compared(
         )
         for answer, context, page_text in pages
     ]
-    text_retry = retry_message(text_failures)
-    other_retry = retry_message(other_failures)
+    retry = retry_message(failures)
 
     assert found == [
         ("compared", dropped, []),
@@ -1188,7 +1304,13 @@ def test_text_checks_are_skipped_when_the_text_layer_cannot_be_compared(
         ("text_layer_mismatch", [], []),
     ]
     assert [failure.details["line"] for failure in dropped] == [layer.lines[1]]
-    assert f"- {dropped[0].message}" in text_retry
-    assert _KEEP_IMAGE_READING in text_retry
-    assert f"- {labeled[0].message}" in other_retry
-    assert _KEEP_IMAGE_READING not in other_retry
+    assert [failure.details["line"] for failure in dropped] == [
+        failure.details["line"]
+        for failure in compare_with_hints(mislabeled, page_context(), layer)[
+            "text_dropped"
+        ]
+    ]
+    (labeled,) = failures["labels"]
+    assert f"- {labeled.message}" in retry
+    assert layer.lines[1] not in retry
+    assert "text_dropped" not in retry
