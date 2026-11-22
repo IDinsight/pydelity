@@ -121,13 +121,15 @@ What a page's extraction depends on, which its fingerprint covers.
 
 A problem a person should review.
 
-- `check` (one of `labels`, `content`, `languages`, `boxes`, `containers`,
-  `captions` or one of `reading_order`, `artifacts`, `form_fields`,
-  `text_dropped`, `text_added` or `no_matching_label` or one of `labels`,
-  `regions`, `rotation`, `page_numbering`, `artifacts`, `writing_direction`,
-  `languages` or one of `rotation_differs`, `page_number_differs` or `verifier`;
-  required): What found the problem: a check, a hint or another source. `step`
-  says whose, since two steps can have checks and hints of the same name.
+- `check` (one of `ids`, `continues`, `duplicates`, `joins`, `furniture`,
+  `header_rows`, `repeats`, `markers` or `start_markers` or one of `labels`,
+  `content`, `languages`, `boxes`, `containers`, `captions` or one of
+  `reading_order`, `artifacts`, `form_fields`, `text_dropped`, `text_added` or
+  `no_matching_label` or one of `labels`, `regions`, `rotation`,
+  `page_numbering`, `artifacts`, `writing_direction`, `languages` or one of
+  `rotation_differs`, `page_number_differs` or `verifier`; required): What found
+  the problem: a check, a hint or another source. `step` says whose, since two
+  steps can have checks and hints of the same name.
 - `details` (map of string to any value; required): The values the problem is
   about. A survey hint gives values such as `{"measured": 90, "profile": 0}`,
   and a check gives its failure's `details`, such as `{"item_ref": "t3"}` on a
@@ -138,9 +140,10 @@ A problem a person should review.
   when no single item applies.
 - `message` (string; required): What is wrong.
 - `page_index` (integer or null; required): The page the problem is on, or
-  `None` when no single page applies.
-- `step` (one of `survey`, `extraction`; required): The step whose check found
-  the problem.
+  `None` when no single page applies. For page-break verification, it is the
+  page before the break.
+- `step` (one of `survey`, `extraction`, `page_breaks`; required): The step
+  whose check found the problem.
 
 ## `items[]`
 

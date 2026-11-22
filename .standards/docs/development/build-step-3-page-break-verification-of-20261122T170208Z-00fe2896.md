@@ -110,7 +110,7 @@ deletions, SHA-256 starting `a708fe3fbeda1df5`.
 
 ### DEV-002 — Verdict contract, verdict file and the step's names
 
-`Status`: `PENDING` `Depends On`: `DEV-001` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-001` `Acceptance`:
 `AC-011, AC-012, AC-013, AC-014, AC-015, AC-016, AC-017, AC-018, AC-027, AC-030`
 
 **Goal**
@@ -149,6 +149,52 @@ builds each answer model's JSON schema (no `pattern`, `minimum`, `maximum`,
 schemas for `BreakVerdict` and `BreakVerifierVerdict`, rejects a verifier
 verdict that breaks the invariants, and round-trips a `BreakFile` with an
 unknown field.
+
+Evidence, 2026-11-22, repo root, on `75e0ecd` (the user's DEV-001 commit) plus
+the uncommitted DEV-002 changes. Assessed content:
+`git diff HEAD -- src scripts examples docs` (7 files, 83 insertions and 41
+deletions) with the new `src/pydelity/verifying/__init__.py` and `schemas.py`
+(381 lines) appended, SHA-256 starting `e740c3e2f3a8867b`.
+
+- `ruff check scripts src`, `ruff format --check scripts src` (58 files) and
+  `ty check scripts src`: all passed. `interrogate scripts src`: 100%.
+- `.venv/bin/python -m pytest -q --numprocesses auto -p no:cacheprovider`: 211
+  passed. `--doctest-modules src`: 28 passed, 1 skipped.
+- Scratchpad `dev002_schema_check.py`, run with `PYTHONPATH=src` (see the
+  implementation notes): 34 of 34 checks passed. Every model in
+  `verifying/schemas.py` lists its fields in alphabetical order.
+  `BreakVerdict`'s and `BreakVerifierVerdict`'s JSON schemas hold no `pattern`,
+  `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`,
+  `maxLength`, `minItems`, `maxItems` or `format`. Requests captured from
+  PydanticAI 2.69.0 with a mock HTTP transport (no network): on OpenAI Responses
+  both are sent as native `json_schema` output with `strict: true`, as
+  `PageAnswer` is, with no bounds; on Anthropic both are prompted output, with
+  the schema in the system prompt and no tools. The verifier's verdict accepts
+  passed alone, failed with a problem and failed with a correction, and rejects
+  passed with a problem, passed with a correction and failed without a problem.
+  A full `BreakFile` (a `merge_split_row` piece with cell joins, a marker in a
+  table cell, repeated items and header rows, a continuing container, a
+  `header_rows` review issue with `step: "page_breaks"`) round-trips through
+  JSON with an unknown top-level field, and a bad `judgment` or issue `step` is
+  rejected.
+- `scripts/generate_reference_docs.py` and the Markdown formatter (outside the
+  sandbox): `reference/run-json.md` lists the new check and hint names, the
+  `page_breaks` step, the `page_index` note and `missing_page_files`;
+  `reference/cli.md` the exit code 1 text; `page-json.md` and
+  `pdf-survey-json.md` the new check names through the shared `IssueName`. The
+  STANDARDS check passed.
+
+**Implementation Notes**
+
+- The venv's editable install is a setuptools link tree under
+  `build/__editable__.pydelity-0.2.0-py3-none-any/`, with one symlink per file,
+  so `pydelity.verifying` does not import from the venv until the package is
+  reinstalled. Scratch checks use `PYTHONPATH=src` until then. The package must
+  be reinstalled (`just install`, or
+  `uv sync --locked --reinstall-package pydelity`) before DEV-008, when the
+  runner imports `verifying` and the test suite with it.
+- `CheckFailure.details` and `ReviewIssue.details` docstrings gain the
+  page-break forms in DEV-003, which defines them.
 
 ### DEV-003 — Checks and the start-marker hint
 

@@ -13,6 +13,23 @@ from typing import Literal
 # Third Party Library
 from pydantic import BaseModel, ConfigDict
 
+# Page-break verification's checks on each verdict, in the order they run. A failure
+# may send the verdict back.
+type BreakCheckName = Literal[
+    "ids",
+    "continues",
+    "duplicates",
+    "joins",
+    "furniture",
+    "header_rows",
+    "repeats",
+    "markers",
+]
+
+# Page-break verification's hints, the comparisons of each verdict with what the
+# survey found. A difference never sends the verdict back.
+type BreakHintName = Literal["start_markers"]
+
 # Page extraction's checks on each answer, in the order they run. A failure may send
 # the answer back.
 type ExtractionCheckName = Literal[
@@ -41,7 +58,9 @@ type ExtractionIssueName = Literal["no_matching_label"]
 
 # The name of what found a review issue, in any step.
 type IssueName = (
-    ExtractionCheckName
+    BreakCheckName
+    | BreakHintName
+    | ExtractionCheckName
     | ExtractionHintName
     | ExtractionIssueName
     | SurveyCheckName
@@ -50,7 +69,7 @@ type IssueName = (
 )
 
 # The steps whose problems go on the review list.
-type StepName = Literal["survey", "extraction"]
+type StepName = Literal["survey", "extraction", "page_breaks"]
 
 # The survey's checks, C1 to C7 in order.
 type SurveyCheckName = Literal[
@@ -67,7 +86,7 @@ type SurveyCheckName = Literal[
 # the order they run. A difference never sends the answer back.
 type SurveyHintName = Literal["rotation_differs", "page_number_differs"]
 
-# A problem a step's verifier found whose correction was not kept, in either step.
+# A problem a step's verifier found whose correction was not kept, in any step.
 type VerifierIssueName = Literal["verifier"]
 
 
@@ -123,7 +142,8 @@ class ReviewIssue(_Output):
     """What is wrong."""
 
     page_index: int | None
-    """The page the problem is on, or ``None`` when no single page applies."""
+    """The page the problem is on, or ``None`` when no single page applies. For
+    page-break verification, it is the page before the break."""
 
     step: StepName
     """The step whose check found the problem."""

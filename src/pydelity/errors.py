@@ -14,6 +14,7 @@ from typing import Literal
 type WarningCode = Literal[
     "damaged_output",
     "max_cost_exceeded",
+    "missing_page_files",
     "other_pdf_in_folder",
     "probe_unavailable",
     "unpriced_model",
@@ -40,8 +41,8 @@ class ExitCode(IntEnum):
     """The run completed, with or without review issues."""
 
     FAILED = 1
-    """The run failed: a provider error, a survey or page extraction error, or an
-    unexpected error."""
+    """The run failed: a provider error, a survey, page extraction or page-break
+    verification error, or an unexpected error."""
 
     INTERRUPTED = 130
     """The run was interrupted with Ctrl+C."""
@@ -69,6 +70,15 @@ class MissingApiKeyError(PydelityError):
 
 class OutputError(PydelityError):
     """An output folder, or a file in it, cannot be read back."""
+
+
+class PageBreakError(PydelityError):
+    """Page-break verification could not get a usable verdict for a page break.
+
+    The model refused, ran out of output tokens, or never gave a verdict that matches
+    the answer format. The message names the break's two pages and the model's role
+    in it, the judge or the verifier.
+    """
 
 
 class PdfError(PydelityError):

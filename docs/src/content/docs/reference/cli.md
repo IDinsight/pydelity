@@ -45,8 +45,8 @@ pydelity [OPTIONS] [pdf]
 ## Exit codes
 
 - `0`: The run completed, with or without review issues.
-- `1`: The run failed: a provider error, a survey or page extraction error, or
-  an unexpected error.
+- `1`: The run failed: a provider error, a survey, page extraction or page-break
+  verification error, or an unexpected error.
 - `2`: A setting, the API key or the PDF is invalid.
 - `3`: The run stopped at the user's answer, or because input is not a terminal
   and `--yes` was not given.

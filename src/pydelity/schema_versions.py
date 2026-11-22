@@ -4,6 +4,9 @@ A change that only adds fields raises the minor version. A change that removes,
 renames or redefines a field raises the major version.
 """
 
+# ``page_breaks/<NNNN>-<NNNN>.json``: one page break's verdict, its checks and hints.
+BREAK_SCHEMA_VERSION = "1.0"
+
 # ``pdf_facts.json``: the measured facts and their summary.
 FACTS_SCHEMA_VERSION = "1.0"
 
