@@ -7,12 +7,12 @@ Two pipeline steps are built, in three STANDARDS cycles:
   records in commit `83743ef` (`git fetch origin pull/4/head` if a clone lacks
   it).
 - Page extraction (step 2) and the verifier cycle after it, on one branch,
-  shipped together as 0.2.0 through pull request `<N>`. Cycles
+  shipped together as 0.2.0 through pull request `14`. Cycles
   `build-step-2-page-extraction-of-the-20261119T174118Z-0419318a` (signed off
   2026-11-20) and
   `add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada` (signed off
   2026-11-22), with both cycles' records in commit `af1b2d1`
-  (`git fetch origin pull/<N>/head` if a clone lacks it).
+  (`git fetch origin pull/14/head` if a clone lacks it).
 
 STANDARDS is uninstalled before each merge to `main`, so cycle records live only
 in git history, at
