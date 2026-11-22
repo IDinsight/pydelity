@@ -39,7 +39,13 @@ from pydantic import BaseModel
 
 # Package Library
 from pydelity.config.loading import read_api_key
-from pydelity.config.schemas import Config, ExtractionConfig, SurveyConfig, parse_pages
+from pydelity.config.schemas import (
+    Config,
+    ExtractionConfig,
+    PageBreaksConfig,
+    SurveyConfig,
+    parse_pages,
+)
 from pydelity.costs.budget import (
     OverMaxCostDecision,
     SpendDeclinedError,
@@ -1047,7 +1053,7 @@ async def _step_model(
     pdf: PdfInfo | None,
     run: _Run,
     step: str,
-    step_settings: ExtractionConfig | SurveyConfig,
+    step_settings: ExtractionConfig | PageBreaksConfig | SurveyConfig,
 ) -> AsyncGenerator[LedgerModel]:
     """Build a step's model on the run's guard and ledger, and log it.
 

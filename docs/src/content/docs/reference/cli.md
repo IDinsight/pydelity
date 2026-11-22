@@ -25,9 +25,11 @@ pydelity [OPTIONS] [pdf]
   `pydelity-output/<PDF name>`.
 - `--model`, `-m` `MODEL`: The model for every step, as
   &lt;provider&gt;:&lt;model-id&gt; with provider anthropic or openai. If unset,
-  the survey uses anthropic:claude-opus-5-5 and page extraction uses
-  anthropic:claude-opus-5-5. advanced.extraction.model in the config file
-  overrides it for page extraction.
+  the survey uses anthropic:claude-opus-5-5, page extraction uses
+  anthropic:claude-opus-5-5 and page-break verification uses
+  anthropic:claude-opus-5-5. advanced.extraction.model and
+  advanced.page_breaks.model in the config file override it for page extraction
+  and page-break verification.
 - `--max-cost`, `-mc` `USD`: The most the output folder's model requests may
   cost, in US dollars.
 - `--overwrite`, `-o`: Redo steps whose outputs could be reused.

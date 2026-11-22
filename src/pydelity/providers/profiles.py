@@ -68,6 +68,10 @@ _OPENAI_UPLOAD_EXPIRY_HOURS = (1, 720)
 # ``model`` is set.
 DEFAULT_EXTRACTION_MODEL = "anthropic:claude-opus-5-5"
 
+# The page-break verification model used when neither ``advanced.page_breaks.model``
+# nor ``model`` is set.
+DEFAULT_PAGE_BREAKS_MODEL = "anthropic:claude-opus-5-5"
+
 # The survey model used when ``model`` is not set.
 DEFAULT_SURVEY_MODEL = "anthropic:claude-opus-5-5"
 

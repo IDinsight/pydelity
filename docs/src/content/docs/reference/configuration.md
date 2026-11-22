@@ -36,6 +36,10 @@ All the settings for a pydelity run.
 - `pages` (string or null; default `null`): The pages to extract, numbered from
   1 as a PDF viewer shows them, such as `1-5,8`; every page if unset. The survey
   always reads every page.
+
+  Page-break verification runs only when every page has an up-to-date page file,
+  from this run or an earlier one.
+
 - `pause` (boolean; default `true`): Whether to stop after a step that wrote new
   output, so it can be checked before the next step is paid for.
 - `pdf` (path; required): The PDF to process.
@@ -54,6 +58,8 @@ Settings most runs never need to change.
 - `models` (map of string to object
   ([`advanced.models.<provider>:<model-id>`](#advancedmodelsprovidermodel-id));
   default `{}`): Prices for models, by `<provider>:<model-id>`.
+- `page_breaks` (object ([`advanced.page_breaks`](#advancedpage_breaks))):
+  Settings for page-break verification.
 - `provider_retries` (integer; at least 0; at most 10; default `2`): How many
   times a request to the provider is retried after a temporary failure.
 - `survey` (object ([`advanced.survey`](#advancedsurvey))): Settings for the
@@ -93,6 +99,29 @@ Prices for one model, in US dollars per million tokens.
   of input tokens written to the prompt cache; the input price if unset.
 - `input_usd_per_mtok` (number; at least 0; required): Price of input tokens.
 - `output_usd_per_mtok` (number; at least 0; required): Price of output tokens.
+
+## `advanced.page_breaks`
+
+Settings for page-break verification.
+
+- `check_retries` (integer; at least 0; at most 5; default `2`): How many times
+  a model may answer again after failing page-break verification's checks.
+- `concurrent_breaks` (integer; at least 1; at most 32; default `8`): How many
+  page breaks are judged at the same time.
+- `effort` (one of `low`, `medium`, `high`; default `"high"`): How hard the
+  model thinks before answering.
+- `instructions` (string or null; default `null`): What is particular, different
+  or nuanced about this PDF's page breaks, in your own words, for page-break
+  verification's model and its verifier. Blank text counts as unset.
+- `max_output_tokens` (integer; more than 0; default `32000`): The most tokens
+  one model answer may contain, thinking included.
+- `model` (string or null; default `null`): The model for page-break
+  verification, as `<provider>:<model-id>`; `model`, or else page-break
+  verification's default, if unset.
+- `request_timeout_seconds` (number; more than 0; default `600`): How long to
+  wait for one model request before it counts as failed.
+- `verify` (boolean or null; default `null`): Whether a verifier reviews each
+  page break's verdict; `verify` if unset.
 
 ## `advanced.survey`
 

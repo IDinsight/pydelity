@@ -18,6 +18,16 @@
         "output_usd_per_mtok": 5.0
       }
     },
+    "page_breaks": {
+      "check_retries": 2,
+      "concurrent_breaks": 8,
+      "effort": "high",
+      "instructions": null,
+      "max_output_tokens": 32000,
+      "model": null,
+      "request_timeout_seconds": 600,
+      "verify": null
+    },
     "provider_retries": 2,
     "survey": {
       "check_retries": 2,

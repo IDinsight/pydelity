@@ -29,6 +29,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Package Library
 from pydelity.providers.profiles import (
     DEFAULT_EXTRACTION_MODEL,
+    DEFAULT_PAGE_BREAKS_MODEL,
     DEFAULT_SURVEY_MODEL,
     ModelChoice,
     parse_model,
@@ -272,6 +273,44 @@ class ModelPrices(BaseModel):
     """Price of output tokens."""
 
 
+class PageBreaksConfig(BaseModel):
+    """Settings for page-break verification.
+
+    They apply to page-break verification's requests and to its verifier's requests
+    alike.
+    """
+
+    model_config = ConfigDict(extra="forbid", use_attribute_docstrings=True)
+
+    check_retries: Annotated[int, Field(ge=0, le=5)] = 2
+    """How many times a model may answer again after failing page-break
+    verification's checks."""
+
+    concurrent_breaks: Annotated[int, Field(ge=1, le=32)] = 8
+    """How many page breaks are judged at the same time."""
+
+    effort: Literal["low", "medium", "high"] = "high"
+    """How hard the model thinks before answering."""
+
+    instructions: Annotated[str, AfterValidator(_blank_as_unset)] | None = None
+    """What is particular, different or nuanced about this PDF's page breaks, in your
+    own words, for page-break verification's model and its verifier. Blank text counts
+    as unset."""
+
+    max_output_tokens: Annotated[int, Field(gt=0)] = 32_000
+    """The most tokens one model answer may contain, thinking included."""
+
+    model: Annotated[str, AfterValidator(_check_model_setting)] | None = None
+    """The model for page-break verification, as ``<provider>:<model-id>``; ``model``,
+    or else page-break verification's default, if unset."""
+
+    request_timeout_seconds: Annotated[float, Field(gt=0)] = 600
+    """How long to wait for one model request before it counts as failed."""
+
+    verify: bool | None = None
+    """Whether a verifier reviews each page break's verdict; ``verify`` if unset."""
+
+
 class SurveyConfig(BaseModel):
     """Settings for the survey step.
 
@@ -321,6 +360,9 @@ class AdvancedConfig(BaseModel):
         Field(default_factory=dict)
     )
     """Prices for models, by ``<provider>:<model-id>``."""
+
+    page_breaks: PageBreaksConfig = Field(default_factory=PageBreaksConfig)
+    """Settings for page-break verification."""
 
     provider_retries: Annotated[int, Field(ge=0, le=10)] = 2
     """How many times a request to the provider is retried after a temporary failure."""
@@ -373,7 +415,11 @@ class Config(BaseModel):
         | None
     ) = None
     """The pages to extract, numbered from 1 as a PDF viewer shows them, such as
-    ``1-5,8``; every page if unset. The survey always reads every page."""
+    ``1-5,8``; every page if unset. The survey always reads every page.
+
+    Page-break verification runs only when every page has an up-to-date page file,
+    from this run or an earlier one.
+    """
 
     pause: bool = True
     """Whether to stop after a step that wrote new output, so it can be checked before
@@ -411,6 +457,19 @@ class Config(BaseModel):
         return Path(_DEFAULT_OUTPUT_PARENT).absolute() / self.pdf.stem
 
     @property
+    def page_breaks_model(self) -> ModelChoice:
+        """The page-break verification model.
+
+        It is ``advanced.page_breaks.model``, else ``model``, else page-break
+        verification's default.
+        """
+
+        setting = (
+            self.advanced.page_breaks.model or self.model or DEFAULT_PAGE_BREAKS_MODEL
+        )
+        return parse_model(setting)
+
+    @property
     def survey_model(self) -> ModelChoice:
         """The survey model: ``model``, else the survey's default."""
 
@@ -424,6 +483,16 @@ class Config(BaseModel):
         """
 
         override = self.advanced.extraction.verify
+        return self.verify if override is None else override
+
+    @property
+    def verify_page_breaks(self) -> bool:
+        """Whether page-break verification's verifier runs.
+
+        It is ``advanced.page_breaks.verify`` when set, else ``verify``.
+        """
+
+        override = self.advanced.page_breaks.verify
         return self.verify if override is None else override
 
     @property

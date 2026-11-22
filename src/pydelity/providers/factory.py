@@ -24,7 +24,12 @@ from pydantic_ai.settings import ModelSettings
 
 # Package Library
 from pydelity.config.loading import read_api_key
-from pydelity.config.schemas import Config, ExtractionConfig, SurveyConfig
+from pydelity.config.schemas import (
+    Config,
+    ExtractionConfig,
+    PageBreaksConfig,
+    SurveyConfig,
+)
 from pydelity.providers.ledger_model import LedgerContext, LedgerModel
 from pydelity.providers.profiles import PROFILES, ModelChoice, OutputMode
 
@@ -107,7 +112,7 @@ async def build_model(
     choice: ModelChoice,
     config: Config,
     context: LedgerContext,
-    step_settings: ExtractionConfig | SurveyConfig,
+    step_settings: ExtractionConfig | PageBreaksConfig | SurveyConfig,
 ) -> AsyncGenerator[LedgerModel]:
     """Build one step's model, wrapped to check and record requests.
 

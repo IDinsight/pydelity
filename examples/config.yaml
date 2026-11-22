@@ -40,6 +40,30 @@ advanced:
       input_usd_per_mtok: 1.0
       # Price of output tokens.
       output_usd_per_mtok: 5.0
+  # Settings for page-break verification. They apply to page-break verification's
+  # requests and to its verifier's requests alike.
+  page_breaks:
+    # How many times a model may answer again after failing page-break
+    # verification's checks, from 0 to 5.
+    check_retries: 2
+    # How many page breaks are judged at the same time, from 1 to 32.
+    concurrent_breaks: 8
+    # How hard the model thinks before answering: low, medium or high.
+    effort: high
+    # What is particular, different or nuanced about this PDF's page breaks, in your
+    # own words, for page-break verification's model and its verifier only; none if
+    # null.
+    instructions: null
+    # The most tokens one model answer may contain, thinking included.
+    max_output_tokens: 32000
+    # The model for page-break verification, as <provider>:<model-id>; model, or else
+    # page-break verification's default (anthropic:claude-opus-5-5), if null.
+    model: null
+    # How many seconds to wait for one model request before it counts as failed.
+    request_timeout_seconds: 600
+    # Whether a verifier reviews each page break's verdict, at extra cost; verify if
+    # null.
+    verify: null
   # How many times a request to the provider is retried after a temporary failure,
   # from 0 to 10.
   provider_retries: 2

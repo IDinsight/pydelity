@@ -33,7 +33,11 @@ from pydelity.errors import (
     PydelityWarning,
 )
 from pydelity.pipeline.runner import SUMMARY_LOG_KEY
-from pydelity.providers.profiles import DEFAULT_EXTRACTION_MODEL, DEFAULT_SURVEY_MODEL
+from pydelity.providers.profiles import (
+    DEFAULT_EXTRACTION_MODEL,
+    DEFAULT_PAGE_BREAKS_MODEL,
+    DEFAULT_SURVEY_MODEL,
+)
 
 if TYPE_CHECKING:
     # Third Party Library
@@ -223,10 +227,11 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
             "-m",
             help="The model for every step, as <provider>:<model-id> with provider "
             "anthropic or openai. If unset, the survey uses "
-            f"{DEFAULT_SURVEY_MODEL} and page extraction uses "
-            f"{DEFAULT_EXTRACTION_MODEL}. "
-            "advanced.extraction.model in the config file overrides it for page "
-            "extraction.",
+            f"{DEFAULT_SURVEY_MODEL}, page extraction uses "
+            f"{DEFAULT_EXTRACTION_MODEL} and page-break verification uses "
+            f"{DEFAULT_PAGE_BREAKS_MODEL}. advanced.extraction.model and "
+            "advanced.page_breaks.model in the config file override it for page "
+            "extraction and page-break verification.",
             metavar="MODEL",
             show_default=False,
         ),
