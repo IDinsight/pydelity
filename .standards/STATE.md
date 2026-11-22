@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `REVIEWING_FINAL` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `SYNCHRONIZING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -30,18 +30,12 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `DOCUMENTING` `FailureType`: `NONE` `Reason`:
-`Documentation of the hints rerun is COMPLETE; final review (FINAL_DELIVERABLE) reassesses it as the last rerun state of recovery frame 1.`
+`Kind`: `RESUME` `From`: `REVIEWING_FINAL` `FailureType`: `NONE` `Reason`:
+`Final review of the hints rerun is COMPLETE, with the user's accepted real runs; recovery frame 1 ends at its RerunThrough boundary and synchronization resumes.`
 
 ## Recovery
 
-`Active`: `true`
-
-### Frame 1
-
-`From`: `SYNCHRONIZING` `Owner`: `SCOPING` `FailureType`: `SCOPING` `Reason`:
-`The user changed the request: code's measurements of the PDF become hints that never cause retries or failed runs, for every step; see Active Work.Request.`
-`ResumeAt`: `SYNCHRONIZING` `RerunThrough`: `REVIEWING_FINAL`
+`Active`: `false`
 
 ## Outstanding Obligations
 
