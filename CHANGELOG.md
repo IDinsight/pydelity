@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/IDinsight/pydelity/compare/v0.1.1...v0.2.0) (2026-11-22)
+
+
+### Features
+
+* add page extraction with opt-in verifiers for the survey and pages ([#14](https://github.com/IDinsight/pydelity/issues/14)) ([0c7e5ce](https://github.com/IDinsight/pydelity/commit/0c7e5ce488b6ecf9f995f94d0a8795a09a4ed003))
+
 ## [0.1.1](https://github.com/IDinsight/pydelity/compare/v0.1.0...v0.1.1) (2026-11-19)
 
 
