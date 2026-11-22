@@ -30,9 +30,14 @@ class _Record(BaseModel):
 class StepEstimate(_Record):
     """The cost estimate for one step."""
 
+    breaks: int | None
+    """How many page breaks the step would judge, for page-break verification;
+    ``None`` for the other steps."""
+
     expected_usd: Money | None
-    """The likely cost: one request per agent that runs (and per page, for a page
-    step) with a typical answer; ``None`` when unpriced."""
+    """The likely cost: one request per agent that runs (and per page or break, for
+    a step that sends requests about each) with a typical answer; ``None`` when
+    unpriced."""
 
     max_usd: Money | None
     """The most the step can cost: every allowed retry, each with the longest answer
@@ -94,7 +99,8 @@ class LedgerEntry(_Record):
 
     agent: str
     """The step's agent that made the request: ``surveyor`` or ``verifier`` for the
-    survey, ``extractor`` or ``verifier`` for page extraction."""
+    survey, ``extractor`` or ``verifier`` for page extraction, ``judge`` or
+    ``verifier`` for page-break verification."""
 
     cache_read_tokens: int
     """Input tokens read from the provider's prompt cache (included in
@@ -118,8 +124,9 @@ class LedgerEntry(_Record):
     """Output tokens, thinking included."""
 
     page_index: int | None
-    """The page the request was about (0-based); ``None`` for a request about the
-    whole PDF, such as the survey's."""
+    """The page the request was about (0-based); for page-break verification, the
+    page before the break; ``None`` for a request about the whole PDF, such as the
+    survey's."""
 
     price_source: str | None
     """Where the price came from: ``genai-prices <version>``, ``config`` (prices set in

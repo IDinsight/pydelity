@@ -18,6 +18,7 @@ valid.
 # Standard Library
 import asyncio
 import hashlib
+import json
 
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
@@ -33,14 +34,14 @@ from pydantic import ValidationError
 
 # Package Library
 from pydelity.config.schemas import Config
-from pydelity.costs.budget import format_usd
+from pydelity.costs.budget import BreakRequestSize, format_usd
 from pydelity.costs.ledger import LEDGER_FILE_NAME, read_ledger
 from pydelity.extracting.extraction import page_file_path, plan_pages
 from pydelity.extracting.rendering import RENDERING_SETTINGS, PdfWorker
 from pydelity.extracting.schemas import PageFile
 from pydelity.review import BreakCheckName, CheckFailure
 from pydelity.schema_versions import BREAK_SCHEMA_VERSION
-from pydelity.surveying.schemas import PdfSurvey
+from pydelity.surveying.schemas import Facts, PdfSurvey
 from pydelity.utils.coroutines import warn
 from pydelity.utils.files import load_model, remove_stale_temp_files, write_model_atomic
 from pydelity.utils.fingerprints import fingerprint
@@ -52,7 +53,13 @@ from pydelity.verifying.llm import (
     ask_judge,
     ask_verifier,
 )
-from pydelity.verifying.prompts import PROMPT_VERSION
+from pydelity.verifying.prompts import (
+    PROMPT_VERSION,
+    BreakPrompts,
+    judge_break,
+    judge_instructions,
+    verify_break,
+)
 from pydelity.verifying.schemas import (
     BreakContext,
     BreakFile,
@@ -61,6 +68,7 @@ from pydelity.verifying.schemas import (
     BreakSettings,
     BreakVerdict,
     BreakVerification,
+    BreakVerifierVerdict,
     Judgment,
 )
 from pydelity.verifying.validators import (
@@ -70,6 +78,24 @@ from pydelity.verifying.validators import (
     review_issues,
     run_checks,
 )
+
+# A verdict with nothing in it, for measuring the verifier's own text without the
+# verdict it reviews, which the estimate counts as the judge's answer.
+_EMPTY_VERDICT = BreakVerdict(containers=[], continues=False, pieces=[], reason="")
+
+# The size of a break's judge and verifier requests before the survey has made the
+# hints their instructions hold, in characters, without the pages: the instructions
+# with the hints and, for the verifier, its review text, plus the answer format.
+# Rounded up from the largest measured on real surveys, 13,967 and 17,143.
+_JUDGE_ALLOWANCE_CHARS = 14_000
+_VERIFIER_ALLOWANCE_CHARS = 18_000
+
+# The size of one page's details in a break's requests before its page file exists,
+# in characters, beyond twice its text-layer characters. Rounded up from real runs
+# of 2 to 257 pages and the test answers for the 1965 scan, so that no run's breaks
+# together come out smaller than measured. The scan's form pages, which have no
+# text layer, needed the most, 5,353.
+_PAGE_ALLOWANCE_CHARS = 6_000
 
 # The folder in the output folder that holds the verdict files,
 # ``page_breaks/<NNNN>-<NNNN>.json``.
@@ -745,6 +771,28 @@ def _saved_break(
     return None if damage is not None else loaded.model
 
 
+def _text_chars(prompts: BreakPrompts) -> int:
+    """Count the characters of a request's instructions and text parts.
+
+    Parameters
+    ----------
+    prompts
+        The request's prompts.
+
+    Returns
+    -------
+    int
+        The length of the instructions, both page texts and the review text.
+    """
+
+    return (
+        len(prompts.system_message)
+        + len(prompts.earlier_text)
+        + len(prompts.later_text)
+        + len(prompts.review_text or "")
+    )
+
+
 def _verifier_outcome(verification: BreakVerification | None) -> str:
     """Describe the verifier's review for the break's log line.
 
@@ -1000,6 +1048,109 @@ def plan_breaks(
         reused=reused,
     )
     return planned
+
+
+def request_sizes(breaks: Sequence[PlannedBreak]) -> list[BreakRequestSize]:
+    """Measure the requests of the breaks to judge, for the cost estimate.
+
+    Parameters
+    ----------
+    breaks
+        The breaks to judge, from `plan_breaks`. A break with a page that has no
+        content items needs no request and is left out.
+
+    Returns
+    -------
+    list[BreakRequestSize]
+        The request sizes of each break the models would judge, in the order of
+        ``breaks``.
+    """
+
+    verdict_format = len(json.dumps(BreakVerdict.model_json_schema()))
+    review_format = len(json.dumps(BreakVerifierVerdict.model_json_schema()))
+    sizes = []
+    for planned in breaks:
+        if _pages_without_content(planned):
+            continue
+        context = planned.inputs.context
+        judged = judge_break(
+            context, earlier=planned.earlier.page_file, later=planned.later.page_file
+        )
+        verifier = verify_break(
+            context, differences={}, failures={}, judged=judged, verdict=_EMPTY_VERDICT
+        )
+        sizes.append(
+            BreakRequestSize(
+                judge_chars=_text_chars(judged) + verdict_format,
+                verifier_chars=_text_chars(verifier) + review_format,
+            )
+        )
+    return sizes
+
+
+def request_sizes_before_pages(
+    *,
+    config: Config,
+    earlier_page_indexes: Sequence[int],
+    facts: Facts,
+    survey: PdfSurvey | None,
+) -> list[BreakRequestSize]:
+    """Size the requests of breaks whose page files do not exist yet.
+
+    The instructions are measured from the survey when it exists, and are otherwise
+    an allowance with the user's instructions added. Each page adds an allowance
+    plus twice its text-layer characters.
+
+    Parameters
+    ----------
+    config
+        The run's settings.
+    earlier_page_indexes
+        The breaks, each by the page before it (0-based).
+    facts
+        The measured facts, for each page's text-layer characters.
+    survey
+        The survey, or ``None`` before it has run.
+
+    Returns
+    -------
+    list[BreakRequestSize]
+        Each break's request sizes, in the order of ``earlier_page_indexes``.
+    """
+
+    if survey is None:
+        instructions = len(config.advanced.page_breaks.instructions or "")
+        judge = _JUDGE_ALLOWANCE_CHARS + instructions
+        verifier = _VERIFIER_ALLOWANCE_CHARS + instructions
+    else:
+        context = _break_context(config=config, survey=survey)
+        judge = len(judge_instructions(context)) + len(
+            json.dumps(BreakVerdict.model_json_schema())
+        )
+        # The verifier's instructions and review text, without page texts.
+        blank = BreakPrompts(
+            earlier_text="", later_text="", review_text=None, system_message=""
+        )
+        verifier = _text_chars(
+            verify_break(
+                context,
+                differences={},
+                failures={},
+                judged=blank,
+                verdict=_EMPTY_VERDICT,
+            )
+        ) + len(json.dumps(BreakVerifierVerdict.model_json_schema()))
+
+    sizes = []
+    for index in earlier_page_indexes:
+        pages = sum(
+            _PAGE_ALLOWANCE_CHARS + 2 * facts.pages[page_index].text.chars
+            for page_index in (index, index + 1)
+        )
+        sizes.append(
+            BreakRequestSize(judge_chars=judge + pages, verifier_chars=verifier + pages)
+        )
+    return sizes
 
 
 async def verify_breaks(

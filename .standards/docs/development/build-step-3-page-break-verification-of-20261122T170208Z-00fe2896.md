@@ -601,8 +601,7 @@ the uncommitted DEV-006 changes. Assessed content: the new
 
 ### DEV-007 — Page-break verification in the estimate and the ledger
 
-`Status`: `PENDING` `Depends On`: `DEV-006` `Acceptance`:
-`AC-032, AC-033, AC-034`
+`Status`: `DONE` `Depends On`: `DEV-006` `Acceptance`: `AC-032, AC-033, AC-034`
 
 **Goal**
 
@@ -616,7 +615,9 @@ MODIFY `src/pydelity/costs/budget.py` (`BreakRequestSize`,
 `TYPICAL_BREAK_VERDICT_OUTPUT_TOKENS`), `src/pydelity/costs/schemas.py`
 (`StepEstimate.breaks`, `LedgerEntry.agent` and `page_index` docstrings),
 `src/pydelity/verifying/verification.py` (request sizes, measured and
-allowance), and the existing `StepEstimate` callers (`breaks=None`).
+allowance), `src/pydelity/verifying/prompts.py` (`judge_instructions`, split out
+of `judge_break`), the existing `StepEstimate` callers (`breaks=None`), and the
+regenerated `docs/src/content/docs/reference/cost-jsonl.md`.
 
 **Expected Outcome**
 
@@ -638,6 +639,65 @@ The lint commands; pytest and doctests; a scratchpad script that compares
 `estimate_page_breaks` with hand-computed figures for verifier off and on,
 reused and `no_content` breaks, and that prints the measured prompt sizes behind
 the allowance constants.
+
+Evidence, 2026-11-22, repo root, on `09cad96` (the user's DEV-006 commit) plus
+the uncommitted DEV-007 changes. Assessed content, lines and SHA-256 prefix:
+`src/pydelity/costs/budget.py` (809, `64128e6fd55a2243`),
+`src/pydelity/costs/schemas.py` (178, `d3b6d87bc8d0516b`),
+`src/pydelity/verifying/prompts.py` (589, `979c746d39dc4896`),
+`src/pydelity/verifying/verification.py` (1,244, `5e70c82ba3d2aa17`) and
+`docs/src/content/docs/reference/cost-jsonl.md` (121, `d99b02a4f9e78248`), with
+no other change under `src`, `scripts`, `examples` or `docs`.
+
+- `ruff check scripts src tests`, `ruff format --check` and
+  `ty check scripts src tests`: all passed. `interrogate scripts src tests`:
+  100%.
+- `.venv/bin/pytest --numprocesses auto`: 211 passed. No existing test builds
+  `StepEstimate`, so none fails from the new required `breaks`.
+  `--doctest-modules src`: 33 passed, 1 skipped. The reference-page generator
+  followed by the Markdown formatter changes only `cost-jsonl.md`, which now
+  shows `StepEstimate.breaks`, the ledger's `judge` agent and break
+  `page_index`, and the two new constants.
+- Scratchpad `measure.py` (read only, `PYTHONPATH=src`) built the prompts from
+  the 26 local runs under `pydelity-output/` whose surveys load. The judge's
+  instructions and verdict format measure 10,820 to 13,967 characters, and the
+  verifier's instructions, review text and answer format up to 17,143. The
+  allowances are 14,000 and 18,000. Page details minus twice the text-layer
+  characters, over 1,792 page texts, have a median of 1,400, a 90th percentile
+  of 3,323 and a maximum of 17,768 (two scanned pages of `imnci`). Fitted so no
+  run's breaks together come out smaller than measured, the real runs need at
+  most 2,708 per page (`imnci`, 93 breaks), and the canned 1965 scan, whose form
+  pages have no text layer, needs 5,353. The page allowance is 6,000, which puts
+  the real runs' totals at 1.25 to 1.63 times measured and the scan's at 1.06.
+- Scratchpad `dev007_check.py` (`PYTHONPATH=src:.`, prices set at $2 and $10 per
+  million input and output tokens): 25 of 25 checks passed.
+  - `estimate_page_breaks` equals the hand-computed expected and maximum costs
+    for `anthropic:claude-opus-5-5` (4,784 image tokens) and `openai:gpt-5.5`
+    (12,000), with the verifier off and on. It gives `breaks` 2, `pages` null,
+    `requests_max` 6 or 12, and `verifier` as set. It also matches with
+    `max_output_tokens` 2,500 and one retry (`requests_max` 4).
+    `advanced.page_breaks.verify: false` wins over `verify`. No breaks gives a
+    reused, free step. An unknown model gives no figures. `estimate_run` adds
+    the step and counts nothing for a reused one.
+  - `request_sizes` on DEV-006's eight hand-built pages leaves out the four
+    `no_content` breaks and equals the instructions, page texts and formats of
+    `judge_break` and `verify_break` with an empty verdict.
+  - `request_sizes_before_pages` gives 14,000 or 18,000 plus the user's
+    instructions before the survey, the measured instructions with it, and each
+    page 6,000 plus twice its text-layer characters. On the 1965 scan it gives
+    26,000 before the survey and 22,528 with it, against 21,233 measured.
+
+**Implementation Notes**
+
+- `judge_instructions(context)` is split out of `judge_break` with its output
+  unchanged, so the allowance can measure the judge's instructions before any
+  page file exists. The verifier's are measured by calling `verify_break` with
+  empty page texts.
+- The allowance adds the user's `instructions` before the survey, since they are
+  known then and can be long.
+- `request_sizes` leaves out `no_content` breaks itself. The caller passes the
+  breaks to judge, as for pages. `request_sizes_before_pages` counts every break
+  it is given, since no page file shows which would need no request.
 
 ### DEV-008 — Page-break verification in runs
 

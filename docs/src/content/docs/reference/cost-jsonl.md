@@ -17,7 +17,8 @@ response pydelity received, in the order received.
 One model request that returned a response, as a line of `cost.jsonl`.
 
 - `agent` (string; required): The step's agent that made the request: `surveyor`
-  or `verifier` for the survey, `extractor` or `verifier` for page extraction.
+  or `verifier` for the survey, `extractor` or `verifier` for page extraction,
+  `judge` or `verifier` for page-break verification.
 - `cache_read_tokens` (integer; required): Input tokens read from the provider's
   prompt cache (included in `input_tokens`).
 - `cache_write_tokens` (integer; required): Input tokens written to the
@@ -28,7 +29,8 @@ One model request that returned a response, as a line of `cost.jsonl`.
 - `model` (string; required): The model ID pydelity asked for.
 - `output_tokens` (integer; required): Output tokens, thinking included.
 - `page_index` (integer or null; required): The page the request was about
-  (0-based); `None` for a request about the whole PDF, such as the survey's.
+  (0-based); for page-break verification, the page before the break; `None` for
+  a request about the whole PDF, such as the survey's.
 - `price_source` (string or null; required): Where the price came from:
   `genai-prices <version>`, `config` (prices set in `advanced.models`), or
   `None` when unpriced.
@@ -69,9 +71,11 @@ A run's likely and maximum cost, estimated before it spends anything.
 
 The cost estimate for one step.
 
+- `breaks` (integer or null; required): How many page breaks the step would
+  judge, for page-break verification; `None` for the other steps.
 - `expected_usd` (number or null; required): The likely cost: one request per
-  agent that runs (and per page, for a page step) with a typical answer; `None`
-  when unpriced.
+  agent that runs (and per page or break, for a step that sends requests about
+  each) with a typical answer; `None` when unpriced.
 - `max_usd` (number or null; required): The most the step can cost: every
   allowed retry, each with the longest answer allowed; `None` when unpriced.
 - `model` (string; required): The model, as `<provider>:<model-id>`.
@@ -96,6 +100,10 @@ The figures the cost estimate and the `max_cost` checks use.
 - `TEXT_CHARS_PER_OUTPUT_TOKEN` = `2`: Characters of a page's text layer per
   output token of its extraction, beyond `TYPICAL_PAGE_OUTPUT_TOKENS`, for the
   estimate. The answer repeats the text with an item's fields around it.
+- `TYPICAL_BREAK_OUTPUT_TOKENS` = `4000`: The output tokens of a typical
+  page-break verdict, thinking included, for the estimate.
+- `TYPICAL_BREAK_VERDICT_OUTPUT_TOKENS` = `3000`: The output tokens of a typical
+  review of a page-break verdict, thinking included, for the estimate.
 - `TYPICAL_OUTPUT_TOKENS` = `8000`: The output tokens of a typical survey
   answer, thinking included, for the estimate.
 - `TYPICAL_PAGE_OUTPUT_TOKENS` = `4000`: The output tokens of a typical page

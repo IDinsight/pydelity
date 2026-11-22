@@ -18,7 +18,7 @@
 `Development`:
 `.standards/docs/development/build-step-3-page-break-verification-of-20261122T170208Z-00fe2896.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-006 is done. Continue with DEV-007 (the estimate and the ledger)?`
+`DEV-007 is done. Continue with DEV-008 (page-break verification in runs)?`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

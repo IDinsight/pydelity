@@ -487,6 +487,33 @@ def judge_break(
         before each page image.
     """
 
+    first, second = earlier.page_index, later.page_index
+    return BreakPrompts(
+        earlier_text=(
+            f"Page break between page indexes {first} and {second} (pages {first + 1} "
+            f"and {second + 1} of {context.page_count})\n\n"
+            + _page_text(earlier, side="before")
+        ),
+        later_text=_page_text(later, side="after"),
+        review_text=None,
+        system_message=judge_instructions(context),
+    )
+
+
+def judge_instructions(context: BreakContext) -> str:
+    """Write the judge's instructions, the same for every break of a run.
+
+    Parameters
+    ----------
+    context
+        The context every break of the PDF shares.
+
+    Returns
+    -------
+    str
+        The rules, the survey's hints, and the user's instructions when set.
+    """
+
     system_message = (
         "You judge one page break, the break between two consecutive pages of a PDF. "
         "Say whether any content carries on from the page before the break to the "
@@ -498,17 +525,7 @@ def judge_break(
         "to fix if a check fails.\n\n"
         f"{_hints(context)}"
     )
-    first, second = earlier.page_index, later.page_index
-    return BreakPrompts(
-        earlier_text=(
-            f"Page break between page indexes {first} and {second} (pages {first + 1} "
-            f"and {second + 1} of {context.page_count})\n\n"
-            + _page_text(earlier, side="before")
-        ),
-        later_text=_page_text(later, side="after"),
-        review_text=None,
-        system_message=_with_user_instructions(system_message, context.instructions),
-    )
+    return _with_user_instructions(system_message, context.instructions)
 
 
 def verify_break(
