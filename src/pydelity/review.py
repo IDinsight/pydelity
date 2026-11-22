@@ -12,7 +12,8 @@ from typing import Literal
 # Third Party Library
 from pydantic import BaseModel, ConfigDict
 
-# Page extraction's checks on each answer, in the order they run.
+# Page extraction's checks on each answer, in the order they run. A failure may send
+# the answer back.
 type ExtractionCheckName = Literal[
     "labels",
     "content",
@@ -20,6 +21,12 @@ type ExtractionCheckName = Literal[
     "boxes",
     "containers",
     "captions",
+]
+
+# Page extraction's hints, the comparisons of each answer with what code measured or
+# the survey found about the page, in the order they run. A difference never sends
+# the answer back.
+type ExtractionHintName = Literal[
     "reading_order",
     "artifacts",
     "form_fields",
@@ -34,6 +41,7 @@ type ExtractionIssueName = Literal["no_matching_label"]
 # The name of what found a review issue, in any step.
 type IssueName = (
     ExtractionCheckName
+    | ExtractionHintName
     | ExtractionIssueName
     | SurveyCheckName
     | SurveyComparisonName

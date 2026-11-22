@@ -476,7 +476,7 @@ requests, but no `run.json` and no report. It does not prompt for input.
   or empty.
 - `OutputError`: An output folder, or a file in it, cannot be read back.
 - [`PageFile`](../page-json/): The contents of `pages/<NNNN>.json`: one page's
-  items and their checks.
+  items, checks and hints.
 - `PdfError`: The PDF is empty, password-protected or cannot be opened.
 - [`PdfFacts`](../pdf-facts-json/): The contents of `pdf_facts.json`: the
   measured facts and their summary.

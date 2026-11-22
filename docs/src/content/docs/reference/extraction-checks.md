@@ -1,8 +1,8 @@
 ---
 title: Page extraction checks
 description:
-  The checks every page answer goes through, and the other review issues page
-  extraction records.
+  The checks every page answer goes through, the hints it is compared with, and
+  the other review issues page extraction records.
 sidebar:
   order: 11
 ---
@@ -10,15 +10,21 @@ sidebar:
 <!-- Generated from pydelity's code by scripts/generate_reference_docs.py. Run `just docs-reference` instead of editing this file. -->
 
 Each page answer, from the extraction model or in a verifier's correction, goes
-through these checks. While retries remain
+through the checks and is compared with the hints. A check tests the answer
+against itself, the PDF's profile and the page's area. While retries remain
 (`advanced.extraction.check_retries`), an answer that fails a check is sent back
-to the model with every failure listed. The last answer is kept as it is. A
-verifier correction replaces the extraction when it passes every check other
-than `text_dropped` and `text_added`. The page file's `checks` holds each
-check's result on the kept answer. Each check it still fails becomes a review
-issue, except `text_dropped` and `text_added` on a page the verifier passes or
-whose correction is kept. With the verifier off (`advanced.extraction.verify`,
-or `verify`), every check still failing is a review issue.
+to the model with every failure listed. The last answer is kept as it is, and
+each check it still fails becomes a review issue. A hint compares the answer
+with what code measured or the survey found about the page, which can be wrong,
+so the model's reading of the page image decides. A hint difference never sends
+an answer back and never stops a run.
+
+A verifier correction replaces the extraction when it passes every check,
+whatever its hint differences. The page file's `checks` holds each check's
+result on the kept answer, and its `hints` each hint's differences. A hint
+difference becomes a review issue unless the verifier passed the page or its
+correction was kept. With the verifier off (`advanced.extraction.verify`, or
+`verify`), every hint difference is a review issue.
 
 ## Checks
 
@@ -49,48 +55,51 @@ Check that containers exist, do not nest in a loop, and hold what names them.
 
 Check that each caption names the item it captions, and only captions do.
 
+## Hints
+
 ### `reading_order`
 
-Check that the reading order follows the page's writing direction.
+Compare the reading order with the writing direction the survey found.
 
-Over consecutive items of the page's flow (headings, body text and navigation),
-a jump back against the direction is allowed only with a move to a new column,
-or to a new band on a page written top to bottom.
+This is a hint. Over consecutive items of the page's flow (headings, body text
+and navigation), a jump back against the direction agrees with it only with a
+move to a new column, or to a new band on a page written top to bottom.
 
 ### `artifacts`
 
-Keep the page furniture the survey found inside items with role artifact.
+Compare the page furniture the survey found with the items of role artifact.
 
-Each line the survey classed as page furniture is found on the page in the
-stored text, at every place a line with its normalized form sits. The line
-passes when the center of at least one of those places lies inside the box of an
-item with role `artifact`, within 20 grid units. One is enough, since body lines
-can share the furniture's form, such as a table's numbers beside a page number.
-Its text is never compared with the answer's, since the stored text can differ
-from what is printed. A furniture line the page's stored text does not hold is
-skipped, and an artifact item with a malformed box is left out, since the
-`boxes` check reports it.
+This is a hint. Each line the survey classed as page furniture is found on the
+page in the stored text, at every place a line with its normalized form sits.
+The line agrees when the center of at least one of those places lies inside the
+box of an item with role `artifact`, within 20 grid units. One is enough, since
+body lines can share the furniture's form, such as a table's numbers beside a
+page number. Its text is never compared with the answer's, since the stored text
+can differ from what is printed. A furniture line the page's stored text does
+not hold is skipped, and an artifact item with a malformed box is left out,
+since the `boxes` check reports it.
 
 ### `form_fields`
 
-Check that the page's fillable fields are field items with the same values.
+Compare the page's fillable form fields with the field items that name them.
 
-A field the PDF has more than once on the page, such as a group of radio
-buttons, needs as many field items naming it, with the same checked states or
-values. Values are compared with whitespace collapsed.
+This is a hint. A field the PDF has more than once on the page, such as a group
+of radio buttons, agrees when as many field items name it, with the same checked
+states or values. Values are compared with whitespace collapsed.
 
 ### `text_dropped`
 
 Find lines the page's text layer has that the answer does not.
 
-It runs only when the page file's `text_comparison` is `compared`. A line also
-counts as found when its reversed text is in the answer.
+This is a hint. It runs only when the page file's `text_comparison` is
+`compared`. A line also counts as found when its reversed text is in the answer.
 
 ### `text_added`
 
 Find lines the answer has that the page's text layer does not.
 
-It runs only when the page file's `text_comparison` is `compared`.
+This is a hint. It runs only when the page file's `text_comparison` is
+`compared`.
 
 ## How text is compared
 

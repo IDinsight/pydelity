@@ -7,7 +7,7 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 
 `Cycle`: `add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada`
 `Mode`: `STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`COMPLETE` `Verification Cadence`: `INCREMENTAL` `Current Increment`: `NONE`
+`PROPOSED` `Verification Cadence`: `INCREMENTAL` `Current Increment`: `NONE`
 
 ## Implementation Contract
 
@@ -16,7 +16,7 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 - `Architecture`:
   `.standards/docs/specs/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
 - `Request`:
-  `Reorder every module first; then make each step's verifier opt-in (one global switch plus a per-step override, off by default), give the survey a verifier like page extraction's, make page extraction's verifier optional with every difference listed when none ran, fix page extraction's remaining defects, and ready 0.2.0's docstrings, reference pages and package description.`
+  `Reorder every module first; then make each step's verifier opt-in (one global switch plus a per-step override, off by default), give the survey a verifier like page extraction's, make page extraction's verifier optional with every difference listed when none ran, fix page extraction's remaining defects, and ready 0.2.0's docstrings, reference pages and package description. Then, as user rework: code's measurements of the PDF become hints in both steps; only checks send an answer back, outputs record hints apart, and prompts present them as hints.`
 
 ## Build Steps
 
@@ -287,7 +287,7 @@ changes to `src/pydelity/config/schemas.py`, `src/pydelity/cli.py`,
 ### DEV-003 — Page extraction with an optional verifier
 
 `Status`: `DONE` `Depends On`: `DEV-002` `Acceptance`:
-`AC-001, AC-005, AC-006, AC-018, AC-019, AC-020`
+`AC-001, AC-005, AC-006, AC-018, AC-020`
 
 **Goal**
 
@@ -1169,7 +1169,7 @@ arm64, Python 3.13.9, `.venv`, PyMuPDF 2.1).
 
 `Status`: `DONE` `Depends On`:
 `DEV-003, DEV-006, DEV-007, DEV-008, DEV-009, DEV-010` `Acceptance`:
-`AC-028, AC-030, AC-033, AC-034`
+`AC-028, AC-030, AC-033`
 
 **Goal**
 
@@ -1279,6 +1279,340 @@ insertions and 57 deletions over 13 files, SHA-256 starting `b00a83ede04aedb0`
   dependencies from PyPI into a fresh environment. On 2026-11-21 the user chose
   to leave it to CI, which runs it on Linux, macOS and Windows; Tester's full
   verification assesses that result (`AC-028`).
+
+---
+
+### DEV-012 — Page extraction keeps checks and hints apart
+
+`Status`: `DONE` `Depends On`: `DEV-003, DEV-011` `Acceptance`:
+`AC-043, AC-044, AC-046, AC-047, AC-048, AC-049`
+
+**Goal**
+
+Make page extraction's five comparisons with the PDF hints that never send an
+answer or a correction back, record them in the page file apart from the six
+checks, and list their differences under the design's review rule (decisions 3,
+14 and 15).
+
+**Affected Area**
+
+`src/pydelity/review.py` (`ExtractionCheckName` to the six checks, new
+`ExtractionHintName`, `IssueName`); `src/pydelity/extracting/validators.py`
+(`CHECKS`, `HINTS`, `compare_with_hints`, hint results and their review issues,
+`run_checks`, `retry_message`, the hint messages, module docstring);
+`src/pydelity/extracting/schemas.py` (`ExtractionHintResult`, `PageFile.hints`,
+the `issues`, `checks` and `PageVerification` docstrings);
+`src/pydelity/extracting/agents.py` (docstrings);
+`src/pydelity/extracting/llm.py` (`ModelPage`, `ModelVerdict`, `ask_verifier`);
+`src/pydelity/extracting/prompts.py` (`verify_page`'s two sections only);
+`src/pydelity/extracting/extraction.py` (`_extract_page`, `_KeptAnswer`,
+`_kept_answer`, `_page_issues`); `scripts/generate_reference_docs.py` only as
+far as it needs to keep running with `TEXT_CHECKS` gone; the regenerated
+`page-json.md` and `run-json.md`.
+
+**Expected Outcome**
+
+- `CHECKS` holds `labels`, `content`, `languages`, `boxes`, `containers`,
+  `captions`; `HINTS` holds `reading_order`, `artifacts`, `form_fields`,
+  `text_dropped`, `text_added`, each returning its differences as
+  `CheckFailure`s. `TEXT_CHECKS` and `_TEXT_NOTE` are gone. What each hint
+  compares, its tolerances and the `comparison_status` gate stay as they are.
+- `run_checks` runs `CHECKS` only, so both agents' output validators raise
+  `ModelRetry` only for a check failure and the retry message lists check
+  failures only. An answer or correction whose only differences are hints is
+  accepted on that attempt. A final answer still failing a check is kept and
+  written, as now.
+- Hint messages describe the difference and never say what to change, in the
+  sense of **Checks and hints** (for example, `text_dropped`: "the page's text
+  layer has the line '…', which is not in the answer").
+- `_kept_answer` keeps a correction that passes every check, whatever its hint
+  differences.
+- The verifier's user message gives, after the extraction,
+  `Checks it still fails, which a correction must pass:` and
+  `Differences from the hints, which the page image overrides:`, each with one
+  line per failure or difference or `none`, compared on the extractor's answer.
+  The rest of the prompt wording is DEV-014's.
+- `PageFile.hints: list[ExtractionHintResult]` (required, `name` and
+  `differences`) holds each hint's differences on the kept answer, in `HINTS`
+  order, whatever the verdict. `checks` holds the six checks. A page file
+  without `hints` fails validation and is made again with `damaged_output`.
+  `PAGE_SCHEMA_VERSION` and `PROMPT_VERSION` stay as they are.
+- `_page_issues` lists, in order: each check still failing on the kept answer;
+  each hint difference, unless `verification` is set and the verdict passed or
+  the correction was applied; `no_matching_label` issues; then `verifier` issues
+  when the correction was not applied. A hint issue keeps the hint's name in
+  `check`.
+- Docstrings in the changed modules say a hint difference never sends an answer
+  back.
+
+**Self-Check**
+
+Ruff check and format check, `ty check` and interrogate on `scripts src`; the
+module order check. A scratchpad script, with the stand-in on a test PDF and
+PydanticAI's `FunctionModel` inside `LedgerModel`, checks that:
+
+- an answer differing from the page only in hints (a dropped text line, an
+  uncovered furniture line, a wrong field value, an out-of-order item) is
+  accepted on the first attempt with no retry, and its differences are in
+  `hints` and on the review list with no verifier;
+- an answer failing a check is sent back, the retry message names only check
+  failures, and a last answer still failing is kept and listed;
+- with the verifier on, its user message has both sections, a `text_dropped`
+  line quoting its stored line; a correction differing only in hints is kept; a
+  correction failing a check is not; hint issues are left off the list when the
+  verdict passed or the correction was kept, and listed otherwise;
+- an old page file without `hints` is extracted again with `damaged_output`.
+
+Then `generate_reference_docs.py` and `format_markdown.mjs`, and the existing
+tests and doctests, with each failure from a replaced contract listed.
+
+**Evidence**
+
+Evidence, 2026-11-22, repo root, on `5cb51ac` plus the uncommitted DEV-012
+changes: `git diff HEAD -- src scripts examples docs pyproject.toml` has 456
+insertions and 247 deletions over 13 files, SHA-256 starting `b3a1d7fad6a32d30`
+(macOS arm64, Python 3.13.9, `.venv`). Changed: `src/pydelity/review.py`,
+`extracting/validators.py`, `extracting/schemas.py`, `extracting/agents.py`,
+`extracting/llm.py`, `extracting/prompts.py`, `extracting/extraction.py`,
+`scripts/generate_reference_docs.py`, and the generated `extraction-checks.md`,
+`page-json.md`, `pdf-survey-json.md`, `run-json.md` and `python-api.md`.
+
+- Scratch module `dev012/check_hints.py` in the session scratchpad, run with
+  `.venv/bin/python -m pytest -p tests.conftest -p tests.pydelity.extracting.conftest`
+  against the stand-in on the tests' 3-page text PDF: 9 of 9 passed.
+  - `CHECKS` and `HINTS` hold the design's six and five names in order.
+  - No verifier, an answer that drops the page's last line and adds one: one
+    extractor request, no retry; every check passes; `hints` holds one
+    `text_dropped` difference quoting the stored line ("which is not in the
+    answer") and one `text_added`; the review list is `text_dropped`,
+    `text_added`, as in `run.json`'s `review` after a whole run; the page file's
+    `hints` lists the five names; `verification` is null.
+  - No verifier, an answer leaving the running header uncovered and putting the
+    second line 380 units above the first: one extractor request; `artifacts`
+    ("the survey found the repeated line R1 ...") and `reading_order` ("..., for
+    the direction the survey found") differences, both listed.
+  - A label not in the profile, together with a dropped line: three extractor
+    requests; each retry message names `labels:` and no hint, and has no "keep
+    what the image shows" note; the last answer is kept; issues are `labels`,
+    then `text_dropped`.
+  - Verifier on, extraction dropping a line, verdict passed: one extractor and
+    one verifier request; the verifier's user message has
+    `Checks it still fails, which a correction must pass:` with `none`, then
+    `Differences from the hints, which the page image overrides:` with the
+    `text_dropped` line quoting "Ask the office for a form."; `hints` keeps the
+    difference; no review issue.
+  - A correction differing from the hints only (an added line): kept on the
+    first verifier request, `correction_applied` true, no correction failures,
+    `hints` holds `text_added`, no review issue.
+  - A correction with a label not in the profile: three verifier requests, each
+    retry naming `labels:` and no hint; not kept; `correction_failures` is
+    `labels` only; issues are `text_dropped`, then `verifier` naming the item's
+    ID.
+  - A page file with `hints` removed gives the warning "0000.json is not valid:
+    hints: Field required; extracting page 1 (index 0) again" and a new
+    extractor request.
+  - `compare_with_hints` on a page with form fields and `column_order` set on a
+    left-to-right page gives "the PDF stores the values ['Springfield'] for the
+    form field 'city', but its field items say ['Shelbyville']", "the PDF stores
+    the checked states [True] for the form field 'agree', but its field items
+    say [False]" and "column_order is left_to_right, but the survey found the
+    page written left to right"; no hint message says "must", "set it" or "Fix";
+    `run_checks` on the same answer finds nothing.
+- `ruff check` "All checks passed!"; `ruff format --check scripts src tests` "89
+  files already formatted"; `ty check scripts src` "All checks passed!";
+  `interrogate` 100.0%; doctests 28 passed, 1 skipped.
+- Module order (scratch `dev012/order_check.py` on the seven changed modules):
+  the only new departures are `CHECKS`, below `check_languages`, and `HINTS`,
+  below `check_text_dropped`, the last functions each lists; the rest are the
+  `extracting/schemas.py` departures listed under DEV-001.
+- Reference pages: `generate_reference_docs.py`, then `format_markdown.mjs` with
+  the hook's Prettier and Node 24.22.3. `extraction-checks.md` lists the six
+  checks under "Checks" and the five hints under "Hints", after two paragraphs
+  on the rule; `page-json.md` gains `hints` and `hints[]`, and the
+  `correction_applied`, `issues` and `IssueName` texts change;
+  `pdf-survey-json.md` and `run-json.md` change only in `IssueName`;
+  `python-api.md` only in `PageFile`'s summary. The formatter's STANDARDS check
+  passed.
+- Tests: 195 passed, 12 failed. Each is a replaced contract, for Tester:
+  - Retries on hint differences:
+    `test_extraction.py::test_a_page_no_verifier_reviewed_keeps_its_extraction_and_lists_each_difference`
+    (3 extractor requests expected, 1 made) and
+    `test_the_verifier_s_verdict_decides_the_kept_answer_and_its_issues`
+    (`passed`, `correction_kept`, `correction_rejected`: retries and the text
+    note expected).
+  - Old message wording: `test_validators.py`
+    `test_artifacts_check_names_uncovered_furniture_and_skips_what_it_cannot_judge`,
+    `test_form_fields_check_compares_fillable_fields_with_field_items` and
+    `test_reading_order_check_allows_new_columns_but_not_jumps_back` (`ltr`,
+    `rtl`, `ttb-left-to-right`, `ttb-right-to-left`).
+  - `run_checks` holding the hints:
+    `test_a_page_answered_as_one_full_page_figure_passes_every_check`.
+  - The text note in retry messages:
+    `test_text_checks_are_skipped_when_the_text_layer_cannot_be_compared`.
+  - `ty check tests` reports 2 errors, `test_validators.py` lines 1161 and 1166,
+    which pass text hint names to `retry_message`.
+- Not run: the wheel smoke test and Python 3.14, as before.
+
+**Implementation Notes**
+
+- The hint functions keep their names (`check_reading_order`, `check_artifacts`,
+  `check_form_fields`, `check_text_dropped`, `check_text_added`), since the
+  design names only the `HINTS` table and `compare_with_hints`. Their docstrings
+  start "Compare ..." or "Find ..." and say they are hints.
+- `hint_results` and `hint_issues` sit beside `check_results` and
+  `review_issues`; both issue builders share `_review_issue`.
+- `extraction-checks.md`'s rule text and headings changed here rather than in
+  DEV-015, because the page would otherwise describe the rule this step
+  replaced. DEV-015 still does the survey's page and the remaining docstrings.
+- The verifier prompt's `_VERDICT` paragraph still speaks of checks finding
+  differences from stored text; DEV-014 rewrites it.
+
+---
+
+### DEV-013 — The survey keeps checks and hints apart
+
+`Status`: `PENDING` `Depends On`: `DEV-006, DEV-012` `Acceptance`:
+`AC-011, AC-043, AC-044, AC-049`
+
+**Goal**
+
+Record the survey's two comparisons with the facts as hints, apart from C1–C7,
+and give them to its verifier as hints (decisions 14 and 15).
+
+**Affected Area**
+
+`src/pydelity/review.py` (`SurveyComparisonName` becomes `SurveyHintName`);
+`src/pydelity/surveying/validators.py` (`HINTS`, `compare_with_hints` in place
+of `compare_with_facts`, the two hints returning `CheckFailure`s, their review
+issues, module docstring); `src/pydelity/surveying/schemas.py` (`HintResult`,
+`PdfSurvey.hints`, the `issues` docstring); `src/pydelity/surveying/survey.py`
+(`build_survey`); `src/pydelity/surveying/llm.py` (`ask_verifier`);
+`src/pydelity/surveying/prompts.py` (`verify_survey`'s heading and input);
+`scripts/generate_reference_docs.py` only as far as it needs to keep running;
+the regenerated `pdf-survey-json.md` and `run-json.md`.
+
+**Expected Outcome**
+
+- `HINTS` is `rotation_differs`, then `page_number_differs`, each returning its
+  differences as `CheckFailure`s with today's messages and details;
+  `compare_with_hints` runs them. `compare_with_facts` and
+  `SurveyComparisonName` are gone.
+- `PdfSurvey.hints: list[HintResult]` (required) holds each hint's differences
+  on the kept answer, whatever the verdict. A `pdf_survey.json` without `hints`
+  fails validation and is surveyed again with `damaged_output`.
+  `SURVEY_SCHEMA_VERSION` stays as it is.
+- `issues` follow **Survey verdict application** step 4: checks still failing,
+  then each hint difference unless the verdict passed or its correction was
+  applied, then `verifier` issues. A hint issue keeps the hint's name in
+  `check`, as `run.json` has it now.
+- The verifier's user message gives the hint differences under
+  `Differences from the measured facts, which are hints the PDF overrides:`.
+  C1–C7, their retries and the keep rule are unchanged.
+
+**Self-Check**
+
+Ruff, ty, interrogate and the module order check; a scratchpad survey run
+against the stand-in, with facts edited to give a `rotation_differs` and a
+`page_number_differs`, for no verifier, passed, correction kept and correction
+not kept, checking `hints`, the review list in `pdf_survey.json` and `run.json`,
+the verifier's user message, and that no survey retry message carries a hint; an
+old `pdf_survey.json` without `hints` surveyed again with `damaged_output`; the
+reference pages regenerated; the existing tests with replaced-contract failures
+listed.
+
+---
+
+### DEV-014 — Prompts present measured facts as hints
+
+`Status`: `PENDING` `Depends On`: `DEV-012, DEV-013` `Acceptance`:
+`AC-043, AC-045, AC-054`
+
+**Goal**
+
+Make page extraction's prompts, and the survey verifier's verdict rules, present
+code's measurements and the survey's findings as hints the model's own reading
+overrides (decision 16).
+
+**Affected Area**
+
+`src/pydelity/extracting/prompts.py` (`_page_text`, `_RULES`, `extract_page`,
+`_VERDICT`); `src/pydelity/surveying/prompts.py` (`_VERDICT`).
+
+**Expected Outcome**
+
+- The page text gives the writing direction as what the survey found. The
+  repeated lines, each with its stored text and what the survey found it to be,
+  and the fillable form fields with their stored values come under headings that
+  call them hints from the PDF's stored data and the survey, which the image
+  overrides. The line about how the image was turned stays a plain statement.
+- `_RULES` gains a short paragraph on hints. The page furniture rule no longer
+  tells the model to put a furniture line in an item with role `artifact`; the
+  forms rule says to set `fillable_name` when a field item is one of the fields
+  given and to give the value or mark the image shows; the reading order rule
+  follows the direction the page is written in, with the survey's direction as a
+  hint.
+- The extraction model's system message ends with "Your answer is checked by
+  code for form and consistency, and you will be told what to fix if a check
+  fails."
+- Page extraction's `_VERDICT` second paragraph and the survey's `_VERDICT` say
+  a correction must pass the checks and need not agree with the hints or facts.
+- The extraction request still carries the page image, the repeated lines with
+  their stored text and the form fields with their values, and no other stored
+  text. No prompt asks the model to change an answer to match a hint.
+  `PROMPT_VERSION` stays 1. `survey_pdf`'s messages are unchanged.
+
+**Self-Check**
+
+Ruff, ty and interrogate; a scratchpad script printing every system, user and
+retry message of both steps for two test PDFs, compared with the messages before
+the step, checking the headings, that `survey_pdf`'s messages are unchanged byte
+for byte, that the extraction user message holds no stored text beyond the
+repeated lines and field values, and that no message tells the model to match a
+hint or to put a repeated line in an artifact item; the existing tests and
+doctests.
+
+---
+
+### DEV-015 — Docstrings and the generated checks pages
+
+`Status`: `PENDING` `Depends On`: `DEV-012, DEV-013, DEV-014` `Acceptance`:
+`AC-033, AC-051, AC-052`
+
+**Goal**
+
+Make the docstrings and the generated checks pages describe the hint rule and
+what page extraction sends.
+
+**Affected Area**
+
+`scripts/generate_reference_docs.py` (the `extraction-checks` and
+`survey-checks` pages); docstrings still describing the old rule in
+`src/pydelity/extracting/prompts.py`, `text_layer.py`, `validators.py`,
+`agents.py`, `src/pydelity/surveying/validators.py` and
+`src/pydelity/review.py`; the regenerated pages under
+`docs/src/content/docs/reference/`.
+
+**Expected Outcome**
+
+- Each checks page lists the step's checks and hints under headings of their
+  own, from `CHECKS` and `HINTS`, and says that a check may send an answer back
+  within the check retries, a hint never does, when a hint difference goes on
+  the review list, and that a kept answer still failing a check is kept and
+  listed.
+- No docstring says pydelity sends none of the PDF's stored text or that a text
+  difference sends an answer back. They say page requests carry the repeated
+  lines with their stored text and the survey's findings, and the form fields
+  with their values, all as hints, and that with the verifier on its request
+  lists the answer's hint differences, quoting stored lines.
+- The reference pages, regenerated and formatted, cover `hints` in both output
+  files and the new names.
+
+**Self-Check**
+
+`generate_reference_docs.py` and `format_markdown.mjs`, and a review of the
+diff; a search of `src/`, `scripts/` and the reference pages for the old
+wording; ruff, ty and interrogate; the full test and doctest run, with
+replaced-contract failures listed.
 
 ---
 
@@ -1582,3 +1916,39 @@ the first version, which left such links in place.
   0.2.0 release setup (`AC-031`); the user's real runs (`AC-039`, `AC-040`). The
   README still says "A second model reviews every page".
 - Next: Tester's full verification (`Assessment Purpose` `FULL`).
+
+### Plan revision 2: hints rerun
+
+During synchronization the user changed the request: code's measurements of the
+PDF become hints that never send an answer back, in every step that calls a
+model. Scoper (`01598d8`) and Architect (`5cb51ac`) corrected the scope and
+design under recovery frame 1 (owner `SCOPING`, `RerunThrough`
+`REVIEWING_FINAL`, `ResumeAt` `SYNCHRONIZING`). Developer runs as a downstream
+rerun. Reconciled on `5cb51ac`:
+
+- Since the full completion above, the code changed by DEV-011's commit
+  (`b579737`) and by Documenter's docstring corrections in `c0ed1e9`
+  (`extracting/schemas.py`, `pipeline/schemas.py`, `review.py`); after them only
+  `tests/`, STANDARDS records, the scope and the design changed.
+- New outcomes, in the design's build step 7: DEV-012 (page extraction's checks
+  and hints), DEV-013 (the survey's), DEV-014 (prompt text) and DEV-015
+  (docstrings and the generated checks pages). They change what DEV-003,
+  DEV-005, DEV-006 and DEV-011 built in places (the page review list, the
+  verifiers' user messages, the extraction prompt's closing sentence); those
+  steps stay `DONE` as the record of what they built, and the new steps carry
+  the changed outcomes.
+- Retired identifiers: `AC-019` is dropped from DEV-003 (replaced by `AC-048`,
+  DEV-012) and `AC-034` from DEV-011 (replaced by `AC-051`, DEV-015).
+- No new increment: during recovery the work goes to Tester as a full
+  verification after DEV-015, with no checkpoint.
+- Names from the design: `HINTS`, `compare_with_hints`, `ExtractionHintName`,
+  `SurveyHintName`, `ExtractionHintResult`, `HintResult`, `PageFile.hints`,
+  `PdfSurvey.hints`. Developer names only private helpers.
+- Expected order departures: each `HINTS` sits below the hint functions it
+  lists, as `CHECKS` does.
+- What stops working, as the design says: page files and `pdf_survey.json`
+  written before this change lack `hints` and are made again with
+  `damaged_output`. No compatibility is kept.
+
+The four steps are a material addition, so the plan returned to `PROPOSED`. The
+user approved plan revision 2 on 2026-11-22. The user style `tony` stays locked.

@@ -50,6 +50,7 @@ from pydelity.extracting.schemas import (
     Container,
     Entry,
     ExtractionCheckResult,
+    ExtractionHintResult,
     ExtractionSettings,
     Figure,
     Item,
@@ -66,9 +67,11 @@ from pydelity.extracting.schemas import (
 )
 from pydelity.extracting.text_layer import read_page_text
 from pydelity.extracting.validators import (
-    TEXT_CHECKS,
     check_results,
+    compare_with_hints,
     comparison_status,
+    hint_issues,
+    hint_results,
     review_issues,
     unmatched_labels,
 )
@@ -282,6 +285,7 @@ async def _extract_page(page: "PlannedPage", *, run: _StepRun) -> PageFile:
     if run.model.verify:
         verified = await ask_verifier(
             answer=extracted.answer,
+            differences=compare_with_hints(extracted.answer, context, page_text),
             failures=extracted.failures,
             model=run.model,
             page=page_input,
@@ -290,6 +294,7 @@ async def _extract_page(page: "PlannedPage", *, run: _StepRun) -> PageFile:
 
     built = _page_items(kept.answer, context)
     checks = check_results(kept.failures, attempts=kept.attempts)
+    hints = hint_results(compare_with_hints(kept.answer, context, page_text))
     page_file = PageFile(
         checks=checks,
         column_order=kept.answer.column_order,
@@ -297,9 +302,12 @@ async def _extract_page(page: "PlannedPage", *, run: _StepRun) -> PageFile:
         extracted_at=datetime.now(UTC),
         fingerprint=page.fingerprint,
         height_pt=context.height_pt,
+        hints=hints,
         image=PageImageSize(height_px=image.height_px, width_px=image.width_px),
         inputs=page.inputs,
-        issues=_page_issues(built=built, checks=checks, context=context, kept=kept),
+        issues=_page_issues(
+            built=built, checks=checks, context=context, hints=hints, kept=kept
+        ),
         items=built.items,
         page_index=page_index,
         page_number=page_index + 1,
@@ -402,9 +410,9 @@ def _item(
 def _kept_answer(*, extracted: ModelPage, verified: ModelVerdict | None) -> _KeptAnswer:
     """Apply the verifier's verdict, keeping its correction when the checks allow.
 
-    A correction is kept when it passes every check other than ``text_dropped`` and
-    ``text_added``. Those two compare it with the PDF's stored text, which can be
-    wrong, so a correction that reads the page image correctly can fail them.
+    A correction is kept when it passes every check, whatever its hint differences,
+    since the hints come from the PDF's stored data and the survey, which can be
+    wrong.
 
     Parameters
     ----------
@@ -434,11 +442,7 @@ def _kept_answer(*, extracted: ModelPage, verified: ModelVerdict | None) -> _Kep
     if (
         corrected is not None
         and correction_failures is not None
-        and not any(
-            found
-            for name, found in correction_failures.items()
-            if name not in TEXT_CHECKS
-        )
+        and not any(correction_failures.values())
     ):
         return _KeptAnswer(
             answer=corrected,
@@ -491,6 +495,7 @@ def _page_issues(
     built: _PageItems,
     checks: Sequence[ExtractionCheckResult],
     context: PageContext,
+    hints: Sequence[ExtractionHintResult],
     kept: _KeptAnswer,
 ) -> list[ReviewIssue]:
     """Collect a page's review issues.
@@ -503,27 +508,29 @@ def _page_issues(
         The check results on the kept answer.
     context
         The page's context.
+    hints
+        The hint results on the kept answer.
     kept
         The kept answer and the verifier's review, if one ran.
 
     Returns
     -------
     list[ReviewIssue]
-        The checks still failing on the kept answer, then content no label fits,
-        with its items' IDs added, then the verifier's problems when its correction
-        was not kept. Text differences are left out when the verifier passed the
-        page or its correction was kept, since it judged the reading against the
-        image. On a page no verifier reviewed, every text difference is listed.
-        They all stay in the page file's check results.
+        The checks still failing on the kept answer, then its hint differences,
+        then content no label fits, with its items' IDs added, then the verifier's
+        problems when its correction was not kept. Hint differences are left out
+        when the verifier passed the page or its correction was kept, since it
+        judged the reading against the image. On a page no verifier reviewed, every
+        hint difference is listed. They all stay in the page file's ``hints``.
     """
 
-    listed = checks
     verification = kept.verification
-    if verification is not None and (
+    accepted = verification is not None and (
         verification.verdict.passed or verification.correction_applied
-    ):
-        listed = [result for result in checks if result.name not in TEXT_CHECKS]
-    issues = review_issues(listed, item_ids=built.ids)
+    )
+    issues = review_issues(checks, item_ids=built.ids)
+    if not accepted:
+        issues += hint_issues(hints, item_ids=built.ids)
     for issue in unmatched_labels(kept.answer, context):
         refs = issue.details.get("item_refs")
         item_ids = (
@@ -1161,7 +1168,7 @@ def request_sizes(
     for page in pages:
         context = page.inputs.context
         extractor = extract_page(context)
-        verifier = verify_page(context, answer=empty, failures={})
+        verifier = verify_page(context, answer=empty, differences={}, failures={})
         sizes.append(
             PageRequestSize(
                 extractor_chars=len(extractor.system_message)

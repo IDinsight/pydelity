@@ -7,11 +7,11 @@ sidebar:
 
 <!-- Generated from pydelity's code by scripts/generate_reference_docs.py. Run `just docs-reference` instead of editing this file. -->
 
-The contents of `pages/<NNNN>.json`: one page's items and their checks.
+The contents of `pages/<NNNN>.json`: one page's items, checks and hints.
 
 ## `pages/<NNNN>.json`
 
-The contents of `pages/<NNNN>.json`: one page's items and their checks.
+The contents of `pages/<NNNN>.json`: one page's items, checks and hints.
 
 - `checks` (list of objects ([`checks[]`](#checks)); required): The result of
   each check on the kept answer, in the order the checks run.
@@ -25,15 +25,18 @@ The contents of `pages/<NNNN>.json`: one page's items and their checks.
 - `fingerprint` (string; required): `sha256:` fingerprint of `inputs`; a
   matching file is reused.
 - `height_pt` (number; required): The displayed page's height in points.
+- `hints` (list of objects ([`hints[]`](#hints)); required): Each hint's
+  differences on the kept answer, in the order the hints run, whether or not the
+  review list shows them.
 - `image` (object ([`image`](#image)); required): The size of the page image the
   models were sent.
 - `inputs` (object ([`inputs`](#inputs)); required): What the page's extraction
   depends on.
 - `issues` (list of objects ([`issues[]`](#issues)); required): The page's
-  review issues: checks still failing on the kept answer, content no label fits,
-  and verifier problems that were not corrected. Text differences from the
-  stored text are listed unless the verifier passed the page or its correction
-  was kept, so on a page no verifier reviewed every one is listed. The `checks`
+  review issues: checks still failing on the kept answer, hint differences,
+  content no label fits, and verifier problems that were not corrected. Hint
+  differences are listed unless the verifier passed the page or its correction
+  was kept, so on a page no verifier reviewed every one is listed. The `hints`
   list keeps them either way.
 - `items` (list of objects ([`items[]`](#items)); required): The page's items,
   in reading order.
@@ -65,8 +68,7 @@ The result of one check on the page's kept answer.
   required): The problems the check found in the kept answer. A review issue
   made from a failure names its item by ID in `item_id`.
 - `name` (one of `labels`, `content`, `languages`, `boxes`, `containers`,
-  `captions`, `reading_order`, `artifacts`, `form_fields`, `text_dropped`,
-  `text_added`; required): The check.
+  `captions`; required): The check.
 - `passed` (boolean; required): Whether the kept answer passed: `failures` is
   empty.
 
@@ -81,6 +83,17 @@ A bordered or shaded box on the page that holds items.
 - `id` (string; required): The container's ID, such as `p0003-c01`: the page
   index and its position among the page's containers.
 - `label` (string; required): The container's label from the profile.
+
+## `hints[]`
+
+How the page's kept answer compares with one hint.
+
+- `differences` (list of objects ([`checks[].failures[]`](#checksfailures));
+  required): Where the kept answer differs from what code measured or the survey
+  found; empty when it agrees. A review issue made from a difference names its
+  item by ID in `item_id`.
+- `name` (one of `reading_order`, `artifacts`, `form_fields`, `text_dropped`,
+  `text_added`; required): The hint.
 
 ## `image`
 
@@ -109,12 +122,12 @@ What a page's extraction depends on, which its fingerprint covers.
 A problem a person should review.
 
 - `check` (one of `labels`, `content`, `languages`, `boxes`, `containers`,
-  `captions`, `reading_order`, `artifacts`, `form_fields`, `text_dropped`,
-  `text_added` or `no_matching_label` or one of `labels`, `regions`, `rotation`,
-  `page_numbering`, `artifacts`, `writing_direction`, `languages` or one of
-  `rotation_differs`, `page_number_differs` or `verifier`; required): What found
-  the problem: a check, a comparison or another source. `step` says whose, since
-  two steps can have checks of the same name.
+  `captions` or one of `reading_order`, `artifacts`, `form_fields`,
+  `text_dropped`, `text_added` or `no_matching_label` or one of `labels`,
+  `regions`, `rotation`, `page_numbering`, `artifacts`, `writing_direction`,
+  `languages` or one of `rotation_differs`, `page_number_differs` or `verifier`;
+  required): What found the problem: a check, a comparison or another source.
+  `step` says whose, since two steps can have checks of the same name.
 - `details` (map of string to any value; required): The values the problem is
   about. A survey comparison gives values such as
   `{"measured": 90, "profile": 0}`, and a check gives its failure's `details`,
@@ -171,7 +184,7 @@ The verifier's review of the page's extraction.
   the retries its correction used.
 - `correction_applied` (boolean; required): Whether the verifier's corrected
   extraction replaced the extraction model's. A correction replaces it when it
-  passes every check other than `text_dropped` and `text_added`.
+  passes every check, whatever its hint differences.
 - `correction_failures` (list of objects ([`checks[]`](#checks)); required): The
   checks a correction that was not applied still failed; empty when it was
   applied or there was none.

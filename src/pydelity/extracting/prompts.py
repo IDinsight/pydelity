@@ -7,8 +7,8 @@ The text sent with each page image says which page it is and gives what the surv
 and the PDF's own data know about it: its writing direction, its repeated lines with
 the text the PDF stores for them, and its fillable form fields with their values.
 The rest of the page's stored text is not sent, and the models read the page's text
-from the image. A retry message for a failed text check quotes the stored lines it
-is about.
+from the image. The verifier's request also lists the extraction's differences from
+these hints, quoting the stored lines a text difference is about.
 
 No prompt names a document type, a language or a writing direction as a default.
 """
@@ -16,12 +16,12 @@ No prompt names a document type, a language or a writing direction as a default.
 # Standard Library
 import json
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 # Package Library
 from pydelity.extracting.rendering import GRID, points_box_to_grid
 from pydelity.extracting.schemas import PageAnswer, PageContext
-from pydelity.review import CheckFailure, ExtractionCheckName
+from pydelity.review import CheckFailure, ExtractionCheckName, ExtractionHintName
 from pydelity.surveying.schemas import FormField, ItemKind, ItemRole, Label
 from pydelity.utils.prompts import PromptPair
 
@@ -243,6 +243,24 @@ def _labels(labels: Sequence[Label]) -> str:
     return _LABELS_HEADING + "\n" + "\n".join(lines)
 
 
+def _listed(found: Iterable[Sequence[CheckFailure]]) -> str:
+    """List check failures or hint differences for a verifier's user message.
+
+    Parameters
+    ----------
+    found
+        Each check's failures, or each hint's differences.
+
+    Returns
+    -------
+    str
+        One line per failure or difference, or ``none``.
+    """
+
+    lines = [f"- {failure.message}" for failures in found for failure in failures]
+    return "\n".join(lines) if lines else "none"
+
+
 def _page_text(context: PageContext) -> list[str]:
     """Write what is sent about a page with its image, in sections.
 
@@ -350,6 +368,7 @@ def verify_page(
     context: PageContext,
     *,
     answer: PageAnswer,
+    differences: Mapping[ExtractionHintName, list[CheckFailure]],
     failures: Mapping[ExtractionCheckName, list[CheckFailure]],
 ) -> PromptPair:
     """Write the verifier's messages for one page's extraction.
@@ -360,6 +379,9 @@ def verify_page(
         The page's context.
     answer
         The extraction to review.
+    differences
+        The extraction's differences from the hints, from
+        `pydelity.extracting.validators.compare_with_hints`.
     failures
         The checks the extraction still fails, from
         `pydelity.extracting.validators.run_checks`.
@@ -368,7 +390,8 @@ def verify_page(
     -------
     PromptPair
         The instructions, the same for every page of a run, and the text sent with
-        the page image: the page's details, the extraction and its failed checks.
+        the page image: the page's details, the extraction, the checks it still
+        fails and its differences from the hints.
     """
 
     system_message = (
@@ -379,13 +402,14 @@ def verify_page(
         f"The rules the extraction follows, which a correction follows too:\n\n"
         f"{_RULES}\n\n{_labels(context.labels)}"
     )
-    found = [failure.message for found in failures.values() for failure in found]
     sections = [
         *_page_text(context),
         "The extraction to review:\n"
         + json.dumps(answer.model_dump(mode="json"), ensure_ascii=False),
-        "Checks it still fails:\n"
-        + ("\n".join(f"- {message}" for message in found) if found else "none"),
+        "Checks it still fails, which a correction must pass:\n"
+        + _listed(failures.values()),
+        "Differences from the hints, which the page image overrides:\n"
+        + _listed(differences.values()),
     ]
     return PromptPair(
         system_message=_with_user_instructions(system_message, context.instructions),

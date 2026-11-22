@@ -27,7 +27,12 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 # Package Library
 from pydelity.providers.profiles import Effort
-from pydelity.review import CheckFailure, ExtractionCheckName, ReviewIssue
+from pydelity.review import (
+    CheckFailure,
+    ExtractionCheckName,
+    ExtractionHintName,
+    ReviewIssue,
+)
 from pydelity.surveying.schemas import (
     Angle,
     Direction,
@@ -265,6 +270,18 @@ class ExtractionCheckResult(_Output):
 
     passed: bool
     """Whether the kept answer passed: ``failures`` is empty."""
+
+
+class ExtractionHintResult(_Output):
+    """How the page's kept answer compares with one hint."""
+
+    differences: list[CheckFailure]
+    """Where the kept answer differs from what code measured or the survey found;
+    empty when it agrees. A review issue made from a difference names its item by ID
+    in ``item_id``."""
+
+    name: ExtractionHintName
+    """The hint."""
 
 
 class ExtractionSettings(_Output):
@@ -524,8 +541,8 @@ class PageVerification(_Output):
 
     correction_applied: bool
     """Whether the verifier's corrected extraction replaced the extraction model's.
-    A correction replaces it when it passes every check other than ``text_dropped``
-    and ``text_added``."""
+    A correction replaces it when it passes every check, whatever its hint
+    differences."""
 
     correction_failures: list[ExtractionCheckResult]
     """The checks a correction that was not applied still failed; empty when it was
@@ -536,7 +553,7 @@ class PageVerification(_Output):
 
 
 class PageFile(_Output):
-    """The contents of ``pages/<NNNN>.json``: one page's items and their checks."""
+    """The contents of ``pages/<NNNN>.json``: one page's items, checks and hints."""
 
     checks: list[ExtractionCheckResult]
     """The result of each check on the kept answer, in the order the checks run."""
@@ -557,6 +574,10 @@ class PageFile(_Output):
     height_pt: float
     """The displayed page's height in points."""
 
+    hints: list[ExtractionHintResult]
+    """Each hint's differences on the kept answer, in the order the hints run,
+    whether or not the review list shows them."""
+
     image: PageImageSize
     """The size of the page image the models were sent."""
 
@@ -564,11 +585,11 @@ class PageFile(_Output):
     """What the page's extraction depends on."""
 
     issues: list[ReviewIssue]
-    """The page's review issues: checks still failing on the kept answer, content no
-    label fits, and verifier problems that were not corrected. Text differences
-    from the stored text are listed unless the verifier passed the page or its
-    correction was kept, so on a page no verifier reviewed every one is listed. The
-    ``checks`` list keeps them either way."""
+    """The page's review issues: checks still failing on the kept answer, hint
+    differences, content no label fits, and verifier problems that were not
+    corrected. Hint differences are listed unless the verifier passed the page or
+    its correction was kept, so on a page no verifier reviewed every one is listed.
+    The ``hints`` list keeps them either way."""
 
     items: list[Item]
     """The page's items, in reading order."""

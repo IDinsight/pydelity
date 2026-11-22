@@ -3,7 +3,8 @@
 Each agent's output validator runs every check on each answer, or on the verifier's
 correction. While retries remain, an answer that fails a check is sent back with a
 message listing every failure. The answer to the last allowed attempt is accepted as
-it is, and the caller records the checks it still fails.
+it is, and the caller records the checks it still fails. The validators never compare
+an answer with the hints, so a hint difference never sends an answer back.
 """
 
 # Standard Library

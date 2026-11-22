@@ -912,7 +912,7 @@ def cost_page() -> _Page:
 
 
 def extraction_checks_page() -> _Page:
-    """Describe page extraction's checks and its other review issues.
+    """Describe page extraction's checks, its hints and its other review issues.
 
     Returns
     -------
@@ -922,30 +922,41 @@ def extraction_checks_page() -> _Page:
 
     checks = [
         f"### `{name}`\n\n{_prose(_check_text(check.__doc__))}"
-        for name, check in [
-            *extraction_checks.CHECKS.items(),
-            *extraction_checks.TEXT_CHECKS.items(),
-        ]
+        for name, check in extraction_checks.CHECKS.items()
+    ]
+    hints = [
+        f"### `{name}`\n\n{_prose(_check_text(hint.__doc__))}"
+        for name, hint in extraction_checks.HINTS.items()
     ]
     comparison = _docstring_parts(text_layer.__doc__)[0].split("\n\n")[2]
     body = "\n\n".join(
         [
             _prose(
                 "Each page answer, from the extraction model or in a verifier's "
-                "correction, goes through these checks. While retries remain "
-                "(``advanced.extraction.check_retries``), an answer that fails a check "
-                "is sent back to the model with every failure listed. The last answer "
-                "is kept as it is. A verifier correction replaces the extraction when "
-                "it passes every check other than ``text_dropped`` and "
-                "``text_added``. The page file's ``checks`` holds each check's result "
-                "on the kept answer. Each check it still fails becomes a review "
-                "issue, except ``text_dropped`` and ``text_added`` on a page the "
-                "verifier passes or whose correction is kept. With the verifier off "
-                "(``advanced.extraction.verify``, or ``verify``), every check still "
-                "failing is a review issue."
+                "correction, goes through the checks and is compared with the hints. "
+                "A check tests the answer against itself, the PDF's profile and the "
+                "page's area. While "
+                "retries remain (``advanced.extraction.check_retries``), an answer "
+                "that fails a check is sent back to the model with every failure "
+                "listed. The last answer is kept as it is, and each check it still "
+                "fails becomes a review issue. A hint compares the answer with what "
+                "code measured or the survey found about the page, which can be "
+                "wrong, so the model's reading of the page image decides. A hint "
+                "difference never sends an answer back and never stops a run."
+            ),
+            _prose(
+                "A verifier correction replaces the extraction when it passes every "
+                "check, whatever its hint differences. The page file's ``checks`` "
+                "holds each check's result on the kept answer, and its ``hints`` each "
+                "hint's differences. A hint difference becomes a review issue unless "
+                "the verifier passed the page or its correction was kept. With the "
+                "verifier off (``advanced.extraction.verify``, or ``verify``), every "
+                "hint difference is a review issue."
             ),
             "## Checks",
             *checks,
+            "## Hints",
+            *hints,
             "## How text is compared",
             _prose(comparison),
             "## Other review issues",
@@ -964,8 +975,8 @@ def extraction_checks_page() -> _Page:
     return _Page(
         body=body,
         description=(
-            "The checks every page answer goes through, and the other review issues "
-            "page extraction records."
+            "The checks every page answer goes through, the hints it is compared "
+            "with, and the other review issues page extraction records."
         ),
         name="extraction-checks",
         order=11,

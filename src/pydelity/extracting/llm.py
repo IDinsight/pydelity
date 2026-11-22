@@ -32,7 +32,7 @@ from pydelity.extracting.text_layer import PageText
 from pydelity.extracting.validators import run_checks
 from pydelity.providers.ledger_model import LedgerModel
 from pydelity.providers.profiles import ModelChoice
-from pydelity.review import CheckFailure, ExtractionCheckName
+from pydelity.review import CheckFailure, ExtractionCheckName, ExtractionHintName
 
 # The name of each of page extraction's agents, in the ledger and in errors.
 EXTRACTOR = "extractor"
@@ -276,16 +276,22 @@ async def ask_extractor(*, model: StepModel, page: PageInput) -> ModelPage:
 async def ask_verifier(
     *,
     answer: PageAnswer,
+    differences: Mapping[ExtractionHintName, list[CheckFailure]],
     failures: Mapping[ExtractionCheckName, list[CheckFailure]],
     model: StepModel,
     page: PageInput,
 ) -> ModelVerdict:
     """Ask the verifier to review a page's extraction, with the checks enforced.
 
+    The verifier's correction is checked, and sent back while retries remain when it
+    fails a check. Its hint differences never send it back.
+
     Parameters
     ----------
     answer
         The extraction model's kept answer.
+    differences
+        The answer's differences from the hints.
     failures
         The checks the answer still fails.
     model
@@ -309,7 +315,9 @@ async def ask_verifier(
     """
 
     context, page_text = page.context, page.page_text
-    prompts = verify_page(context, answer=answer, failures=failures)
+    prompts = verify_page(
+        context, answer=answer, differences=differences, failures=failures
+    )
     agent = create_verifier_agent(
         check_retries=model.settings.check_retries,
         context=context,

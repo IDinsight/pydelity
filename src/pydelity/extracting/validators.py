@@ -1,22 +1,26 @@
-"""Page extraction's checks on a model's answer for one page.
+"""Page extraction's checks and hints on a model's answer for one page.
 
-Pydantic checks only the answer's shape. These checks test what code can decide from
-the answer, the page's context and its text layer: labels fit the profile, each item
-holds the content its kind needs, boxes lie on the page, containers and captions point
-at real items, the reading order fits the page's writing direction, page furniture
-the survey found lies inside artifact items, and fillable form fields carry their
-values. They use positions, names, Unicode forms and values only, never word lists,
-and assume no writing direction other than the page's own.
+Pydantic checks only the answer's shape. The checks test the answer against itself
+and the page's profile. Labels fit the profile, each item holds the content its kind
+needs and has a language when it holds text, boxes are well formed and on the page,
+no two items share a box, and containers and captions point at real items. While
+retries remain, an answer that fails a check is sent back to the model.
 
-On a page with a readable text layer, two more checks compare the items' text with
-it, as runs of three characters, to find text the answer dropped or added in any
-script. The model's reading wins over the text layer: a difference only sends the
-answer back, saying the model may keep text that is not visible on the page or that
-it read from an image.
+The hints compare the answer with what code measured or the survey found about the
+page. They compare the reading order with the writing direction the survey found,
+the page furniture the survey found with items of role artifact, and the page's
+fillable form fields with its field items. On a page with a readable text layer, two
+more hints compare the items' text with it, as runs of three characters, to find
+text the answer dropped or added in any script. These measurements can be wrong, and
+the model's reading of the page image decides. A hint difference never sends an
+answer back. The page file records it, and the review list shows it unless a
+verifier passed the page or its correction was kept.
 
-Each check returns every failure it finds, so one retry message can name every
-problem and the kept answer can record them all. A failure about one item names the
-item's ref in its message and in ``details["item_ref"]``.
+The checks and hints use positions, names, Unicode forms and values only, never word
+lists, and assume no writing direction other than the page's own. Each returns every
+failure or difference it finds, so one retry message can name every failure and the
+page file can record them all. One about a single item names the item's ref in its
+message and in ``details["item_ref"]``.
 """
 
 # Standard Library
@@ -31,13 +35,19 @@ from pydelity.extracting.schemas import (
     AnswerItem,
     ColumnOrder,
     ExtractionCheckResult,
+    ExtractionHintResult,
     PageAnswer,
     PageContext,
     Table,
     TextComparison,
 )
 from pydelity.extracting.text_layer import PageText, comparison_form, trigrams
-from pydelity.review import CheckFailure, ExtractionCheckName, ReviewIssue
+from pydelity.review import (
+    CheckFailure,
+    ExtractionCheckName,
+    ExtractionHintName,
+    ReviewIssue,
+)
 from pydelity.surveying.schemas import Direction, FormField, ItemKind, ItemRole, Label
 
 # How far outside the 0-1000 grid a box may reach, in grid units, before it counts as
@@ -55,15 +65,22 @@ _CONTAINER_TOLERANCE = 20
 # The content fields an item may fill; its kind decides which (see `_KIND_FIELDS`).
 _CONTENT_FIELDS = ("entries", "field", "figure", "latex", "table", "text")
 
-# The roles whose items make up the page's reading flow, which the reading-order check
+# How the reading order hint's differences name the page's writing direction.
+_DIRECTION_NAMES: dict[Direction, str] = {
+    "ltr": "left to right",
+    "rtl": "right to left",
+    "ttb": "top to bottom",
+}
+
+# The roles whose items make up the page's reading flow, which the reading order hint
 # follows. Asides, captions, footnotes and page furniture may sit anywhere.
 _FLOW_ROLES = frozenset({ItemRole.BODY, ItemRole.HEADING, ItemRole.NAVIGATION})
 
 # The share of a line's three-character runs that must be found for the line to count
-# as present; a line with fewer found fails a text check.
+# as present; a line with fewer found is a text difference.
 _FOUND_SHARE = 0.5
 
-# How many places a page furniture line's failure names before counting the rest.
+# How many places a page furniture line's difference names before counting the rest.
 _FURNITURE_PLACES_SHOWN = 3
 
 # How far, in grid units, the next item in the flow may jump back against the reading
@@ -81,29 +98,21 @@ _KIND_FIELDS: dict[ItemKind, frozenset[str]] = {
     ItemKind.TEXT: frozenset({"text"}),
 }
 
-# How much of a line a text failure quotes, in characters.
+# How much of a line a text difference quotes, in characters.
 _LINE_SHOWN_CHARS = 100
 
 # The field item types that are marked or not, so they need ``checked``.
 _MARKED_FIELD_TYPES = frozenset({"checkbox", "radio"})
 
-# The fewest three-character runs a line must have for a text check to judge it: a
-# line of five letters or digits has three.
+# The fewest three-character runs a line must have for a text hint to judge it. A line
+# of five letters or digits has three.
 _MIN_TRIGRAMS = 3
 
 # The profile's catch-all label, which every profile has.
 _OTHER_LABEL = "other"
 
-# What the model may keep when a text check sends its answer back.
-_TEXT_NOTE = (
-    "The page's text layer can hold text that is not visible on the page, lacks text "
-    "inside images, and can be wrong: letters out of order, broken ligatures or wrong "
-    "characters. Where a line above is not visible on the page, you read it from an "
-    "image, or the image shows it differently, keep what the image shows."
-)
-
-# Checks an answer against the page's context and its text layer, and returns every
-# failure found.
+# Checks an answer, or compares it with a hint, using the page's context and its text
+# layer, and returns every failure or difference found.
 type Check = Callable[[PageAnswer, PageContext, PageText], list[CheckFailure]]
 
 
@@ -184,7 +193,8 @@ def _backward_jump(
     Returns
     -------
     str | None
-        What is wrong, or ``None`` when the step from one item to the next fits.
+        How the next item moves against the flow, or ``None`` when the step from one
+        item to the next fits the direction.
     """
 
     (px0, py0, px1, _), (x0, y0, x1, _) = previous.box, item.box
@@ -196,8 +206,9 @@ def _backward_jump(
         side = "right" if direction == "ltr" else "left"
         if up > _JUMP_BACK and across < _COLUMN_MOVE:
             return (
-                f"it starts {up} units above item {previous.ref!r}, which comes before "
-                f"it, without moving {_COLUMN_MOVE} units to the {side} to a new column"
+                f"starts {up} units above item {previous.ref!r}, which comes before "
+                f"it, without a move of {_COLUMN_MOVE} units to the {side} to a new "
+                "column"
             )
         return None
 
@@ -209,8 +220,9 @@ def _backward_jump(
     down = y0 - py0
     if against > _JUMP_BACK and down < _COLUMN_MOVE:
         return (
-            f"it lies {against} units to the {side} of item {previous.ref!r}, which "
-            f"comes before it, without moving {_COLUMN_MOVE} units down to a new band"
+            f"lies {against} units to the {side} of item {previous.ref!r}, which "
+            f"comes before it, without a move of {_COLUMN_MOVE} units down to a new "
+            "band"
         )
     return None
 
@@ -332,20 +344,20 @@ def _covers(box: Sequence[int], point: tuple[float, float]) -> bool:
 
 
 def _failure(
-    check: ExtractionCheckName,
+    check: ExtractionCheckName | ExtractionHintName,
     message: str,
     *,
     context: PageContext,
     item_ref: str | None = None,
 ) -> CheckFailure:
-    """Make a failure whose message starts with the check's name.
+    """Make a failure or difference whose message starts with the check's name.
 
     Parameters
     ----------
     check
-        The check that failed.
+        The check that failed, or the hint the answer differs from.
     message
-        What is wrong.
+        What is wrong, or what differs.
     context
         The page's context, for its index.
     item_ref
@@ -394,14 +406,17 @@ def _field_mismatch(
     if fields[0].type in {"checkbox", "radio"}:
         expected = sorted(bool(field.checked) for field in fields)
         got = sorted(bool(field.checked) for field in answered)
-        what = "is checked"
+        what = "the checked states"
     else:
         expected = sorted(_collapse(field.value) for field in fields)
         got = sorted(_collapse(field.value) for field in answered)
-        what = "holds"
+        what = "the values"
     if expected == got:
         return None
-    return f"the form field {name!r} {what} {expected}, but its field items say {got}"
+    return (
+        f"the PDF stores {what} {expected} for the form field {name!r}, but its field "
+        f"items say {got}"
+    )
 
 
 def _has_text(item: AnswerItem) -> bool:
@@ -654,6 +669,40 @@ def _place_cells(table: Table) -> tuple[list[int], list[str]]:
     return widths, problems
 
 
+def _review_issue(
+    failure: CheckFailure,
+    *,
+    item_ids: Mapping[str, str],
+    name: ExtractionCheckName | ExtractionHintName,
+) -> ReviewIssue:
+    """Turn a check failure or hint difference on the kept answer into a review issue.
+
+    Parameters
+    ----------
+    failure
+        The failure or difference.
+    item_ids
+        The ID of each item and container, by the ref the answer gave it.
+    name
+        The check or hint that found it.
+
+    Returns
+    -------
+    ReviewIssue
+        The issue, naming its item's ID where one applies.
+    """
+
+    ref = failure.details.get("item_ref")
+    return ReviewIssue(
+        check=name,
+        details=failure.details,
+        item_id=item_ids.get(ref) if isinstance(ref, str) else None,
+        message=failure.message,
+        page_index=failure.page_index,
+        step="extraction",
+    )
+
+
 def _shorten(text: str) -> str:
     """Cut a line to `_LINE_SHOWN_CHARS` characters for a failure message.
 
@@ -748,12 +797,12 @@ def _unmatched(lines: Sequence[Counter[str]], available: Counter[str]) -> list[i
 def check_artifacts(
     answer: PageAnswer, context: PageContext, page_text: PageText
 ) -> list[CheckFailure]:
-    """Keep the page furniture the survey found inside items with role artifact.
+    """Compare the page furniture the survey found with the items of role artifact.
 
-    Each line the survey classed as page furniture is found on the page in the
-    stored text, at every place a line with its normalized form sits. The line
-    passes when the center of at least one of those places lies inside the box of an
-    item with role ``artifact``, within 20 grid units. One is enough, since body
+    This is a hint. Each line the survey classed as page furniture is found on the
+    page in the stored text, at every place a line with its normalized form sits. The
+    line agrees when the center of at least one of those places lies inside the box
+    of an item with role ``artifact``, within 20 grid units. One is enough, since body
     lines can share the furniture's form, such as a table's numbers beside a page
     number. Its text is never compared with the answer's, since the stored text can
     differ from what is printed. A furniture line the page's stored text does not
@@ -772,7 +821,7 @@ def check_artifacts(
     Returns
     -------
     list[CheckFailure]
-        One failure per furniture line that no item with role ``artifact`` covers
+        One difference per furniture line that no item with role ``artifact`` covers
         at any of its places, naming the line and where it is on the grid.
     """
 
@@ -795,9 +844,9 @@ def check_artifacts(
         failures.append(
             _failure(
                 "artifacts",
-                f"the repeated line {line.id}, {line.text!r}, is page furniture at "
-                f"{shown}{f' and {more} more' if more > 0 else ''} on the "
-                "grid, but no item with role artifact covers it",
+                f"the survey found the repeated line {line.id}, {line.text!r}, to be "
+                f"page furniture, at {shown}{f' and {more} more' if more > 0 else ''} "
+                "on the grid, and no item with role artifact covers it",
                 context=context,
             )
         )
@@ -1024,11 +1073,11 @@ def check_content(
 def check_form_fields(
     answer: PageAnswer, context: PageContext, page_text: PageText
 ) -> list[CheckFailure]:
-    """Check that the page's fillable fields are field items with the same values.
+    """Compare the page's fillable form fields with the field items that name them.
 
-    A field the PDF has more than once on the page, such as a group of radio
-    buttons, needs as many field items naming it, with the same checked states or
-    values. Values are compared with whitespace collapsed.
+    This is a hint. A field the PDF has more than once on the page, such as a group
+    of radio buttons, agrees when as many field items name it, with the same checked
+    states or values. Values are compared with whitespace collapsed.
 
     Parameters
     ----------
@@ -1042,8 +1091,8 @@ def check_form_fields(
     Returns
     -------
     list[CheckFailure]
-        One failure per form field named by the wrong number of field items or with
-        other values, and per field item naming a form field the page lacks.
+        One difference per form field named by another number of field items or
+        with other values, and per field item naming a form field the page lacks.
     """
 
     widgets = defaultdict(list)
@@ -1071,8 +1120,8 @@ def check_form_fields(
     failures += [
         _failure(
             "form_fields",
-            f"item {item.ref!r} names the form field {name!r}, which is not on "
-            "this page",
+            f"item {item.ref!r} names the form field {name!r}, which the PDF does "
+            "not have on this page",
             context=context,
             item_ref=item.ref,
         )
@@ -1177,14 +1226,26 @@ def check_languages(
     return failures
 
 
+# The checks on an answer, in the order they run. A failure may send the answer back
+# while retries remain.
+CHECKS: dict[ExtractionCheckName, Check] = {
+    "labels": check_labels,
+    "content": check_content,
+    "languages": check_languages,
+    "boxes": check_boxes,
+    "containers": check_containers,
+    "captions": check_captions,
+}
+
+
 def check_reading_order(
     answer: PageAnswer, context: PageContext, page_text: PageText
 ) -> list[CheckFailure]:
-    """Check that the reading order follows the page's writing direction.
+    """Compare the reading order with the writing direction the survey found.
 
-    Over consecutive items of the page's flow (headings, body text and navigation),
-    a jump back against the direction is allowed only with a move to a new column,
-    or to a new band on a page written top to bottom.
+    This is a hint. Over consecutive items of the page's flow (headings, body text
+    and navigation), a jump back against the direction agrees with it only with a
+    move to a new column, or to a new band on a page written top to bottom.
 
     Parameters
     ----------
@@ -1198,7 +1259,7 @@ def check_reading_order(
     Returns
     -------
     list[CheckFailure]
-        A failure when ``column_order`` does not fit the direction, then one per
+        A difference when ``column_order`` does not fit the direction, then one per
         backward jump without a new column or band.
     """
 
@@ -1208,8 +1269,8 @@ def check_reading_order(
         failures.append(
             _failure(
                 "reading_order",
-                "the page is written top to bottom, so column_order must say which "
-                "way its columns are read",
+                "the survey found the page written top to bottom, but column_order "
+                "is null",
                 context=context,
             )
         )
@@ -1217,7 +1278,8 @@ def check_reading_order(
         failures.append(
             _failure(
                 "reading_order",
-                "column_order is only for pages written top to bottom; set it to null",
+                f"column_order is {answer.column_order}, but the survey found the "
+                f"page written {_DIRECTION_NAMES[direction]}",
                 context=context,
             )
         )
@@ -1235,26 +1297,12 @@ def check_reading_order(
             failures.append(
                 _failure(
                     "reading_order",
-                    f"item {item.ref!r} is out of reading order: {problem}",
+                    f"item {item.ref!r} {problem}, for the direction the survey found",
                     context=context,
                     item_ref=item.ref,
                 )
             )
     return failures
-
-
-# The checks on the content of an answer, in the order they run.
-CHECKS: dict[ExtractionCheckName, Check] = {
-    "labels": check_labels,
-    "content": check_content,
-    "languages": check_languages,
-    "boxes": check_boxes,
-    "containers": check_containers,
-    "captions": check_captions,
-    "reading_order": check_reading_order,
-    "artifacts": check_artifacts,
-    "form_fields": check_form_fields,
-}
 
 
 def check_results(
@@ -1291,7 +1339,7 @@ def check_text_added(
 ) -> list[CheckFailure]:
     """Find lines the answer has that the page's text layer does not.
 
-    It runs only when `comparison_status` is ``compared``.
+    This is a hint. It runs only when `comparison_status` is ``compared``.
 
     Parameters
     ----------
@@ -1305,8 +1353,8 @@ def check_text_added(
     Returns
     -------
     list[CheckFailure]
-        One failure per answer line of at least three runs with fewer than half of
-        them in the text layer, naming the line's item.
+        One difference per answer line of at least three runs with fewer than half
+        of them in the text layer, naming the line's item.
     """
 
     text_lines = page_text.lines
@@ -1335,8 +1383,8 @@ def check_text_dropped(
 ) -> list[CheckFailure]:
     """Find lines the page's text layer has that the answer does not.
 
-    It runs only when `comparison_status` is ``compared``. A line also counts as
-    found when its reversed text is in the answer.
+    This is a hint. It runs only when `comparison_status` is ``compared``. A line also
+    counts as found when its reversed text is in the answer.
 
     Parameters
     ----------
@@ -1350,8 +1398,8 @@ def check_text_dropped(
     Returns
     -------
     list[CheckFailure]
-        One failure per text-layer line of at least three runs with fewer than half
-        of them in the answer.
+        One difference per text-layer line of at least three runs with fewer than
+        half of them in the answer.
     """
 
     text_lines = page_text.lines
@@ -1364,7 +1412,7 @@ def check_text_dropped(
         failure = _failure(
             "text_dropped",
             f"the page's text layer has the line {_shorten(text_lines[index])!r}, "
-            "which is not in your answer",
+            "which is not in the answer",
             context=context,
         )
         failure.details["line"] = text_lines[index]
@@ -1372,12 +1420,40 @@ def check_text_dropped(
     return failures
 
 
-# The checks that compare the answer's text with the page's text layer, in the order
-# they run, after `CHECKS`.
-TEXT_CHECKS: dict[ExtractionCheckName, Check] = {
+# The hints an answer is compared with, in the order they run. A difference never
+# sends the answer back.
+HINTS: dict[ExtractionHintName, Check] = {
+    "reading_order": check_reading_order,
+    "artifacts": check_artifacts,
+    "form_fields": check_form_fields,
     "text_dropped": check_text_dropped,
     "text_added": check_text_added,
 }
+
+
+def compare_with_hints(
+    answer: PageAnswer, context: PageContext, page_text: PageText
+) -> dict[ExtractionHintName, list[CheckFailure]]:
+    """Compare an answer with every hint, in order.
+
+    Parameters
+    ----------
+    answer
+        The model's answer.
+    context
+        The page's context.
+    page_text
+        The page's text layer, from
+        `pydelity.extracting.text_layer.read_page_text`.
+
+    Returns
+    -------
+    dict[ExtractionHintName, list[CheckFailure]]
+        Each hint's differences, in the order the hints run; an empty list when the
+        answer agrees with it or, for a text hint, it did not run.
+    """
+
+    return {name: hint(answer, context, page_text) for name, hint in HINTS.items()}
 
 
 def comparison_status(
@@ -1417,6 +1493,54 @@ def comparison_status(
     return "compared"
 
 
+def hint_issues(
+    results: Sequence[ExtractionHintResult], *, item_ids: Mapping[str, str]
+) -> list[ReviewIssue]:
+    """Turn the kept answer's hint differences into review issues.
+
+    Parameters
+    ----------
+    results
+        The hint results, from `hint_results`.
+    item_ids
+        The ID of each item and container, by the ref the answer gave it.
+
+    Returns
+    -------
+    list[ReviewIssue]
+        One issue per difference, in the order the hints run, with the hint's name
+        in ``check`` and its item's ID where one applies.
+    """
+
+    return [
+        _review_issue(difference, item_ids=item_ids, name=result.name)
+        for result in results
+        for difference in result.differences
+    ]
+
+
+def hint_results(
+    differences: Mapping[ExtractionHintName, list[CheckFailure]],
+) -> list[ExtractionHintResult]:
+    """Record each hint's differences on the kept answer, in the order the hints run.
+
+    Parameters
+    ----------
+    differences
+        Each hint's differences on the kept answer, from `compare_with_hints`.
+
+    Returns
+    -------
+    list[ExtractionHintResult]
+        The results for the page file's ``hints``.
+    """
+
+    return [
+        ExtractionHintResult(differences=found, name=name)
+        for name, found in differences.items()
+    ]
+
+
 def retry_message(failures: Mapping[ExtractionCheckName, list[CheckFailure]]) -> str:
     """Write the message that asks the model to fix its answer.
 
@@ -1428,19 +1552,15 @@ def retry_message(failures: Mapping[ExtractionCheckName, list[CheckFailure]]) ->
     Returns
     -------
     str
-        Every failure, one per line, after a line asking for a corrected answer,
-        and, when a text check failed, that the model may keep text it read that
-        the text layer cannot show.
+        Every check failure, one per line, after a line asking for a corrected
+        answer. Hint differences are never part of it.
     """
 
     lines = [f"- {failure.message}" for found in failures.values() for failure in found]
-    message = (
+    return (
         "Your answer has problems that can be checked without reading the page. Fix "
         "each problem below and answer again with the whole page:\n" + "\n".join(lines)
     )
-    if failures.get("text_dropped") or failures.get("text_added"):
-        message += "\n" + _TEXT_NOTE
-    return message
 
 
 def review_issues(
@@ -1462,27 +1582,17 @@ def review_issues(
         where one applies.
     """
 
-    issues = []
-    for result in results:
-        for failure in result.failures:
-            ref = failure.details.get("item_ref")
-            issues.append(
-                ReviewIssue(
-                    check=result.name,
-                    details=failure.details,
-                    item_id=item_ids.get(ref) if isinstance(ref, str) else None,
-                    message=failure.message,
-                    page_index=failure.page_index,
-                    step="extraction",
-                )
-            )
-    return issues
+    return [
+        _review_issue(failure, item_ids=item_ids, name=result.name)
+        for result in results
+        for failure in result.failures
+    ]
 
 
 def run_checks(
     answer: PageAnswer, context: PageContext, page_text: PageText
 ) -> dict[ExtractionCheckName, list[CheckFailure]]:
-    """Run every check on an answer, in order, the text checks last.
+    """Run every check on an answer, in order.
 
     Parameters
     ----------
@@ -1498,13 +1608,10 @@ def run_checks(
     -------
     dict[ExtractionCheckName, list[CheckFailure]]
         Each check's failures, in the order the checks run; an empty list when it
-        passed or, for a text check, did not run.
+        passed.
     """
 
-    return {
-        name: check(answer, context, page_text)
-        for name, check in (CHECKS | TEXT_CHECKS).items()
-    }
+    return {name: check(answer, context, page_text) for name, check in CHECKS.items()}
 
 
 def unmatched_labels(answer: PageAnswer, context: PageContext) -> list[ReviewIssue]:
