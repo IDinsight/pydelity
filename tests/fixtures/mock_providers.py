@@ -11,8 +11,11 @@ A model request gets the next survey answer the caller gave, as the reply's text
 the caller's usage figures. A request whose text holds the survey answer to review gets
 the next survey verdict the caller gave. A page extraction request, whose text names
 its page with ``Page index N (``, gets that page's answer for the extraction model or,
-when its text holds the extraction to review, for the verifier, whatever order
-concurrent requests arrive in. An upload succeeds and gets a new file ID. A model
+when its text holds the extraction to review, for the verifier. A page-break request,
+whose text names its break with ``Page break between page indexes N and``, gets that
+break's answer for the judge or, when its text holds the verdict to review, for the
+verifier. Page and break answers do not depend on the order concurrent requests
+arrive in. An upload succeeds and gets a new file ID. A model
 request that names a file ID the server does not hold gets HTTP 404 naming that ID,
 which is how the providers answer once an upload has expired. Faults the caller adds
 make requests fail; temporary ones (408, 409, 429 and 5xx) carry a ``retry-after-ms``
@@ -34,12 +37,15 @@ In Python::
         statuses = [request.status for request in mock.requests]
 
 From the command line, at the repository root, with an answer file such as
-``tests/fixtures/survey_answers/irs_form_1040a_1965_scan.json`` and, for page
-extraction, a page answers file such as
-``tests/fixtures/extraction_answers/irs_form_1040a_1965_scan.json``::
+``tests/fixtures/survey_answers/irs_form_1040a_1965_scan.json``, for page
+extraction a page answers file such as
+``tests/fixtures/extraction_answers/irs_form_1040a_1965_scan.json`` and, for
+page-break verification, a break answers file such as
+``tests/fixtures/break_answers/irs_form_1040a_1965_scan.json``::
 
     python -m tests.fixtures.mock_providers --answer <answer JSON file> \
-        --page-answers <page answers JSON file>
+        --page-answers <page answers JSON file> \
+        --break-answers <break answers JSON file>
 """
 
 # Standard Library
@@ -76,6 +82,14 @@ _ANTHROPIC_ERROR_TYPES = {
     529: "overloaded_error",
 }
 
+# The line that starts the text of each page-break request, naming the page before
+# its break.
+_BREAK_LINE = re.compile(r"Page break between page indexes (\d+) and ")
+
+# Text that only page-break verification's verifier requests hold: the heading of the
+# verdict it reviews.
+_BREAK_VERIFIER_TEXT = "The page-break verdict to review:"
+
 # The lowest HTTP status code of a server error, which the SDKs retry.
 _FIRST_SERVER_ERROR_CODE = 500
 
@@ -111,8 +125,9 @@ DEFAULT_OUTPUT_TOKENS = 600
 PLACEHOLDER_KEY = "mock-provider-placeholder"
 
 # Which agent a model request comes from: ``surveyor`` or ``verifier`` for the survey,
-# ``extractor`` or ``verifier`` for page extraction.
-type Agent = Literal["extractor", "surveyor", "verifier"]
+# ``extractor`` or ``verifier`` for page extraction, ``judge`` or ``verifier`` for
+# page-break verification.
+type Agent = Literal["extractor", "judge", "surveyor", "verifier"]
 
 # An answer to a model request: JSON data, sent as JSON, or text, sent as it is.
 type Answer = Mapping[str, object] | str
@@ -240,6 +255,20 @@ class _Server(ThreadingHTTPServer):
         if isinstance(sys.exc_info()[1], ConnectionError):
             return
         super().handle_error(request, client_address)  # ty: ignore[invalid-argument-type]
+
+
+@dataclass(frozen=True)
+class _Target:
+    """Which step's request a model request is, and which agent and page it is for."""
+
+    agent: Agent
+    """The agent the request came from."""
+
+    break_index: int | None
+    """For a page-break request, the page before its break; otherwise ``None``."""
+
+    page_index: int | None
+    """For a page extraction request, the page it is about; otherwise ``None``."""
 
 
 def _answer_list(given: Answer | Sequence[Answer]) -> list[str]:
@@ -439,6 +468,37 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}mock{uuid.uuid4().hex[:20]}"
 
 
+def _next_answer(
+    *,
+    answers: Mapping[tuple[int, str], list[str]],
+    key: tuple[int, str],
+    sent: Counter[tuple[int, str]],
+) -> str | None:
+    """Take the next answer for a page or break and an agent. Call with the lock held.
+
+    Parameters
+    ----------
+    answers
+        The answers, by page or break index and agent.
+    key
+        The page or break index and the agent.
+    sent
+        How many answers each key has had, which this adds one to.
+
+    Returns
+    -------
+    str | None
+        The answer, the last one repeating, or ``None`` when there is none.
+    """
+
+    given = answers.get(key)
+    if not given:
+        return None
+    count = sent[key]
+    sent[key] += 1
+    return given[min(count, len(given) - 1)]
+
+
 def _openai_file(*, fields: dict[str, str], upload: dict[str, object]) -> _Reply:
     """Make the reply to an OpenAI upload: a ``FileObject`` body.
 
@@ -577,8 +637,30 @@ def _parse_upload(*, body: bytes, content_type: str) -> dict[str, object]:
     return {"fields": fields, **summary}
 
 
-def _request_agent(body: Mapping[str, object]) -> tuple[int | None, Agent]:
-    """Tell which page and agent a model request is for.
+def _read_answers_by_index(path: Path) -> dict[int, dict[str, Answer | list[Answer]]]:
+    """Read a file of answers by page index, then agent.
+
+    Parameters
+    ----------
+    path
+        A JSON file whose keys are page indexes and whose values map each agent to
+        an answer or a list of answers.
+
+    Returns
+    -------
+    dict[int, dict[str, Answer | list[Answer]]]
+        The answers, with the indexes as integers.
+    """
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        int(index): cast("dict[str, Answer | list[Answer]]", by_agent)
+        for index, by_agent in data.items()
+    }
+
+
+def _request_target(body: Mapping[str, object]) -> _Target:
+    """Tell which step, agent and page a model request is for.
 
     Parameters
     ----------
@@ -587,15 +669,22 @@ def _request_agent(body: Mapping[str, object]) -> tuple[int | None, Agent]:
 
     Returns
     -------
-    tuple[int | None, Agent]
-        The page index, or ``None`` for one of the survey's requests, and the agent.
+    _Target
+        The agent, with the break's earlier page for a page-break request, the page
+        for a page extraction request, and neither for one of the survey's requests.
     """
 
     text = json.dumps(body, ensure_ascii=False)
+    match = _BREAK_LINE.search(text)
+    if match is not None:
+        agent: Agent = "verifier" if _BREAK_VERIFIER_TEXT in text else "judge"
+        return _Target(agent=agent, break_index=int(match[1]), page_index=None)
     match = _PAGE_LINE.search(text)
-    if match is None:
-        return None, "verifier" if _SURVEY_VERIFIER_TEXT in text else "surveyor"
-    return int(match[1]), "verifier" if _VERIFIER_TEXT in text else "extractor"
+    if match is not None:
+        agent = "verifier" if _VERIFIER_TEXT in text else "extractor"
+        return _Target(agent=agent, break_index=None, page_index=int(match[1]))
+    agent = "verifier" if _SURVEY_VERIFIER_TEXT in text else "surveyor"
+    return _Target(agent=agent, break_index=None, page_index=None)
 
 
 @dataclass(frozen=True)
@@ -608,6 +697,9 @@ class RecordedRequest:
     body: dict[str, object]
     """The JSON body of a model request. For an upload, its ``fields`` and the file's
     ``filename``, ``content_type`` and size in ``bytes``."""
+
+    break_index: int | None
+    """For a page-break request, the page before its break; otherwise ``None``."""
 
     page_index: int | None
     """For a page extraction request, the page it is about; otherwise ``None``."""
@@ -639,13 +731,18 @@ class MockProviders:
     ----------
     answers
         The survey answers, as dicts (sent as JSON) or as text (sent as it is). Each
-        model request that names no page gets the next one; once they run out, the
-        last one repeats.
+        model request that names no page or break gets the next one; once they run
+        out, the last one repeats.
     page_answers
         Page extraction's answers, by page index and then agent (``extractor`` or
         ``verifier``): one answer, or a list whose next item each request for that
         page and agent gets, the last one repeating. A page request without an
         answer here gets HTTP 400.
+    break_answers
+        Page-break verification's answers, by the index of the page before the break
+        and then agent (``judge`` or ``verifier``): one answer, or a list whose next
+        item each request for that break and agent gets, the last one repeating. A
+        page-break request without an answer here gets HTTP 400.
     survey_verdicts
         The survey verifier's verdicts. Each survey verifier request gets the next
         one; once they run out, the last one repeats. A survey verifier request with
@@ -665,13 +762,15 @@ class MockProviders:
     Raises
     ------
     ValueError
-        If neither answers nor page answers are given.
+        If no answers, page answers or break answers are given.
     """
 
     def __init__(  # noqa: PLR0913 - one argument per option of the stand-in
         self,
         *,
         answers: Sequence[Answer],
+        break_answers: Mapping[int, Mapping[str, Answer | Sequence[Answer]]]
+        | None = None,
         delay_seconds: float = 0.0,
         input_tokens: int = DEFAULT_INPUT_TOKENS,
         output_tokens: int = DEFAULT_OUTPUT_TOKENS,
@@ -683,10 +782,16 @@ class MockProviders:
     ) -> None:
         """Hold the answers and settings; nothing listens until `start`."""
 
-        if not answers and not page_answers:
+        if not answers and not page_answers and not break_answers:
             raise ValueError("MockProviders needs at least one answer")
         self._answers = [_answer_text(item) for item in answers]
         self._answers_sent = 0
+        self._break_answers: dict[tuple[int, str], list[str]] = {
+            (int(index), agent): _answer_list(given)
+            for index, by_agent in (break_answers or {}).items()
+            for agent, given in by_agent.items()
+        }
+        self._break_answers_sent: Counter[tuple[int, str]] = Counter()
         self._in_flight = 0
         self._max_in_flight = 0
         self._page_answers: dict[tuple[int, str], list[str]] = {
@@ -769,6 +874,7 @@ class MockProviders:
                     RecordedRequest(
                         agent=None,
                         body={},
+                        break_index=None,
                         page_index=None,
                         path=path,
                         provider=None,
@@ -791,7 +897,7 @@ class MockProviders:
             if route == "upload"
             else _parse_json(body)
         )
-        page_index, agent = _request_agent(parsed) if route == "model" else (None, None)
+        target = _request_target(parsed) if route == "model" else None
         with self._lock:
             if route == "model":
                 self._in_flight -= 1
@@ -809,9 +915,10 @@ class MockProviders:
                 reply = self._model_reply(body=parsed, provider=provider)
             self._requests.append(
                 RecordedRequest(
-                    agent=agent,
+                    agent=None if target is None else target.agent,
                     body=parsed,
-                    page_index=page_index,
+                    break_index=None if target is None else target.break_index,
+                    page_index=None if target is None else target.page_index,
                     path=path,
                     provider=provider,
                     route=route,
@@ -834,9 +941,10 @@ class MockProviders:
         -------
         _Reply
             HTTP 404 naming the first file ID the server does not hold, or else the
-            page's answer for a page extraction request, the next survey verdict for
-            a survey verifier request, or the next survey answer. HTTP 400 when there
-            is no such answer.
+            break's answer for a page-break request, the page's answer for a page
+            extraction request, the next survey verdict for a survey verifier
+            request, or the next survey answer. HTTP 400 when there is no such
+            answer.
         """
 
         missing = [
@@ -849,10 +957,24 @@ class MockProviders:
                 message=f"File not found: {missing[0]}", provider=provider, status=404
             )
 
-        page_index, agent = _request_agent(body)
-        if page_index is not None:
-            answer = self._page_answer(page_index, agent)
-            wanted = f"{agent} answer for page index {page_index}"
+        target = _request_target(body)
+        agent = target.agent
+        if target.break_index is not None:
+            answer = _next_answer(
+                answers=self._break_answers,
+                key=(target.break_index, agent),
+                sent=self._break_answers_sent,
+            )
+            wanted = (
+                f"{agent} answer for the break after page index {target.break_index}"
+            )
+        elif target.page_index is not None:
+            answer = _next_answer(
+                answers=self._page_answers,
+                key=(target.page_index, agent),
+                sent=self._page_answers_sent,
+            )
+            wanted = f"{agent} answer for page index {target.page_index}"
         elif agent == "verifier":
             answer = self._survey_verdict()
             wanted = "survey verdict"
@@ -867,30 +989,6 @@ class MockProviders:
         if provider == "anthropic":
             return _anthropic_message(answer=answer, model=model, usage=self._usage)
         return _openai_response(answer=answer, model=model, usage=self._usage)
-
-    def _page_answer(self, page_index: int, agent: str) -> str | None:
-        """Take the next answer for a page and agent. Call with the lock held.
-
-        Parameters
-        ----------
-        page_index
-            The page the request is about.
-        agent
-            The agent the request came from.
-
-        Returns
-        -------
-        str | None
-            The answer, the last one repeating, or ``None`` when there is none.
-        """
-
-        key = (page_index, agent)
-        answers = self._page_answers.get(key)
-        if not answers:
-            return None
-        sent = self._page_answers_sent[key]
-        self._page_answers_sent[key] += 1
-        return answers[min(sent, len(answers) - 1)]
 
     def _survey_answer(self) -> str | None:
         """Take the next survey answer. Call with the lock held.
@@ -1143,8 +1241,19 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     parser.add_argument(
         "--answer",
-        help="JSON file with the survey answer every model request gets",
+        help=(
+            "JSON file with the survey answer each model request that names no "
+            "page or break gets"
+        ),
         required=True,
+        type=Path,
+    )
+    parser.add_argument(
+        "--break-answers",
+        help=(
+            "JSON file with page-break verification's answers, by the index of the "
+            "page before the break and agent"
+        ),
         type=Path,
     )
     parser.add_argument(
@@ -1163,8 +1272,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         if arguments.page_answers is not None
         else None
     )
+    break_answers = (
+        read_break_answers(arguments.break_answers)
+        if arguments.break_answers is not None
+        else None
+    )
     with MockProviders(
-        answers=[answer], page_answers=page_answers, port=arguments.port, verbose=True
+        answers=[answer],
+        break_answers=break_answers,
+        page_answers=page_answers,
+        port=arguments.port,
+        verbose=True,
     ) as mock:
         print(f"ANTHROPIC_BASE_URL={mock.anthropic_base_url}")
         print(f"OPENAI_BASE_URL={mock.openai_base_url}")
@@ -1174,6 +1292,25 @@ def main(argv: Sequence[str] | None = None) -> None:
                 time.sleep(1)
         except KeyboardInterrupt:
             pass
+
+
+def read_break_answers(path: Path) -> dict[int, dict[str, Answer | list[Answer]]]:
+    """Read a break answers file: answers by the page before the break, then agent.
+
+    Parameters
+    ----------
+    path
+        A JSON file whose keys are the indexes of the pages before the breaks and
+        whose values map ``judge`` and ``verifier`` to an answer or a list of
+        answers.
+
+    Returns
+    -------
+    dict[int, dict[str, Answer | list[Answer]]]
+        The answers, for `MockProviders`' ``break_answers``.
+    """
+
+    return _read_answers_by_index(path)
 
 
 def read_page_answers(path: Path) -> dict[int, dict[str, Answer | list[Answer]]]:
@@ -1191,11 +1328,7 @@ def read_page_answers(path: Path) -> dict[int, dict[str, Answer | list[Answer]]]
         The answers, for `MockProviders`' ``page_answers``.
     """
 
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return {
-        int(page): cast("dict[str, Answer | list[Answer]]", by_agent)
-        for page, by_agent in data.items()
-    }
+    return _read_answers_by_index(path)
 
 
 if __name__ == "__main__":

@@ -423,7 +423,7 @@ the uncommitted DEV-004 changes. Assessed content: the new
 
 ### DEV-005 — Stand-in routing and canned break answers
 
-`Status`: `PENDING` `Depends On`: `DEV-004` `Acceptance`: `AC-040, AC-042`
+`Status`: `DONE` `Depends On`: `DEV-004` `Acceptance`: `AC-040, AC-042`
 
 **Goal**
 
@@ -453,6 +453,42 @@ The lint commands on `tests/fixtures`; the existing tests; a scratchpad script
 that sends `ask_judge` and `ask_verifier` requests for both providers through
 the stand-in and gets the canned answers, with page requests still routed as
 before.
+
+Evidence, 2026-11-22, repo root, on `fc5cb0c` (the user's DEV-004 commit) plus
+the uncommitted DEV-005 changes. Assessed content: the changed
+`tests/fixtures/mock_providers.py` (1,335 lines) and the new
+`tests/fixtures/break_answers/irs_form_1040a_1965_scan.json` (15 lines), with no
+change under `src`, `scripts`, `examples` or `docs`, SHA-256 of the two files in
+that order starting `cecb1cd647a7dfc4`.
+
+- `ruff check tests/fixtures`, `ruff format --check tests/fixtures` and
+  `ty check tests`: all passed. `interrogate tests`: 100%.
+- `.venv/bin/pytest --numprocesses auto`: 211 passed.
+- `python -m tests.fixtures.mock_providers --help` lists `--break-answers`.
+- Scratchpad `dev005_check.py`, run with `PYTHONPATH=src:.` against the stand-in
+  (loopback only, no paid request): 40 of 40 checks passed. For
+  `anthropic:claude-opus-5-5` and `openai:gpt-5.5`, a model from `build_model`
+  sends `ask_judge` and `ask_verifier` for break 0 of the 1965 scan's canned
+  pages. Each returns the canned answer in one attempt with no check failures,
+  and the stand-in records `judge` then `verifier` with break index 0, no page
+  index and status 200. Through each SDK directly, sent in reverse order (the
+  break's verifier before its judge, page 1's verifier before its extractor,
+  then page 0's extractor and a survey request), every request gets its canned
+  answer and is recorded with the right agent, break index and page index. A
+  break with no answer gets HTTP 400 naming
+  `judge answer for the break after page index 5`. Break answers alone start the
+  stand-in, and no answers at all raise `ValueError`.
+
+**Implementation Notes**
+
+- `_request_agent` became `_request_target`, which returns a small `_Target`
+  (agent, break index, page index). Break requests are matched first, because
+  their item lines could hold any text. `RecordedRequest` gains `break_index`.
+- Page and break answers share `_next_answer`, and the two file readers share
+  `_read_answers_by_index`, so `read_page_answers` keeps its name for
+  `tests/conftest.py`.
+- The `--answer` help and the `answers` parameter now say the survey answer goes
+  to requests that name no page or break.
 
 ### DEV-006 — The page-break step
 
