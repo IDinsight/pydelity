@@ -492,7 +492,7 @@ that order starting `cecb1cd647a7dfc4`.
 
 ### DEV-006 — The page-break step
 
-`Status`: `PENDING` `Depends On`: `DEV-005` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-005` `Acceptance`:
 `AC-002, AC-011, AC-019, AC-021, AC-026, AC-027, AC-029, AC-030, AC-031, AC-035, AC-036, AC-037, AC-038`
 
 **Goal**
@@ -532,6 +532,72 @@ reuses them; changing one page file's bytes re-judges its two breaks only;
 `overwrite` re-judges all; the verifier on re-judges unverified `model`
 verdicts; a damaged file warns and is judged again; an injected failure cancels
 the rest, keeps the written files and raises.
+
+Evidence, 2026-11-22, repo root, on `1da7f13` (the user's DEV-005 commit) plus
+the uncommitted DEV-006 changes. Assessed content: the new
+`src/pydelity/verifying/verification.py` (1,093 lines, SHA-256 starting
+`caabecda8a3d9637`), with no other change under `src`, `scripts`, `examples` or
+`docs`.
+
+- `ruff check scripts src tests`, `ruff format --check` and
+  `ty check scripts src tests`: all passed. `interrogate scripts src tests`:
+  100%.
+- `.venv/bin/pytest --numprocesses auto`: 211 passed. `--doctest-modules src`:
+  33 passed, 1 skipped. The reference-page generator followed by the Markdown
+  formatter changes no page.
+- Scratchpad `dev006_check.py`, run with `PYTHONPATH=src:.` against the stand-in
+  (loopback only, no paid request): 51 of 51 checks passed.
+  - The 1965 scan, surveyed and extracted with `aextract`: both page files are
+    current, each with the hash of its bytes; with `overwrite`, none is current
+    unless extracted in this run. `plan_breaks` logs
+    `Page-break verification: 1 break, 0 reused, 1 to judge`. `verify_breaks`
+    sends one judge request and writes `page_breaks/0000-0001.json` with the
+    canned verdict, `judgment: "model"`, the eight checks passed after 1
+    attempt, `start_markers` with no differences, no issues, both page hashes,
+    the PDF hash and the plan's fingerprint. It writes one ledger line (`judge`,
+    page index 0) and logs
+    `Break after page 1 (pages 1 and 2): nothing continues, 0 review issues, no verifier; $0.02 for 1 request`.
+    A rerun reuses it with no request. With the verifier on, the break is judged
+    again with the info line and a verifier request. The file records the
+    verifier's pass, and with the verifier off it is reused.
+  - Eight hand-built page files on an eight-page PDF (page 3 blank, page 6 page
+    furniture only): 7 breaks, with judge requests for breaks 0, 3 and 6 only,
+    and `no_content` verdicts for the four breaks touching pages 3 and 6. Those
+    verdicts have every check passed after 0 attempts, no hint differences, no
+    issues and no verification, and log lines such as
+    `Break after page 2 (pages 2 and 3): nothing continues, no request, page 3 has no content items`.
+    A rerun reuses all 7. New bytes for page index 3 re-judge only breaks 2
+    and 3. `overwrite` re-judges all 7. The verifier on re-judges the three
+    `model` verdicts and reuses the `no_content` ones. Invalid JSON and schema
+    version `2.0` each give a `damaged_output` warning and the break is judged
+    again. A leftover temporary file is removed.
+  - Failures: with `concurrent_breaks` 1 and no canned answer for break 3, the
+    `no_content` verdicts and break 0 are written, `ProviderError` is raised,
+    break 6 gets no request, breaks 3 and 6 keep their files, and no temporary
+    file is left. With a judge stand-in that fails break 3 while breaks 0 and 6
+    wait, `PageBreakError` is raised as it is within 3 seconds, breaks 0 and 6
+    are canceled and keep their files, and the `no_content` verdicts are still
+    written.
+
+**Implementation Notes**
+
+- `current_pages(config, extracted, output_folder, survey)` returns the current
+  page files by page index, each read from its bytes with their hash, and the
+  caller finds the pages missing from it. A page file that stops validating
+  between the plan and the read counts as missing.
+- `_break_inputs` and `_break_fingerprint` stay private, since only this module
+  uses them (DEV-007's request sizes live here too).
+- `no_content` verdicts are written before the concurrent part, without the PDF
+  worker. The self-check found that a waiting `no_content` break, which never
+  awaits, could be written after another break had failed. Their checks and
+  hints come from running `run_checks` and `compare_with_hints` on the empty
+  verdict, so the file has the same shape as a `model` verdict.
+- Each break renders both its page images, so a page shared by two breaks is
+  rendered twice. The design allows keeping an image for both breaks, which can
+  be added if rendering shows up in run times.
+- `verify_breaks` takes the step's model even when every break to judge is
+  `no_content`. DEV-008 builds the model only when a break is to be judged, as
+  for pages, which needs the provider's API key in that case.
 
 ### DEV-007 — Page-break verification in the estimate and the ledger
 
