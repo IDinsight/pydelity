@@ -9,10 +9,12 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 
 - Scope:
   `.standards/docs/scope/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
-  (`AC-001` to `AC-042`). Target maturity is Level 3. Architect mode: feature.
-  Its first work item, `AC-041` and `AC-042`, reorders every Python module to
-  the ordering rule of the developer and tester user styles before the other
-  work changes them.
+  (`AC-001` to `AC-054`; `AC-019` and `AC-034` are retired). Target maturity is
+  Level 3. Architect mode: cross-cutting, since the scope's newest rule, that
+  code's measurements are hints, applies to every step that calls a model. Its
+  first work item, `AC-041` and `AC-042`, reorders every Python module to the
+  ordering rule of the developer and tester user styles before the other work
+  changes them.
 - Baseline: the survey and page extraction on `tz6/pipeline-step-2`
   (`.standards/CONTEXT.md`). Page extraction's design
   (`.standards/docs/specs/build-step-2-page-extraction-of-the-20261119T174118Z-0419318a.md`,
@@ -25,9 +27,11 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
   and `PageVerification`, `extracting/extraction.py` `_kept_answer`,
   `_page_issues`, `_verifier_issue` and `_verifier_outcome`, and
   `report/html.py` `_verifier_text`.
-- Constraints that shape this design: the model's reading is trusted over
-  measured facts, and a difference left goes on the review list unless the
-  step's verifier passed the answer or its correction was kept; checks sit in
+- Constraints that shape this design: code's measurements of the PDF and the
+  survey's findings are hints that the model's own reading overrides; only
+  consistency checks and hard limits send an answer back, and a hint difference
+  goes on the review list unless the step's verifier passed the answer or its
+  correction was kept; a run stops only on an unusable answer; checks sit in
   Pydantic, then `<step>/validators.py`, then the verifier; each verifier is a
   second request to its step's model with that step's instructions only; one
   structured-output mode per provider (prompted on Anthropic, native on OpenAI);
@@ -69,18 +73,16 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
    the pages whose page context it changed (page extraction's decision 13). When
    a saved output is passed over only for lacking a verification, an info log
    line says so.
-3. **A run that no verifier reviewed lists every difference it leaves.** With a
-   step's verifier off, the producer's answer goes through the checks and their
-   retries and is kept, and no verifier request is made. Every check still
-   failing goes on the review list, page extraction's `text_dropped` and
-   `text_added` included, and so do the survey's comparisons with the facts
-   (`rotation_differs`, `page_number_differs`). With the verifier on, a
-   difference is left off the review list when the verdict passed or its
-   correction was kept; other failing checks are always listed. This extends
-   page extraction's decision 9 to pages with no verifier and applies the same
-   rule to the survey's comparisons. The differences stay recorded either way:
-   page extraction's in the page file's `checks`, the survey's in the facts and
-   profile that `pdf_survey.json` holds.
+3. **A run that no verifier reviewed lists every check failure and hint
+   difference it leaves.** With a step's verifier off, the producer's answer
+   goes through the checks and their retries and is kept, and no verifier
+   request is made. Every check still failing and every hint difference goes on
+   the review list. With the verifier on, a hint difference is left off the
+   review list when the verdict passed or its correction was kept; a check still
+   failing is always listed. Decision 14 says which are checks and which are
+   hints. Both stay recorded either way, in the output file's `checks` and
+   `hints` (decision 15). This extends page extraction's decision 9 to every
+   hint and to pages with no verifier, and applies the same rule to the survey.
 4. **No verifier means `verification: null`.** `PageFile.verification` becomes
    `PageVerification | None` and `PdfSurvey` gains required
    `verification: SurveyVerification | None`, `null` exactly when no verifier
@@ -96,15 +98,15 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
    `advanced.survey.check_retries`; its output validator runs C1–C7
    (`run_checks`) on the correction and raises `ModelRetry` while retries
    remain, and accepts the verdict as given on the last attempt. A correction is
-   kept only when it passes every survey check: none of C1–C7 compares with
-   stored text, so the survey has no counterpart of page extraction's text-check
-   exception. `passed`: keep the answer. Problems with a kept correction: keep
-   the correction; the problems stay in the verdict only. Otherwise: keep the
-   answer, and each problem becomes a `verifier` review issue of the survey. No
-   loop back to the survey request and no second verification. The profile and
-   proposal are then built from the kept answer by the existing `build_survey`
-   rules, so the user's languages stay first and the facts copy is untouched
-   (`AC-008`).
+   kept only when it passes every survey check. C1–C7 are all consistency checks
+   or hard limits (decision 14), so each of them can block a correction, and the
+   survey's hints never do. `passed`: keep the answer. Problems with a kept
+   correction: keep the correction; the problems stay in the verdict only.
+   Otherwise: keep the answer, and each problem becomes a `verifier` review
+   issue of the survey. No loop back to the survey request and no second
+   verification. The profile and proposal are then built from the kept answer by
+   the existing `build_survey` rules, so the user's languages stay first and the
+   facts copy is untouched (`AC-008`).
 6. **The survey's verifier reuses the survey request's PDF attachment.** It
    sends the same `PdfAttachment` the survey request used (`ModelSurvey`
    `attachment`): the recorded or new upload, or the PDF inside the request when
@@ -124,11 +126,11 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
    message (page count, facts summary, repeated lines with their IDs, the user's
    languages), then `The survey answer to review:` and the answer as JSON, then
    the checks it still fails (one line per failure, or `none`), then its
-   differences from the measured facts (one line per `rotation_differs` or
-   `page_number_differs` issue message, or `none`). This work needs no change to
-   what `survey_pdf`'s messages say; Developer may move the rule text both
-   prompts share into sections of its own. `PROMPT_VERSION` stays 1, as the
-   scope says, and covers both prompts.
+   differences from the measured facts as hints (one line per `rotation_differs`
+   or `page_number_differs` difference, or `none`; decision 16). This work needs
+   no change to what `survey_pdf`'s messages say; Developer may move the rule
+   text both prompts share into sections of its own. `PROMPT_VERSION` stays 1,
+   as the scope says, and covers both prompts.
 8. **Every survey request names its agent.** The survey's own requests are made
    by `surveyor` and its verifier's by `verifier`; both have `step: "survey"`
    and `page_index: null`. With every request of every step naming its agent,
@@ -200,6 +202,104 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
     (`AC-041`); Tester reorders `tests/` (`AC-042`), since tests are Tester's.
     Each reorder is ready to commit on its own, so the user can review it apart
     from the verifier work.
+14. **Code's measurements are hints, and only checks send an answer back.** This
+    is the rule for every step that calls a model, and each later step adopts it
+    when it is built. A step's comparisons with what code measured or the survey
+    found about the PDF are its **hints**; its consistency checks and hard
+    limits are its **checks**. **Checks and hints** lists both for the survey
+    and page extraction. The rule is enforced at these points:
+    - Each step's `validators.py` keeps the two apart: `CHECKS` with
+      `run_checks`, and `HINTS` with `compare_with_hints`, each hint returning
+      its differences as `CheckFailure`s. Page extraction's `reading_order`,
+      `artifacts`, `form_fields`, `text_dropped` and `text_added` move from
+      `CHECKS` and `TEXT_CHECKS` to `HINTS`, and `TEXT_CHECKS` goes. The
+      survey's `compare_with_facts` becomes `compare_with_hints`, built the same
+      way. What each hint compares, its tolerances and the `comparison_status`
+      gate on the text hints stay as they are.
+    - Each agent's output validator, the producer's and the verifier's, runs
+      `run_checks` only. It raises `ModelRetry` only for a check failure, and
+      the retry message lists check failures only. An answer or correction that
+      differs from the hints and passes every check is accepted at once. Page
+      extraction's `_TEXT_NOTE` goes, since no retry message is about text.
+    - A verifier's correction is kept when it passes every check, whatever its
+      hint differences (`AC-047`). This replaces page extraction's rule that a
+      correction passes every check other than `text_dropped` and `text_added`.
+    - Hints are compared on the answer a verifier reviews, for its request, and
+      on the kept answer, for `hints` and the review list (decisions 3 and 15).
+    - A hint difference never raises an error and never fails a page, a step or
+      a run. What stops a run stays as it is (`AC-049`): no answer matching the
+      format within the retries, a refusal, running out of output tokens, or a
+      provider error after the provider retries. A kept answer still failing a
+      check is built and written as now: a ref used twice keeps its first item,
+      unknown container and caption refs become `null`, boxes are kept inside
+      the page, and `covering_range` skips page ranges outside the PDF.
+    - A hint difference's message says what code measured or the survey found
+      and what the answer says. It never tells the model what to change. A check
+      failure's message may say what to fix.
+    - The prompts present measured facts and the survey's findings as hints
+      (decision 16).
+
+    A later step follows the same pattern: its checks may send an answer back
+    within its check retries, its hints never do, its output file records both
+    apart, and its review list follows decision 3.
+
+15. **Output files record hints apart from checks.** `PageFile` gains required
+    `hints: list[ExtractionHintResult]` and `PdfSurvey` gains required
+    `hints: list[HintResult]`: each hint's result on the kept answer, in the
+    order of `HINTS`, whether or not the review list shows its differences. A
+    result has `name` and `differences: list[CheckFailure]`, which is empty when
+    the answer agrees with the hint. It has no `attempts` or `passed`, since
+    hints are not retried and `differences` says whether the answer agrees.
+    `checks` keeps checks only: a page file's six, and the survey's C1–C7 as
+    now. In `review.py`, `ExtractionCheckName` becomes the six checks, a new
+    `ExtractionHintName` holds the five hints, `SurveyComparisonName` becomes
+    `SurveyHintName`, and `IssueName` takes all of them. A review issue from a
+    hint keeps the hint's name in `check`, so the names in `run.json` stay the
+    same. A page file or `pdf_survey.json` without `hints` no longer validates
+    and is made again with the `damaged_output` warning.
+16. **The prompts present hints.** Page extraction, both prompts:
+    - The page text gives the writing direction as what the survey found, such
+      as "The survey found the page written left to right." The line about how
+      the image was turned stays a plain statement, since it says what code did
+      to the image. The repeated lines, each with its stored text and what the
+      survey found it to be (page furniture, content, not decided), and the
+      fillable form fields with their stored values come under headings that
+      call them hints from the PDF's stored data and the survey, which the image
+      overrides.
+    - `_RULES` gains a short paragraph on hints: what comes with the page is
+      taken from the PDF's stored data and the survey and can be wrong, so the
+      image decides. The page furniture rule drops "include each one found to be
+      page furniture in an item with role artifact"; the model decides from the
+      image whether a repeated line is page furniture, content, or not on the
+      page (`AC-054`). The forms rule says to set `fillable_name` when a field
+      item is one of the fields given and to give the value or mark the image
+      shows. The reading order rule reads the page in the direction it is
+      written in, with the survey's direction as a hint.
+    - The extraction model's system message ends with "Your answer is checked by
+      code for form and consistency, and you will be told what to fix if a check
+      fails."
+    - The page verifier's user message gives, after the extraction,
+      `Checks it still fails, which a correction must pass:` with one line per
+      check failure or `none`, then
+      `Differences from the hints, which the page image overrides:` with one
+      line per hint difference or `none`. A `text_dropped` line quotes the
+      stored line, shortened as the failure message already does (`AC-046`).
+      `_VERDICT`'s second paragraph says a correction must pass the checks, the
+      hint differences come from stored data and the survey and can be wrong, a
+      difference is a problem only when the extraction is wrong about the page,
+      and a correction need not agree with the hints.
+    - What the extraction model's request carries is unchanged (`AC-045`): the
+      page image, the page's repeated lines with their stored text and its
+      fillable form fields with their values. Its retry messages no longer quote
+      stored lines.
+
+    Survey: its own request already calls the facts hints and asks for what the
+    model reads, so it is unchanged. Its verifier's heading becomes
+    `Differences from the measured facts, which are hints the PDF overrides:`,
+    and its `_VERDICT` says a correction must pass the checks and need not agree
+    with the facts. No prompt version changes (scope), and decision 15's
+    required field means no page file or survey made with the older prompts is
+    reused.
 
 ### Defaults
 
@@ -227,7 +327,7 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 - `AC-009`: decision 5 (output validator runs C1–C7 within
   `advanced.survey.check_retries`; kept only when every check passes).
 - `AC-010`: decision 5, **Survey verdict application**.
-- `AC-011`: decision 3, **Survey verdict application**.
+- `AC-011`: decisions 3, 14 and 15, **Survey verdict application**.
 - `AC-012`: decision 6.
 - `AC-013`: decision 4, **`pdf_survey.json`**.
 - `AC-014`: decision 4, **HTML report**.
@@ -235,15 +335,14 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 - `AC-016`: decisions 8 and 9.
 - `AC-017`: decision 10.
 - `AC-018`: decision 3, **Page extraction without a verifier**.
-- `AC-019`: decision 3, **Page extraction without a verifier**.
 - `AC-020`: decision 4, **Page file**, **HTML report**.
 - `AC-021`: **Remaining fixes** (`load()`).
 - `AC-022`: **Remaining fixes** (report tables).
 - `AC-023`: **Remaining fixes** (outline links).
 - `AC-024`: **Remaining fixes** (inline widgets).
 - `AC-025`: **Remaining fixes** (`TEXT_FLAGS`).
-- `AC-026`: **Test seams** define the contracts the tests rely on; writing and
-  running the tests is Tester's.
+- `AC-026`, `AC-050`: **Test seams** define the contracts the tests rely on;
+  writing and running the tests is Tester's.
 - `AC-027`: No architectural impact — CI's workflows, jobs and required checks
   stay as they are; Tester's evidence covers them.
 - `AC-028`: **CI and release** (the smoke test runs the survey and page
@@ -257,11 +356,18 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
   docs and README wording, which must describe the behavior this design fixes
   (decisions 1–10, **Interfaces and Contracts**).
 - `AC-033`: **Docs and docstrings** (the reference pages are generated from the
-  code's names and docstrings); the guide pages are Documenter's.
-- `AC-034`: **Docs and docstrings** (the `prompts.py` and `text_layer.py`
-  docstrings); the guides and FAQ are Documenter's.
+  code's names and docstrings, `hints` included); the guide pages are
+  Documenter's.
+- `AC-051`: decision 16, **Docs and docstrings** (the `prompts.py`,
+  `text_layer.py` and `validators.py` docstrings); the guides and FAQ are
+  Documenter's.
+- `AC-052`: **Docs and docstrings** (the generated checks pages list checks and
+  hints apart); the guides are Documenter's, describing decisions 3 and 14.
 - `AC-038`: No architectural impact — Documenter's update to
   `artifacts/next_cycle_inputs.md`; decision 1 is what it records for later
+  steps.
+- `AC-053`: No architectural impact — Documenter's update to
+  `artifacts/next_cycle_inputs.md`; decision 14 is what it records for later
   steps.
 - `AC-039`, `AC-040`: No architectural impact — the user's review of real runs
   after the build, made with the default settings and with `verify` on.
@@ -269,6 +375,16 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
   Developer).
 - `AC-042`: decision 13, **Module order** (`tests/`, `conftest.py` files
   included, by Tester).
+- `AC-043`: decisions 14 and 16, **Checks and hints**.
+- `AC-044`: decision 14, **Checks and hints**.
+- `AC-045`: decision 16 (what the extraction model's request carries; no stored
+  line in its retry messages).
+- `AC-046`: decision 16 (the page verifier's hints section).
+- `AC-047`: decision 14 (the keep rule).
+- `AC-048`: decisions 3 and 15, **Page extraction without a verifier**.
+- `AC-049`: decision 14 (what stops a run; how a failing answer is built).
+- `AC-054`: decision 16 (repeated lines and the survey's findings as hints; no
+  page furniture order).
 
 ## Components
 
@@ -278,12 +394,17 @@ Cycle: add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada
 - **CLI** (`cli.py`): `--verify`/`-vf`.
 - **Survey step** (`surveying/`): the verifier's schemas, prompt, agent and
   request (decision 11); `survey.py` applies the verdict, builds the review
-  list, and adds the verification rule to `saved_survey`.
+  list, and adds the verification rule to `saved_survey`; `validators.py`
+  `HINTS` and `compare_with_hints`, `schemas.py` `HintResult` and
+  `PdfSurvey.hints` (decisions 14 and 15).
 - **Page extraction step** (`extracting/extraction.py`, `extracting/llm.py`,
   `extracting/schemas.py`): the verifier made optional in the page task, the
   kept-answer and review-list rules with no verdict, the reuse rule in
-  `plan_pages`, the log line.
-- **Review** (`review.py`): `verifier` shared by both steps.
+  `plan_pages`, the log line; the hint rule in `validators.py`, `agents.py`,
+  `prompts.py` and `extraction.py`, `ExtractionHintResult` and `PageFile.hints`
+  (decisions 14–16).
+- **Review** (`review.py`): `verifier` shared by both steps; the check and hint
+  names apart (decision 15).
 - **Costs and providers** (`costs/budget.py`, `costs/schemas.py`,
   `providers/ledger_model.py`): the estimates, `StepEstimate.verifier`, the
   required `LedgerEntry.agent`, the wrapper that names an agent without a page.
@@ -301,6 +422,40 @@ Dependency direction is unchanged: `extracting` imports `surveying.schemas` and
 `review`; `surveying` never imports `extracting`; `pipeline` imports both.
 
 ## Interfaces and Contracts
+
+### Checks and hints
+
+- Survey checks, which may send an answer back: C1–C7, of which `labels`,
+  `artifacts` and `languages` are consistency checks and `regions`, `rotation`,
+  `page_numbering` and `writing_direction` are hard limits.
+- Survey hints, which never do: `rotation_differs`, `page_number_differs`.
+- Page extraction checks: `labels`, `content`, `languages`, `containers` and
+  `captions` are consistency checks; `boxes` is both, since a box must be well
+  formed and not shared (consistency) and on the page (hard limit).
+- Page extraction hints: `reading_order`, `artifacts`, `form_fields`,
+  `text_dropped`, `text_added`.
+
+The names run in today's order. Page extraction's `CHECKS`: `labels`, `content`,
+`languages`, `boxes`, `containers`, `captions`; its `HINTS`: `reading_order`,
+`artifacts`, `form_fields`, `text_dropped`, `text_added`. The survey's C1–C7
+stay in their order, and its `HINTS` are `rotation_differs`, then
+`page_number_differs`.
+
+Hint messages describe the difference and never tell the model what to change
+(decision 14). In the sense of, with the exact words Developer's:
+
+- `text_dropped`: the page's text layer has the line '…', which is not in the
+  answer;
+- `reading_order`: the survey found the page written top to bottom, but
+  `column_order` is null; `column_order` is set, but the survey found the page
+  written left to right; item 't3' starts 300 units above item 't2', before it,
+  without a move of 200 units to the right, for the direction the survey found;
+- `artifacts`: the survey found the repeated line R1, '…', to be page furniture;
+  it sits at […] on the grid, and no item with role artifact covers it;
+- `form_fields`: the PDF stores '…' for the form field 'x', but its field items
+  say '…'; the form field 'x' is on the page twice, and one field item names it;
+- the survey's `rotation_differs` and `page_number_differs` keep their current
+  messages, which already describe.
 
 ### Module order
 
@@ -421,10 +576,10 @@ verifier adds cost.
    attempts of the model that gave it (the verifier's when its correction was
    kept).
 4. `issues`, in this order: each check still failing on the kept answer; then
-   `rotation_differs` and `page_number_differs` from `compare_with_facts` on the
-   kept answer, unless `verification` is set and the verdict passed or its
-   correction was applied; then, when a verdict was given and its correction was
-   not applied, one issue per problem: `step: "survey"`, `check: "verifier"`,
+   each `rotation_differs` and `page_number_differs` difference in `hints`,
+   unless `verification` is set and the verdict passed or its correction was
+   applied; then, when a verdict was given and its correction was not applied,
+   one issue per problem: `step: "survey"`, `check: "verifier"`,
    `message: "verifier: <description>"`, `details: {"category": <category>}`,
    `page_index` from the problem, `item_id: null`.
 5. The survey's log line adds the verifier's outcome: `passed`,
@@ -434,9 +589,11 @@ verifier adds cost.
 
 - `verification: SurveyVerification | None` (required): the verifier's review;
   `null` when no verifier ran.
-- `issues` docstring: checks still failing on the kept answer, differences from
-  the facts unless the verifier passed the answer or its correction was kept,
-  and the verifier's problems when its correction was not kept.
+- `hints: list[HintResult]` (required): each hint's differences on the kept
+  answer (decision 15).
+- `issues` docstring: checks still failing on the kept answer, hint differences
+  unless the verifier passed the answer or its correction was kept, and the
+  verifier's problems when its correction was not kept.
 - `checks` docstring: the kept answer's checks, the survey's or the verifier's
   correction.
 - No new input field: `verification` tells whether a verifier ran (decision 2).
@@ -446,9 +603,12 @@ verifier adds cost.
 - `StepModel` (or the page task) carries `verify_extraction`. With it off, the
   page task runs the extractor and keeps its answer; `_kept_answer` takes no
   verdict and sets `verification` to `null`.
-- `_page_issues`: text checks are left out only when `verification` is set and
-  the verdict passed or the correction was applied; `verifier` issues are added
-  only when `verification` is set and the correction was not applied.
+- `_page_issues`, in this order: each check still failing on the kept answer;
+  each hint difference in `hints`, unless `verification` is set and the verdict
+  passed or the correction was applied; `no_matching_label` issues; then
+  `verifier` issues, only when `verification` is set and the correction was not
+  applied.
+- `_kept_answer` keeps a correction under decision 14's rule.
 - `plan_pages` reuses a page file only under decision 2's rule.
 - Log line: `verifier <outcome>` becomes `no verifier` when none ran.
 - `request_sizes` and `request_sizes_before_survey` keep measuring the
@@ -458,9 +618,15 @@ verifier adds cost.
 
 - `verification: PageVerification | None` (required): the verifier's review;
   `null` when no verifier reviewed the page.
-- `issues` docstring: text differences are listed unless the verifier passed the
+- `hints: list[ExtractionHintResult]` (required): each hint's differences on the
+  kept answer (decision 15). `checks` holds the six checks only.
+- `issues` docstring: hint differences are listed unless the verifier passed the
   page or its correction was applied, so every one is listed on a page no
   verifier reviewed.
+- `PageVerification.correction_applied` docstring: a correction replaces the
+  extraction when it passes every check; `correction_failures` holds checks
+  only.
+- `text_comparison` is unchanged and says whether the text hints ran.
 
 ### `cost.jsonl`
 
@@ -528,10 +694,21 @@ verifier adds cost.
   nullable `PageFile.verification`, `StepEstimate.verifier` and the docstring
   changes from the code, and the survey checks page lists the survey's
   `verifier` issue name, so CI's staleness check covers them.
-- Docstrings that say pydelity sends none of the PDF's stored text
-  (`extracting/prompts.py`, `extracting/text_layer.py`) say what is sent: the
-  page's repeated lines with their stored text and its form fields, and stored
-  lines quoted in text retry messages.
+- Docstrings that say pydelity sends none of the PDF's stored text, or that a
+  text difference sends the answer back (`extracting/prompts.py`,
+  `extracting/text_layer.py`, `extracting/validators.py`,
+  `extracting/agents.py`), say what is sent and what happens: the page's
+  repeated lines with their stored text and the survey's findings, and its form
+  fields with their values, all as hints; with the verifier on, its request
+  lists the answer's hint differences, quoting stored lines; a hint difference
+  never sends an answer back. `surveying/validators.py` and `review.py` say the
+  same of the survey's hints.
+- The generated checks pages (`scripts/generate_reference_docs.py`
+  `extraction-checks` and `survey-checks`) list each step's checks and hints
+  under headings of their own, from `CHECKS` and `HINTS`, and say that a check
+  may send an answer back within the check retries, a hint never does, when a
+  hint difference goes on the review list, and that a kept answer still failing
+  a check is kept and listed (`AC-052`).
 
 ### Test seams
 
@@ -539,6 +716,13 @@ verifier adds cost.
   `The survey answer to review:`, so the stand-in provider can route a survey
   verifier request to a queued survey verdict, apart from queued survey answers.
   Page requests keep their existing markers.
+- Every retry message, from either step's producer or verifier, is built from
+  `run_checks` failures only, so no hint difference can appear in one.
+- Hint differences reach a model only in a verifier's user message, after the
+  heading `Differences from the hints, which the page image overrides:` on a
+  page and
+  `Differences from the measured facts, which are hints the PDF overrides:` in
+  the survey.
 - No step code reads the environment or chooses behavior for tests.
 
 ### CI and release
@@ -557,16 +741,19 @@ verifier adds cost.
 2. Survey step: measure facts; reuse `pdf_survey.json` under decision 2's rule,
    else estimate (with the survey's verifier when on, and with page extraction's
    when it follows), ask, then the survey request with checks and retries; when
-   `verify_survey` is on, the verifier request on the same attachment with
-   checks on its correction; apply the verdict; build the profile, proposal,
-   checks and issues from the kept answer; write `pdf_survey.json` atomically. A
-   failed verifier request ends the step `failed` with nothing written (decision
-   10).
+   `verify_survey` is on, the verifier request on the same attachment, given the
+   answer's check failures and hint differences, with checks on its correction;
+   apply the verdict; build the profile, proposal, checks, hints and issues from
+   the kept answer; write `pdf_survey.json` atomically. A failed verifier
+   request ends the step `failed` with nothing written (decision 10).
 3. Pause after a new survey, as now.
 4. Page extraction: plan pages under decision 2's rule; estimate when the survey
-   was reused; per page, render, read the text layer, run the extractor; when
-   `verify_extraction` is on, run the verifier and apply its verdict; build
-   issues under decision 3; write crops and the page file; log the outcome.
+   was reused; per page, render, read the text layer, run the extractor with
+   checks and retries; when `verify_extraction` is on, compare the answer with
+   the hints, run the verifier with its check failures and hint differences, and
+   apply its verdict; compare the kept answer with the hints; build checks,
+   hints and issues under decisions 3 and 15; write crops and the page file; log
+   the outcome.
 5. Each request goes through its agent's `LedgerModel` wrapper, which reserves
    its bound, sends, writes its ledger line with step, page and agent, and
    releases the reservation.
@@ -606,7 +793,8 @@ verifier adds cost.
   `advanced.survey.check_retries` allows and is never kept.
 - `AC-010`, `AC-011`: `issues` follow **Survey verdict application** step 4 for
   each outcome: passed, correction kept, correction not kept or missing, and no
-  verifier.
+  verifier; `hints` holds every `rotation_differs` and `page_number_differs`
+  difference on the kept answer whatever the outcome.
 - `AC-012`: the verifier request uses the survey request's attachment; with a
   usable recorded upload, the run makes no upload call.
 - `AC-013`: `pdf_survey.json` holds the verdict as given, its attempts, whether
@@ -623,9 +811,6 @@ verifier adds cost.
   model's message, the CLI exits 1, and no new `pdf_survey.json` is written.
 - `AC-018`: with `verify_extraction` off, each page makes extractor requests
   only and keeps the extractor's answer.
-- `AC-019`: with no verifier, every failing check, `text_dropped` and
-  `text_added` included, is a review issue; with a verifier, the existing rules
-  hold unchanged.
 - `AC-020`: `PageFile.verification` is `null` exactly when no verifier ran, and
   the report and the page's log line then say no verifier ran.
 - `AC-021`: `load()` leaves out every page file whose `inputs.pdf_sha256`
@@ -650,6 +835,33 @@ verifier adds cost.
   which evaluates annotations when it defines a function or class, and on 3.14.
   `AC-041` holds this for `src/pydelity/` and `scripts/` with the tests
   unchanged; `AC-042` for `tests/` with the package already reordered.
+- `AC-043`: the extraction model's, the page verifier's and both survey requests
+  introduce the measured facts and the survey's findings as hints that the
+  model's reading overrides; no system message, user message or retry message
+  tells the model to change its answer to match one; every hint difference
+  message follows **Checks and hints**.
+- `AC-044`: both steps' output validators raise `ModelRetry` only when
+  `run_checks` finds a failure; an answer or correction whose only differences
+  are hints is accepted on that attempt; no hint difference raises an error or
+  sets a page, step or run status.
+- `AC-045`: the extraction model's request holds the page text sections and the
+  image only, its stored text limited to the repeated lines and the form fields'
+  values; none of its retry messages holds a text-layer line.
+- `AC-046`: with `verify_extraction` on, the verifier's user message has one
+  line per hint difference of the reviewed answer after the hints heading, a
+  `text_dropped` line quoting its stored line, and `none` when there is none.
+- `AC-047`: a correction with no `run_checks` failure is kept whatever its hint
+  differences; one with a check failure is not.
+- `AC-048`: a page's `issues` follow **Page extraction without a verifier** for
+  each outcome: no verifier, passed, correction kept, correction not kept or
+  missing; `hints` holds every hint difference on the kept answer whatever the
+  outcome.
+- `AC-049`: a kept answer, of the survey or a page, still failing a check is
+  written with each failure in `checks` and `issues`, and the step goes on; the
+  step fails only on the errors decision 14 names.
+- `AC-054`: the page text lists each repeated line with its stored text and the
+  survey's finding under a heading that calls them hints; no prompt text tells
+  the model to put a repeated line in an item with role `artifact`.
 
 ## Build Plan
 
@@ -666,8 +878,8 @@ verifier adds cost.
    `src/pydelity/config/schemas.py`, `src/pydelity/cli.py`,
    `examples/config.json`, `examples/config.yaml`. Names approved by the user
    first. Depends on 1.
-3. **Page extraction with an optional verifier** (`AC-005`, `AC-006`, `AC-018`
-   to `AC-020` for pages). MODIFY `src/pydelity/extracting/extraction.py`,
+3. **Page extraction with an optional verifier** (`AC-005`, `AC-006`, `AC-018`,
+   `AC-020` for pages). MODIFY `src/pydelity/extracting/extraction.py`,
    `src/pydelity/extracting/llm.py`, `src/pydelity/extracting/schemas.py`,
    `src/pydelity/costs/budget.py`, `src/pydelity/costs/schemas.py`,
    `src/pydelity/report/html.py`, `src/pydelity/pipeline/runner.py` (estimate
@@ -684,14 +896,24 @@ verifier adds cost.
    (docstring), `src/pydelity/report/html.py`,
    `src/pydelity/surveying/probe.py`, `src/pydelity/utils/pdf.py`. Depends on 1
    only; may go before 2–4.
-6. **Docstrings, references and package text** (`AC-030`, `AC-033`, `AC-034` in
-   code). MODIFY `scripts/generate_reference_docs.py` (only if the survey's
-   `verifier` issue name is not picked up by itself),
-   `src/pydelity/extracting/prompts.py`, `src/pydelity/extracting/text_layer.py`
-   (docstrings), `pyproject.toml` (description); regenerate
-   `docs/src/content/docs/reference/` with `just docs-reference`. After 2–5.
+6. **Docstrings, references and package text** (`AC-030`, `AC-033` in code).
+   MODIFY `scripts/generate_reference_docs.py` (only if the survey's `verifier`
+   issue name is not picked up by itself), `pyproject.toml` (description);
+   regenerate `docs/src/content/docs/reference/` with `just docs-reference`.
+   After 2–5.
+7. **Hints** (`AC-043` to `AC-049`, `AC-054`, and `AC-051`, `AC-052` in code).
+   MODIFY `src/pydelity/review.py`, `src/pydelity/extracting/validators.py`,
+   `agents.py`, `llm.py`, `prompts.py`, `extraction.py`, `schemas.py`,
+   `text_layer.py` (docstring), `src/pydelity/surveying/validators.py`,
+   `prompts.py`, `llm.py`, `survey.py`, `schemas.py`, `agents.py` (docstring),
+   `scripts/generate_reference_docs.py`; regenerate
+   `docs/src/content/docs/reference/` with `just docs-reference`. The split of
+   the names, the validators, the agents, the keep rule, the `hints` fields and
+   the review lists change together in one step, since each depends on the
+   others to build and pass the checks; the prompt text may follow in a step of
+   its own. Depends on 3 and 4.
 
-New and changed code in steps 2–6 follows **Module order** as it is written.
+New and changed code in steps 2–7 follows **Module order** as it is written.
 Tests are Tester's, the docs guides, README and `artifacts/next_cycle_inputs.md`
 are Documenter's.
 
@@ -708,9 +930,21 @@ are Documenter's.
   and Japanese test pages, put their text differences back on the review list,
   and nothing catches missed or merged items, a wrong reading order or boxes on
   the wrong content beyond the code checks. The scope accepts this.
+- No hint sends an answer back now, so dropped or added text, uncovered page
+  furniture, a field value the model misread and a reading order against the
+  page's direction are no longer retried. With the verifier off, they reach the
+  user only through the review list. Since the prompt no longer asks for
+  furniture lines in artifact items, models may give fewer artifact items, and
+  each missing one is an `artifacts` review issue. The real runs show how many.
+- What stops working: every page file and `pdf_survey.json` written before this
+  change lacks `hints` and is made again with the `damaged_output` warning, so a
+  run on an older output folder pays for the survey and every selected page
+  again. Code that reads `PageFile.checks` for `text_dropped`, `text_added`,
+  `artifacts`, `form_fields` or `reading_order` finds them in `hints` instead,
+  and `TEXT_CHECKS`, `compare_with_facts` and `SurveyComparisonName` are gone.
 - A verifier that wrongly passes an answer, or a kept correction that is worse,
-  keeps its differences off the review list; the survey's are then visible only
-  by comparing the profile with the facts in `pdf_survey.json`.
+  keeps its hint differences off the review list; they are then visible only in
+  the output file's `hints`.
 - `SurveyVerdict` nests a whole `SurveyAnswer`; OpenAI's native output and
   Anthropic's prompted output have not run it yet. `AC-040`'s real runs will.
 - Output folders from earlier runs do not carry over. Their `pdf_survey.json`
@@ -750,3 +984,12 @@ are Documenter's.
   ledgers keep loading.
 - Saving the unverified survey when its verifier request fails: rejected; it
   would not be reused while the verifier is on.
+- One `checks` list with a flag on each hint's result: rejected. Hints have no
+  attempts, and the review list treats them apart, so separate lists show the
+  rule in the file itself.
+- Sending hint differences back with softer wording, or only beside a check
+  failure: rejected. Either still asks the model to look at its answer against a
+  hint, which is what merged the grade cells.
+- Leaving the writing direction stated as a fact while `reading_order` is a
+  hint: rejected. A page the survey got wrong would be read against its own
+  direction, and the hint would then flag the correct reading.

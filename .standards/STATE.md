@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -30,8 +30,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `RESUME` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
-`Scope adds AC-054: the survey's finding for each repeated line is a hint in page requests. Frame 2 closed; frame 1's reruns continue at Architect.`
+`Kind`: `FORWARD` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Design makes code's measurements hints: only checks send an answer back, outputs record hints apart, prompts present them as hints.`
 
 ## Recovery
 
