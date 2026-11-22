@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -13,8 +13,10 @@
 
 `Scope`:
 `.standards/docs/scope/build-step-3-page-break-verification-of-20261122T170208Z-00fe2896.md`
-`Architecture`: `NONE` `Development`: `NONE` `PromotionReason`: `NONE`
-`AuditTarget`: `NONE` `BlockedOn`: `NONE` `PendingVerificationCadence`: `NONE`
+`Architecture`:
+`.standards/docs/specs/build-step-3-page-break-verification-of-20261122T170208Z-00fe2896.md`
+`Development`: `NONE` `PromotionReason`: `NONE` `AuditTarget`: `NONE`
+`BlockedOn`: `NONE` `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
 
@@ -26,8 +28,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
-`Scope complete with AC-001 to AC-051: whole-PDF verdicts only, release 0.3.0, reviews raise major issues only; Architect picks the design.`
+`Kind`: `FORWARD` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Design complete for AC-001 to AC-051: one request per break with both whole pages, verdicts naming pieces by item ID, checks and one hint, verdicts keyed to page-file hashes, a pause after new page files; names await user approval in the development plan.`
 
 ## Recovery
 
