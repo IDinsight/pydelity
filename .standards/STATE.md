@@ -18,7 +18,7 @@
 `Development`:
 `.standards/docs/development/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`Continue with DEV-013 (the survey keeps checks and hints apart)?`
+`Continue with DEV-014 (prompts present measured facts as hints)?`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

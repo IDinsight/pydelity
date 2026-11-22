@@ -1,41 +1,40 @@
-"""The survey's checks on the model's answer, and its comparison with the facts.
+"""The survey's checks and hints on the model's answer.
 
 Pydantic checks the answer's shape. Checks C1 to C7 test that the answer is well
 formed and complete: labels and regions fit together, page ranges lie inside the PDF
 without overlapping, every repeated line is accounted for and every language tag is
-valid. They use the facts only for the page count and the repeated-line IDs. Each
-check returns every failure it finds, one per affected page, so one retry message can
-name every problem and the last attempt can record them all.
+valid. They use the facts only for the page count and the repeated-line IDs. While
+retries remain, an answer that fails a check is sent back to the model. Each check
+returns every failure it finds, one per affected page, so one retry message can name
+every problem and the last attempt can record them all.
 
-The model's reading of the PDF takes precedence over the measured facts, so no check
-compares the answer with a measured value. Instead, `compare_with_facts` runs once on
-the accepted answer and records each page whose rotation or page number differs from
-what the probe measured, for a person to review. The checks and the comparison use
-page indexes, values and IDs only, never word lists.
+The hints compare the answer with what the probe measured: each page's rotation by
+its text angle, and each page's printed number. These measurements can be wrong, and
+the model's reading of the PDF decides. A hint difference never sends an answer
+back. `pdf_survey.json` records it, and the review list shows it unless the
+verifier passed the answer or its correction was kept. The checks and hints use page
+indexes, values and IDs only, never word lists.
 """
 
 # Standard Library
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Protocol
 
 # Package Library
 from pydelity.config.schemas import is_language_tag
-from pydelity.review import (
-    CheckFailure,
-    ReviewIssue,
-    SurveyCheckName,
-    SurveyComparisonName,
-)
+from pydelity.review import CheckFailure, ReviewIssue, SurveyCheckName, SurveyHintName
 from pydelity.surveying.schemas import (
     CheckResult,
     Facts,
+    HintResult,
     PageNumberingRange,
     RotationRange,
     SurveyAnswer,
 )
 
-# Checks the answer against the facts and returns every failure found.
+# Checks the answer, or compares it with a hint, using the facts, and returns every
+# failure or difference found.
 type Check = Callable[[SurveyAnswer, Facts], list[CheckFailure]]
 
 
@@ -52,22 +51,23 @@ class _PageRange(Protocol):
 
 
 def _failure(
-    check: SurveyCheckName,
+    check: SurveyCheckName | SurveyHintName,
     message: str,
     *,
     details: dict[str, object],
     page_index: int | None,
 ) -> CheckFailure:
-    """Make a failure whose message starts with the check's name.
+    """Make a failure or difference whose message starts with the check's name.
 
     Parameters
     ----------
     check
-        The check that failed.
+        The check that failed, or the hint the answer differs from.
     message
-        What is wrong.
+        What is wrong, or what differs.
     details
-        The proposed value and, where it applies, what it was checked against.
+        The proposed value and, where it applies, what it was checked against, or
+        the measured and profile values.
     page_index
         The page the problem is on, or ``None``.
 
@@ -82,59 +82,27 @@ def _failure(
     )
 
 
-def _issue(
-    comparison: SurveyComparisonName,
-    message: str,
-    *,
-    details: dict[str, object],
-    page_index: int,
-) -> ReviewIssue:
-    """Make a review issue for a difference from the facts.
-
-    Parameters
-    ----------
-    comparison
-        The comparison that found the difference.
-    message
-        The page, the measured value and the profile's value.
-    details
-        The measured and profile values.
-    page_index
-        The page that differs.
-
-    Returns
-    -------
-    ReviewIssue
-        The issue, with its message starting with the comparison's name.
-    """
-
-    return ReviewIssue(
-        check=comparison,
-        details=details,
-        item_id=None,
-        message=f"{comparison}: {message}",
-        page_index=page_index,
-        step="survey",
-    )
-
-
-def _page_number_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
+def _page_number_differences(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
     """List the pages whose measured printed number the profile does not give.
+
+    This is a hint. A page can differ only where the probe measured a printed
+    number with a value. The profile's number for a page comes from the first
+    numbering range inside the PDF that covers it.
 
     Parameters
     ----------
     answer
-        The accepted answer.
+        The answer.
     facts
         The measured facts.
 
     Returns
     -------
-    list[ReviewIssue]
-        One ``page_number_differs`` issue per differing page.
+    list[CheckFailure]
+        One ``page_number_differs`` difference per differing page.
     """
 
-    issues = []
+    differences = []
     page_count = len(facts.pages)
     for page in facts.pages:
         measured = page.printed_number
@@ -152,8 +120,8 @@ def _page_number_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]
             else f"page text {measured.text!r}"
         )
         gives = "no number" if profile is None else f"{profile}"
-        issues.append(
-            _issue(
+        differences.append(
+            _failure(
                 "page_number_differs",
                 f"page index {page.index} has the number {measured.value} in its "
                 f"{where}, but the profile gives {gives}",
@@ -165,7 +133,7 @@ def _page_number_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]
                 page_index=page.index,
             )
         )
-    return issues
+    return differences
 
 
 def _pages(page_range: _PageRange) -> range:
@@ -267,23 +235,55 @@ def _range_failures(
     return failures
 
 
-def _rotation_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
+def _review_issue(
+    failure: CheckFailure, *, name: SurveyCheckName | SurveyHintName
+) -> ReviewIssue:
+    """Turn a check failure or hint difference on the kept answer into a review issue.
+
+    Parameters
+    ----------
+    failure
+        The failure or difference.
+    name
+        The check or hint that found it.
+
+    Returns
+    -------
+    ReviewIssue
+        The issue.
+    """
+
+    return ReviewIssue(
+        check=name,
+        details=failure.details,
+        item_id=None,
+        message=failure.message,
+        page_index=failure.page_index,
+        step="survey",
+    )
+
+
+def _rotation_differences(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
     """List the pages whose confident measured rotation the profile does not give.
+
+    This is a hint. A page can differ only where the probe measured a confident text
+    angle. The profile's rotation for a page comes from the first rotation range
+    inside the PDF that covers it, and is 0 when none does.
 
     Parameters
     ----------
     answer
-        The accepted answer.
+        The answer.
     facts
         The measured facts.
 
     Returns
     -------
-    list[ReviewIssue]
-        One ``rotation_differs`` issue per differing page.
+    list[CheckFailure]
+        One ``rotation_differs`` difference per differing page.
     """
 
-    issues = []
+    differences = []
     page_count = len(facts.pages)
     for page in facts.pages:
         measured = page.orientation.dominant
@@ -295,8 +295,8 @@ def _rotation_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
         profile = 0 if turn is None else turn.degrees
         if profile == measured:
             continue
-        issues.append(
-            _issue(
+        differences.append(
+            _failure(
                 "rotation_differs",
                 f"page index {page.index} needs {measured} degrees by its measured "
                 f"text angle, but the profile gives {profile}",
@@ -304,7 +304,15 @@ def _rotation_issues(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
                 page_index=page.index,
             )
         )
-    return issues
+    return differences
+
+
+# The hints an answer is compared with, in the order they run. A difference never
+# sends the answer back.
+HINTS: dict[SurveyHintName, Check] = {
+    "rotation_differs": _rotation_differences,
+    "page_number_differs": _page_number_differences,
+}
 
 
 def check_artifacts(answer: SurveyAnswer, facts: Facts) -> list[CheckFailure]:
@@ -622,29 +630,28 @@ CHECKS: dict[SurveyCheckName, Check] = {
 }
 
 
-def compare_with_facts(answer: SurveyAnswer, facts: Facts) -> list[ReviewIssue]:
-    """Record where the accepted answer differs from the measured facts.
+def compare_with_hints(
+    answer: SurveyAnswer, facts: Facts
+) -> dict[SurveyHintName, list[CheckFailure]]:
+    """Compare an answer with every hint, in order.
 
-    A page can differ only where the probe measured a value: a confident text angle
-    for rotation, or a printed number with a value for page numbering. The profile's
-    value for a page comes from the first range inside the PDF that covers it. The
-    comparison never changes the answer and never sends it back to the model.
+    A comparison never changes the answer and never sends it back to the model.
 
     Parameters
     ----------
     answer
-        The accepted answer.
+        The answer.
     facts
         The measured facts.
 
     Returns
     -------
-    list[ReviewIssue]
-        One ``rotation_differs`` issue per page whose rotation differs, then one
-        ``page_number_differs`` issue per page whose number differs.
+    dict[SurveyHintName, list[CheckFailure]]
+        Each hint's differences, ``rotation_differs`` then ``page_number_differs``;
+        an empty list when the answer agrees with it.
     """
 
-    return _rotation_issues(answer, facts) + _page_number_issues(answer, facts)
+    return {name: hint(answer, facts) for name, hint in HINTS.items()}
 
 
 def covering_range[RangeT: _PageRange](
@@ -689,6 +696,49 @@ def covering_range[RangeT: _PageRange](
     return None
 
 
+def hint_issues(results: Sequence[HintResult]) -> list[ReviewIssue]:
+    """Turn the kept answer's hint differences into review issues.
+
+    Parameters
+    ----------
+    results
+        The hint results, from `hint_results`.
+
+    Returns
+    -------
+    list[ReviewIssue]
+        One issue per difference, in the order the hints run, with the hint's name
+        in ``check``.
+    """
+
+    return [
+        _review_issue(difference, name=result.name)
+        for result in results
+        for difference in result.differences
+    ]
+
+
+def hint_results(
+    differences: Mapping[SurveyHintName, list[CheckFailure]],
+) -> list[HintResult]:
+    """Record each hint's differences on the kept answer, in the order the hints run.
+
+    Parameters
+    ----------
+    differences
+        Each hint's differences on the kept answer, from `compare_with_hints`.
+
+    Returns
+    -------
+    list[HintResult]
+        The results for ``pdf_survey.json``'s ``hints``.
+    """
+
+    return [
+        HintResult(differences=found, name=name) for name, found in differences.items()
+    ]
+
+
 def retry_message(failures: dict[SurveyCheckName, list[CheckFailure]]) -> str:
     """Write the message that asks the model to fix its answer.
 
@@ -700,7 +750,8 @@ def retry_message(failures: dict[SurveyCheckName, list[CheckFailure]]) -> str:
     Returns
     -------
     str
-        Every failure, one per line, after a line asking for a corrected answer.
+        Every check failure, one per line, after a line asking for a corrected
+        answer. Hint differences are never part of it.
     """
 
     lines = [f"- {failure.message}" for name in CHECKS for failure in failures[name]]
@@ -725,14 +776,7 @@ def review_issues(results: list[CheckResult]) -> list[ReviewIssue]:
     """
 
     return [
-        ReviewIssue(
-            check=result.name,
-            details=failure.details,
-            item_id=None,
-            message=failure.message,
-            page_index=failure.page_index,
-            step="survey",
-        )
+        _review_issue(failure, name=result.name)
         for result in results
         for failure in result.failures
     ]

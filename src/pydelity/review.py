@@ -1,9 +1,10 @@
 """The review list: problems a person should check, from every step.
 
-A step's checks find problems in a model's answer. Problems still left in the accepted
-answer, and differences between the answer and what pydelity measured, become review
-issues. Each step saves its own issues with its output, and ``run.json`` lists them
-all. The check names are part of the ``run.json`` contract.
+A step's checks find problems in a model's answer, and its hints compare the answer
+with what pydelity measured or the survey found. Checks still failing on the kept
+answer, and hint differences that no verifier accepted, become review issues. Each
+step saves its own issues with its output, and ``run.json`` lists them all. The check
+and hint names are part of the ``run.json`` contract.
 """
 
 # Standard Library
@@ -44,7 +45,7 @@ type IssueName = (
     | ExtractionHintName
     | ExtractionIssueName
     | SurveyCheckName
-    | SurveyComparisonName
+    | SurveyHintName
     | VerifierIssueName
 )
 
@@ -62,9 +63,9 @@ type SurveyCheckName = Literal[
     "languages",
 ]
 
-# The survey's comparisons of the accepted answer with the facts, whose differences
-# are review issues.
-type SurveyComparisonName = Literal["rotation_differs", "page_number_differs"]
+# The survey's hints, the comparisons of each answer with what the probe measured, in
+# the order they run. A difference never sends the answer back.
+type SurveyHintName = Literal["rotation_differs", "page_number_differs"]
 
 # A problem a step's verifier found whose correction was not kept, in either step.
 type VerifierIssueName = Literal["verifier"]
@@ -97,17 +98,17 @@ class CheckFailure(_Output):
 class ReviewIssue(_Output):
     """A problem a person should review.
 
-    It comes from a check that still failed on a step's accepted answer, from a
-    difference between the accepted answer and what pydelity measured, or from a
-    problem found another way, such as by a step's verifier.
+    It comes from a check that still failed on a step's kept answer, from a
+    difference between the kept answer and a hint, or from a problem found another
+    way, such as by a step's verifier.
     """
 
     check: IssueName
-    """What found the problem: a check, a comparison or another source. ``step`` says
-    whose, since two steps can have checks of the same name."""
+    """What found the problem: a check, a hint or another source. ``step`` says
+    whose, since two steps can have checks and hints of the same name."""
 
     details: dict[str, object]
-    """The values the problem is about. A survey comparison gives values such as
+    """The values the problem is about. A survey hint gives values such as
     ``{"measured": 90, "profile": 0}``, and a check gives its failure's ``details``,
     such as ``{"item_ref": "t3"}`` on a page. A ``no_matching_label`` issue gives the
     ``kind`` and ``role`` that no label fits, with the items' refs and IDs

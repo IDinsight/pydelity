@@ -52,7 +52,9 @@ from pydelity.surveying.schemas import (
 )
 from pydelity.surveying.validators import (
     check_results,
-    compare_with_facts,
+    compare_with_hints,
+    hint_issues,
+    hint_results,
     review_issues,
     run_checks,
 )
@@ -388,19 +390,21 @@ def build_survey(
     Returns
     -------
     PdfSurvey
-        The survey, with the checks' results on the answer and the review list: a
-        review issue for each failure; one for each page that differs from the facts,
-        unless the verifier passed the answer or its correction was kept; and one for
-        each problem the verifier found, when its correction was not kept.
+        The survey, with the checks' results and the hints' differences on the
+        answer, and the review list: a review issue for each failure; one for each
+        hint difference, unless the verifier passed the answer or its correction was
+        kept; and one for each problem the verifier found, when its correction was
+        not kept.
     """
 
     checks = check_results(run_checks(answer, facts.facts), attempts=attempts)
+    hints = hint_results(compare_with_hints(answer, facts.facts))
     issues = review_issues(checks)
     accepted = verification is not None and (
         verification.verdict.passed or verification.correction_applied
     )
     if not accepted:
-        issues += compare_with_facts(answer, facts.facts)
+        issues += hint_issues(hints)
     if verification is not None and not verification.correction_applied:
         issues += [
             _verifier_issue(problem) for problem in verification.verdict.problems
@@ -411,6 +415,7 @@ def build_survey(
         checks=checks,
         facts=facts.facts,
         fingerprint=survey_fingerprint(inputs),
+        hints=hints,
         inputs=inputs,
         issues=issues,
         profile=Profile(

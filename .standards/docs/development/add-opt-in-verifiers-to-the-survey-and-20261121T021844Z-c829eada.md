@@ -1471,7 +1471,7 @@ insertions and 247 deletions over 13 files, SHA-256 starting `b3a1d7fad6a32d30`
 
 ### DEV-013 — The survey keeps checks and hints apart
 
-`Status`: `PENDING` `Depends On`: `DEV-006, DEV-012` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-006, DEV-012` `Acceptance`:
 `AC-011, AC-043, AC-044, AC-049`
 
 **Goal**
@@ -1519,6 +1519,94 @@ the verifier's user message, and that no survey retry message carries a hint; an
 old `pdf_survey.json` without `hints` surveyed again with `damaged_output`; the
 reference pages regenerated; the existing tests with replaced-contract failures
 listed.
+
+**Evidence**
+
+Evidence, 2026-11-22, repo root, on `0bfbfde` (DEV-012) plus the uncommitted
+DEV-013 changes: `git diff HEAD -- src scripts examples docs pyproject.toml` has
+305 insertions and 212 deletions over 12 files, SHA-256 starting
+`90cc43257356a76e` (macOS arm64, Python 3.13.9, `.venv`). Changed:
+`src/pydelity/review.py`, `surveying/validators.py`, `surveying/schemas.py`,
+`surveying/survey.py`, `surveying/llm.py`, `surveying/prompts.py`,
+`pipeline/runner.py` (the verifier's prompt size passes `differences={}`),
+`scripts/generate_reference_docs.py`, and the generated `survey-checks.md`,
+`pdf-survey-json.md`, `page-json.md` and `run-json.md`.
+
+- Scratch module `dev013/check_survey_hints.py` in the session scratchpad, run
+  with `.venv/bin/python -m pytest -p tests.conftest` against the stand-in on
+  `caps_english_hl_pages_28_35.pdf`, whose probe measures 90 degrees and printed
+  numbers 23 to 30 on its 8 pages: 7 of 7 passed. The answer turns and numbers
+  pages 0 to 3 only.
+  - `CHECKS` is C1 to C7 as before; `HINTS` is `rotation_differs`, then
+    `page_number_differs`.
+  - No verifier: one model request, every check passed at attempt 1; `hints`
+    holds 4 `rotation_differs` differences (pages 4 to 7,
+    `{"measured": 90, "profile": 0}`) and 4 `page_number_differs` (pages 4 to 7,
+    measured `page + 23`, profile null, source `page_label`); the review list in
+    `pdf_survey.json` and in `run.json`'s `review` is the 4 rotation
+    differences, then the 4 page number differences; `verification` is null.
+  - A language tag `zz` with `check_retries` 1: two survey requests; the retry
+    names `languages:` and no hint; the review list is `languages`, then the 8
+    hint differences.
+  - Verifier on, verdict passed: one verifier request whose user message ends
+    with `Checks it still fails:` `none`, then
+    `Differences from the measured facts, which are hints the PDF overrides:`
+    with the 4 rotation and 4 page number lines; `hints` keeps them; no review
+    issue.
+  - A correction turning every page: kept on the first verifier request; `hints`
+    holds no rotation difference and the 4 page number differences, from the
+    correction; no review issue.
+  - A correction with the language `zz` on all 3 verdicts: three verifier
+    requests, both retries naming `languages:` and no hint; not kept;
+    `correction_failures` is `languages`; the review list is the 8 hint
+    differences, then one `verifier` issue.
+  - A `pdf_survey.json` with `hints` removed gives "pdf_survey.json is not
+    valid: hints: Field required; running the survey again" and a new survey
+    request.
+- `ruff check` "All checks passed!"; `ruff format --check scripts src tests` "89
+  files already formatted"; `ty check scripts src` "All checks passed!";
+  `interrogate` 100.0%; doctests 28 passed, 1 skipped (`verify_survey`'s shows
+  the new heading).
+- Module order (scratch `dev012/order_check.py` and `method_order.py` on the 8
+  changed modules): the only new departure is `HINTS`, below
+  `_rotation_differences`, the last function it lists. `HintResult` sits between
+  `FractionBox` and `ItemKind`. The rest are the departures listed under DEV-001
+  (`surveying/schemas.py`, `pipeline/runner.py`) and `CHECKS`.
+- Reference pages: `generate_reference_docs.py` and `format_markdown.mjs` with
+  the hook's Prettier and Node 24.22.3. `survey-checks.md` lists C1 to C7 under
+  "Checks" and the two hints under "Hints", with a paragraph on the rule, in
+  place of "Comparisons with the facts"; `pdf-survey-json.md` gains `hints` and
+  `hints[]`; `page-json.md`, `pdf-survey-json.md` and `run-json.md` change in
+  the review issue's `check` and `details` texts. The formatter's STANDARDS
+  check passed.
+- Tests: 193 passed, 14 failed: DEV-012's 12 and two replaced survey contracts,
+  for Tester:
+  - `test_survey.py::test_prompt_schema_and_vocabulary_name_no_document_type`
+    passes `differences=[]` to `verify_survey`, which now takes each hint's
+    differences;
+  - `test_survey.py::test_the_verifier_request_carries_the_survey_s_file_text_failures_and_differences`
+    splits the user message on the old heading
+    `Differences from the measured facts:`.
+  - `ty check tests` reports 3 errors: DEV-012's two and `test_survey.py` line
+    481, the same `differences=[]`.
+- Not run: the wheel smoke test and Python 3.14, as before.
+
+**Implementation Notes**
+
+- The two hints are private functions, `_rotation_differences` and
+  `_page_number_differences` (renamed from `_rotation_issues` and
+  `_page_number_issues`), with today's messages and details, now returned as
+  `CheckFailure`s through `_failure`. Their docstrings carry the text the old
+  `compare_with_facts` docstring held, so the checks page reads it from them.
+- `hint_results`, `hint_issues` and the shared `_review_issue` mirror page
+  extraction's. `surveying/prompts.py` gains its own `_listed`, as
+  `extracting/prompts.py` has.
+- Only the survey verifier's differences heading changes, as the design says;
+  its checks heading stays `Checks it still fails:`.
+- `survey-checks.md`'s rule text changed here, as `extraction-checks.md` did in
+  DEV-012, so DEV-015 is left with the docstrings and a final sweep.
+- `review.py`'s module and `ReviewIssue` docstrings now speak of hints, since
+  `SurveyComparisonName` became `SurveyHintName` here.
 
 ---
 

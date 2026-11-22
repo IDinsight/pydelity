@@ -864,7 +864,7 @@ def _prompt_chars(*, config: Config, facts: PdfFacts) -> tuple[int, int]:
     )
     verifier = verify_survey(
         answer=empty,
-        differences=[],
+        differences={},
         failures={},
         instructions=config.advanced.survey.instructions,
         survey_message=prompts.user_message,

@@ -253,12 +253,12 @@ def _bounds(field: FieldInfo) -> list[str]:
 
 
 def _check_text(doc: str | None) -> str:
-    """Give a page-extraction check's docstring summary in a reader's words.
+    """Give a check's or hint's docstring summary in a reader's words.
 
     Parameters
     ----------
     doc
-        The check's docstring.
+        The check's or hint's docstring.
 
     Returns
     -------
@@ -1163,7 +1163,7 @@ def python_api_page() -> _Page:
 
 
 def survey_checks_page() -> _Page:
-    """Describe the survey's checks C1 to C7, its comparisons and its verifier issue.
+    """Describe the survey's checks C1 to C7, its hints and its verifier issue.
 
     Returns
     -------
@@ -1183,37 +1183,36 @@ def survey_checks_page() -> _Page:
                     f"### {label}\n\n{_prose(rest[:1].upper() + rest[1:])}",
                 )
             )
-    comparisons = []
-    for code, function in (
-        ("page_number_differs", validators._page_number_issues),
-        ("rotation_differs", validators._rotation_issues),
-    ):
-        text, _ = _docstring_parts(function.__doc__)
-        comparisons.append(f"- `{code}`: {_prose(text.split(chr(10) * 2)[0])}")
-    compare_text, _ = _docstring_parts(validators.compare_with_facts.__doc__)
+    hints = [
+        f"### `{name}`\n\n{_prose(_check_text(hint.__doc__))}"
+        for name, hint in validators.HINTS.items()
+    ]
     body = "\n\n".join(
         [
             _prose(
-                "Each survey answer goes through checks C1 to C7. While retries remain "
-                "(``advanced.survey.check_retries``), an answer that fails a check is "
-                "sent back to the model with every failure listed, and the last answer "
-                "is kept as it is. When the survey's verifier is on "
-                "(``advanced.survey.verify``, or ``verify``), it reviews the accepted "
-                "answer and may give a corrected one, which goes through the same "
-                "checks and is sent back to the verifier while retries remain. The "
-                "correction replaces the answer only when it passes every check. Each "
-                "check still failing on the kept answer becomes a review issue, and "
-                "the kept answer is compared with the measured facts."
+                "Each survey answer goes through checks C1 to C7 and is compared with "
+                "the hints. While retries remain (``advanced.survey.check_retries``), "
+                "an answer that fails a check is sent back to the model with every "
+                "failure listed, and the last answer is kept as it is. When the "
+                "survey's verifier is on (``advanced.survey.verify``, or ``verify``), "
+                "it reviews the accepted answer and may give a corrected one, which "
+                "goes through the same checks and is sent back to the verifier while "
+                "retries remain. The correction replaces the answer only when it "
+                "passes every check. Each check still failing on the kept answer "
+                "becomes a review issue."
             ),
             "## Checks",
             *(text for _, text in sorted(checks)),
-            "## Comparisons with the facts",
-            _prose(compare_text),
-            "\n".join(comparisons),
+            "## Hints",
             _prose(
-                "Each difference is a review issue, unless the verifier passed the "
-                "answer or its correction was kept."
+                "A hint compares the answer with what the probe measured, which can "
+                "be wrong, so the model's reading of the PDF decides. A hint "
+                "difference never sends an answer back and never stops a run. "
+                "``pdf_survey.json``'s ``hints`` holds each hint's differences on the "
+                "kept answer. Each difference is a review issue, unless the verifier "
+                "passed the answer or its correction was kept."
             ),
+            *hints,
             "## Other review issues",
             "### `verifier`",
             _prose(

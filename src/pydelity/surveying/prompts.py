@@ -9,10 +9,10 @@ line is listed so the models can say which are page furniture.
 # Standard Library
 import json
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 # Package Library
-from pydelity.review import CheckFailure, ReviewIssue, SurveyCheckName
+from pydelity.review import CheckFailure, SurveyCheckName, SurveyHintName
 from pydelity.surveying.schemas import ItemKind, ItemRole, RepeatedLine, SurveyAnswer
 from pydelity.utils.prompts import PromptPair
 
@@ -124,6 +124,24 @@ completeness: a correction must pass them."""
 # The version of the prompts. Increase it whenever the text of either prompt changes,
 # so a saved survey made with the older prompts is made again.
 PROMPT_VERSION = 1
+
+
+def _listed(found: Iterable[Sequence[CheckFailure]]) -> str:
+    """List check failures or hint differences for the verifier's user message.
+
+    Parameters
+    ----------
+    found
+        Each check's failures, or each hint's differences.
+
+    Returns
+    -------
+    str
+        One line per failure or difference, or ``none``.
+    """
+
+    lines = [f"- {failure.message}" for failures in found for failure in failures]
+    return "\n".join(lines) if lines else "none"
 
 
 def _with_user_instructions(system_message: str, instructions: str | None) -> str:
@@ -243,7 +261,7 @@ if a check fails."""
 def verify_survey(
     *,
     answer: SurveyAnswer,
-    differences: Sequence[ReviewIssue],
+    differences: Mapping[SurveyHintName, list[CheckFailure]],
     failures: Mapping[SurveyCheckName, list[CheckFailure]],
     instructions: str | None,
     survey_message: str,
@@ -256,7 +274,7 @@ def verify_survey(
         The survey's answer to review.
     differences
         Where the answer differs from the measured facts, from
-        `pydelity.surveying.validators.compare_with_facts`.
+        `pydelity.surveying.validators.compare_with_hints`.
     failures
         The checks the answer still fails, from
         `pydelity.surveying.validators.run_checks`.
@@ -271,7 +289,7 @@ def verify_survey(
     PromptPair
         The instructions as the system message, ending with the user's instructions
         when given. The user message is the survey's own, then the answer, the checks
-        it still fails and its differences from the measured facts.
+        it still fails and its differences from the measured facts, given as hints.
 
     Examples
     --------
@@ -280,7 +298,7 @@ def verify_survey(
     ...     languages=["en"], non_artifact_lines=[], notes=[], page_numbering=[],
     ...     regions=[], rotation=[], start_markers=[],
     ...     writing_direction=WritingDirection(default="ltr", ranges=[]))
-    >>> prompts = verify_survey(answer=answer, differences=[], failures={},
+    >>> prompts = verify_survey(answer=answer, differences={}, failures={},
     ...     instructions=None, survey_message="The PDF has 1 page, with index 0.")
     >>> print(prompts.user_message)  # doctest: +ELLIPSIS
     The PDF has 1 page, with index 0.
@@ -291,7 +309,7 @@ def verify_survey(
     Checks it still fails:
     none
     <BLANKLINE>
-    Differences from the measured facts:
+    Differences from the measured facts, which are hints the PDF overrides:
     none
     """
 
@@ -304,19 +322,13 @@ def verify_survey(
         "The rules the survey follows, which a correction follows too:\n\n"
         f"{_CONVENTIONS}\n\n{_RULES}"
     )
-    found = [failure.message for found in failures.values() for failure in found]
     sections = [
         survey_message,
         "The survey answer to review:\n"
         + json.dumps(answer.model_dump(mode="json"), ensure_ascii=False),
-        "Checks it still fails:\n"
-        + ("\n".join(f"- {message}" for message in found) if found else "none"),
-        "Differences from the measured facts:\n"
-        + (
-            "\n".join(f"- {issue.message}" for issue in differences)
-            if differences
-            else "none"
-        ),
+        "Checks it still fails:\n" + _listed(failures.values()),
+        "Differences from the measured facts, which are hints the PDF overrides:\n"
+        + _listed(differences.values()),
     ]
     return PromptPair(
         system_message=_with_user_instructions(system_message, instructions),

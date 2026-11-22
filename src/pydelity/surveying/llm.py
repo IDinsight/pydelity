@@ -34,7 +34,7 @@ from pydelity.review import CheckFailure, SurveyCheckName
 from pydelity.surveying.agents import create_survey_agent, create_verifier_agent
 from pydelity.surveying.prompts import survey_pdf, verify_survey
 from pydelity.surveying.schemas import PdfFacts, SurveyAnswer, SurveyVerdict
-from pydelity.surveying.validators import compare_with_facts, run_checks
+from pydelity.surveying.validators import compare_with_hints, run_checks
 from pydelity.utils.pdf import PdfInfo
 from pydelity.utils.prompts import PromptPair
 
@@ -348,7 +348,7 @@ async def ask_verifier(step: SurveyStep, *, surveyed: ModelSurvey) -> ModelVerdi
     answer, facts = surveyed.answer, step.facts.facts
     prompts = verify_survey(
         answer=answer,
-        differences=compare_with_facts(answer, facts),
+        differences=compare_with_hints(answer, facts),
         failures=run_checks(answer, facts),
         instructions=step.config.advanced.survey.instructions,
         survey_message=surveyed.prompts.user_message,

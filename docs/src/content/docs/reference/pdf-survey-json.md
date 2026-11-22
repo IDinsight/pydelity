@@ -20,12 +20,16 @@ The contents of `pdf_survey.json`: the checked survey of one PDF.
   the survey used.
 - `fingerprint` (string; required): `sha256:` fingerprint of what the survey
   depends on; a matching file is reused.
+- `hints` (list of objects ([`hints[]`](#hints)); required): Each hint's
+  differences on the kept answer, `rotation_differs` then `page_number_differs`,
+  whether or not the review list shows them.
 - `inputs` (object ([`inputs`](#inputs)); required): What the survey was made
   from.
 - `issues` (list of objects ([`issues[]`](#issues)); required): The review list:
-  each failure still on the kept answer; then its differences from the facts,
-  unless the verifier passed the answer or its correction was kept; then the
-  verifier's problems, when its correction was not kept.
+  each failure still on the kept answer; then its hint differences, unless the
+  verifier passed the answer or its correction was kept; then the verifier's
+  problems, when its correction was not kept. The `hints` list keeps every hint
+  difference either way.
 - `profile` (object ([`profile`](#profile)); required): How the PDF's pages are
   laid out, for later steps.
 - `proposal` (object ([`proposal`](#proposal)); required): The rest of the
@@ -74,6 +78,15 @@ Everything the probe measured.
 - `structure` (object ([`facts.structure`](#factsstructure)) or null; required):
   What the structure tags cover.
 
+## `hints[]`
+
+How the kept answer compares with one hint.
+
+- `differences` (list of objects ([`checks[].failures[]`](#checksfailures));
+  required): Where the kept answer differs from what the probe measured; empty
+  when it agrees.
+- `name` (one of `rotation_differs`, `page_number_differs`; required): The hint.
+
 ## `inputs`
 
 What a survey was made from.
@@ -102,15 +115,14 @@ A problem a person should review.
   `text_dropped`, `text_added` or `no_matching_label` or one of `labels`,
   `regions`, `rotation`, `page_numbering`, `artifacts`, `writing_direction`,
   `languages` or one of `rotation_differs`, `page_number_differs` or `verifier`;
-  required): What found the problem: a check, a comparison or another source.
-  `step` says whose, since two steps can have checks of the same name.
+  required): What found the problem: a check, a hint or another source. `step`
+  says whose, since two steps can have checks and hints of the same name.
 - `details` (map of string to any value; required): The values the problem is
-  about. A survey comparison gives values such as
-  `{"measured": 90, "profile": 0}`, and a check gives its failure's `details`,
-  such as `{"item_ref": "t3"}` on a page. A `no_matching_label` issue gives the
-  `kind` and `role` that no label fits, with the items' refs and IDs
-  (`item_refs`, `item_ids`). A `verifier` issue gives the problem's `category`,
-  and on a page its `item_ref`.
+  about. A survey hint gives values such as `{"measured": 90, "profile": 0}`,
+  and a check gives its failure's `details`, such as `{"item_ref": "t3"}` on a
+  page. A `no_matching_label` issue gives the `kind` and `role` that no label
+  fits, with the items' refs and IDs (`item_refs`, `item_ids`). A `verifier`
+  issue gives the problem's `category`, and on a page its `item_ref`.
 - `item_id` (string or null; required): The item the problem is about, or `None`
   when no single item applies.
 - `message` (string; required): What is wrong.

@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 # Package Library
 from pydelity.providers.profiles import Effort
-from pydelity.review import CheckFailure, ReviewIssue, SurveyCheckName
+from pydelity.review import CheckFailure, ReviewIssue, SurveyCheckName, SurveyHintName
 
 # A page angle in degrees, counterclockwise.
 type Angle = Literal[0, 90, 180, 270]
@@ -395,6 +395,17 @@ class FractionBox(_Output):
 
     y1: float
     """The bottom edge."""
+
+
+class HintResult(_Output):
+    """How the kept answer compares with one hint."""
+
+    differences: list[CheckFailure]
+    """Where the kept answer differs from what the probe measured; empty when it
+    agrees."""
+
+    name: SurveyHintName
+    """The hint."""
 
 
 class ItemKind(StrEnum):
@@ -812,13 +823,18 @@ class PdfSurvey(_Output):
     """``sha256:`` fingerprint of what the survey depends on; a matching file is
     reused."""
 
+    hints: list[HintResult]
+    """Each hint's differences on the kept answer, ``rotation_differs`` then
+    ``page_number_differs``, whether or not the review list shows them."""
+
     inputs: SurveyInputs
     """What the survey was made from."""
 
     issues: list[ReviewIssue]
-    """The review list: each failure still on the kept answer; then its differences
-    from the facts, unless the verifier passed the answer or its correction was kept;
-    then the verifier's problems, when its correction was not kept."""
+    """The review list: each failure still on the kept answer; then its hint
+    differences, unless the verifier passed the answer or its correction was kept;
+    then the verifier's problems, when its correction was not kept. The ``hints`` list
+    keeps every hint difference either way."""
 
     profile: Profile
     """How the PDF's pages are laid out, for later steps."""
