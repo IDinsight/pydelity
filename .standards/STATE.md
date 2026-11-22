@@ -1,7 +1,8 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `SYNCHRONIZING` `CycleMode`: `STANDARD` `PendingCycleMode`:
-`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `AWAITING_USER_SIGNOFF` `CycleMode`: `STANDARD`
+`PendingCycleMode`: `UNSET` `PendingCycleRequest`: `UNSET`
+`PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -30,8 +31,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `RESUME` `From`: `REVIEWING_FINAL` `FailureType`: `NONE` `Reason`:
-`Final review of the hints rerun is COMPLETE, with the user's accepted real runs; recovery frame 1 ends at its RerunThrough boundary and synchronization resumes.`
+`Kind`: `FORWARD` `From`: `SYNCHRONIZING` `FailureType`: `NONE` `Reason`:
+`Synchronization passed: the final review, implementation review and verification apply to the current work, and every current AC has current evidence.`
 
 ## Recovery
 
