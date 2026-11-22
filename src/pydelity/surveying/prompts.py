@@ -119,7 +119,9 @@ of taste. Set corrected to null only when you cannot correct the survey.
 
 The checks the survey still fails and its differences from the measured facts are \
 given with the PDF. The checks come from code that tests the answer's form and \
-completeness: a correction must pass them."""
+completeness, and a correction must pass them. The measured facts are hints, which \
+can be wrong. A difference from them is a problem only when the PDF shows that the \
+survey is wrong, and a correction need not agree with them."""
 
 # The version of the prompts. Increase it whenever the text of either prompt changes,
 # so a saved survey made with the older prompts is made again.

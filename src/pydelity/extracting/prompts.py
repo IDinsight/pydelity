@@ -3,12 +3,14 @@
 Each prompt's instructions (the system message) are the same for every page of a
 run, so providers can cache them: the task, the item vocabulary, the PDF's labels,
 the rules an extraction follows and, last, the user's page extraction instructions.
-The text sent with each page image says which page it is and gives what the survey
-and the PDF's own data know about it: its writing direction, its repeated lines with
-the text the PDF stores for them, and its fillable form fields with their values.
-The rest of the page's stored text is not sent, and the models read the page's text
-from the image. The verifier's request also lists the extraction's differences from
-these hints, quoting the stored lines a text difference is about.
+The text sent with each page image says which page it is and gives, as hints that
+the image overrides, what the survey and the PDF's own data say about it: its
+writing direction, its repeated lines with the text the PDF stores for them and what
+the survey found each one to be, and its fillable form fields with their values. The
+rest of the page's stored text is not sent, and the models read the page's text from
+the image. The verifier's request also lists the extraction's differences from these
+hints, quoting the stored lines a text difference is about. No message asks a model
+to change its answer to match a hint.
 
 No prompt names a document type, a language or a writing direction as a default.
 """
@@ -25,14 +27,11 @@ from pydelity.review import CheckFailure, ExtractionCheckName, ExtractionHintNam
 from pydelity.surveying.schemas import FormField, ItemKind, ItemRole, Label
 from pydelity.utils.prompts import PromptPair
 
-# How the page's writing direction is described to the models.
+# How the writing direction the survey found is given to the models.
 _DIRECTIONS = {
-    "ltr": "The page is written left to right.",
-    "rtl": "The page is written right to left.",
-    "ttb": (
-        "The page is written top to bottom, in vertical columns. Set column_order to "
-        "the order its columns are read in."
-    ),
+    "ltr": "The survey found the page written left to right.",
+    "rtl": "The survey found the page written right to left.",
+    "ttb": "The survey found the page written top to bottom, in vertical columns.",
 }
 
 # The heading of the labels list, shared by both prompts.
@@ -88,14 +87,21 @@ Roles. Each item has one role, which says what it does on the page:
 - {ItemRole.ARTIFACT.value}: page furniture, such as running headers, footers and \
 page numbers
 
-Reading order. List the items in the order a reader reads the page, for the page's \
-writing direction, which is given with the page. On a page written left to right, \
-read rows left to right and columns from the left-hand one; on a page written right \
-to left, read rows right to left and columns from the right-hand one; in each column, \
-read from the top down. On a page written in vertical columns, read bands from the \
-top down and, in each band, the columns in the order the script reads them. A \
-heading comes before what it heads. Put asides, captions, footnotes and page \
-furniture where a reader meets them.
+Reading order. List the items in the order a reader reads the page, for the \
+direction the page is written in. The direction the survey found is given with the \
+page as a hint. Where the image shows the page written another way, follow the \
+image. On a page written left to right, read rows left to right and columns from the \
+left-hand one; on a page written right to left, read rows right to left and columns \
+from the right-hand one; in each column, read from the top down. On a page written in \
+vertical columns, read bands from the top down and, in each band, the columns in the \
+order the script reads them, and set column_order to that order. On any other page, \
+set column_order to null. A heading comes before what it heads. Put asides, \
+captions, footnotes and page furniture where a reader meets them.
+
+Hints. What comes with the page image is taken from the PDF's stored data and from \
+the survey: the page's writing direction, its repeated lines and its fillable form \
+fields. It can be wrong, so the image decides. Where a hint and the image disagree, \
+give what the image shows.
 
 Text. Transcribe text exactly as printed, in its own script: keep its spelling, \
 mistakes, punctuation, numbers and dot leaders. Do not translate, correct, sum up or \
@@ -128,15 +134,17 @@ heading.
 
 Page furniture. Running headers and footers, page numbers and other content that \
 repeats from page to page to frame the content are items with role \
-{ItemRole.ARTIFACT.value}. The page's repeated lines are given with the page, with \
-what the survey found each one to be; include each one found to be page furniture in \
-an item with role {ItemRole.ARTIFACT.value}.
+{ItemRole.ARTIFACT.value}. The page's repeated lines are given with the page as hints, \
+with what the survey found each one to be. Decide from the image whether each one is \
+page furniture, part of the content, or not on this page at all.
 
 Forms. Each form field on the page is one field item. When the page has fillable \
-form fields, they are given with the page: set fillable_name to the field's name and \
-give its value or checked state as the page shows it. A radio button or checkbox that \
-appears several times is one field item each time. On a form that is only printed or \
-scanned, give what is written or marked on it, with fillable_name null.
+form fields, they are given with the page as hints, with the values the PDF stores. \
+When a field item is one of them, set fillable_name to its name, and give the value \
+or mark the image shows. A radio button or checkbox that appears several times is one \
+field item each time. On a form that is only printed or scanned, and for a field that \
+is not one of those given, give what is written or marked on it, with fillable_name \
+null.
 
 Containers. A bordered or shaded box that holds items is a container. Give it a ref, \
 a box and a label, and set container to its ref on each item inside it. A box inside \
@@ -175,10 +183,12 @@ items stay the same. List only problems that change what the extraction says abo
 the page, not matters of taste. Set corrected to null only when you cannot correct the \
 page.
 
-The checks it still fails, if any, are given with the page. They come from code that \
-cannot see the page: a correction must pass them, but where a check finds a \
-difference from the text the PDF stores, the image decides, since that stored text \
-can be wrong."""
+The checks the extraction still fails and its differences from the hints are given \
+with the page. The checks come from code that tests the extraction's form and \
+consistency, and a correction must pass them. The hint differences come from the \
+PDF's stored data and the survey, which can be wrong. A difference is a problem only \
+when the image shows that the extraction is wrong, and a correction need not agree \
+with the hints."""
 
 # The version of the prompts. Increase it whenever the text of either prompt changes,
 # so a saved page file made with the older prompts is made again.
@@ -293,7 +303,9 @@ def _page_text(context: PageContext) -> list[str]:
             "unclassified": "not decided",
         }
         sections.append(
-            "Repeated lines on this page, with what the survey found each one to be:\n"
+            "Hints from the PDF's stored text and the survey, which the image "
+            "overrides. Repeated lines on this page, with the text the PDF stores and "
+            "what the survey found each one to be:\n"
             + "\n".join(
                 f"- {line.id}: {json.dumps(line.text, ensure_ascii=False)}, "
                 f"{found[line.use]}"
@@ -303,7 +315,8 @@ def _page_text(context: PageContext) -> list[str]:
     fields = [field for field in context.form_fields if field.type != "button"]
     if fields:
         sections.append(
-            "Fillable form fields on this page:\n"
+            "Hints from the PDF's stored form data, which the image overrides. "
+            "Fillable form fields on this page, with the values the PDF stores:\n"
             + "\n".join(_form_field_line(field, context) for field in fields)
         )
     return sections
@@ -355,8 +368,8 @@ def extract_page(context: PageContext) -> PromptPair:
         "page as items in reading order. The image is the source of truth: give "
         "exactly what is on the page.\n\n"
         f"{_RULES}\n\n{_labels(context.labels)}\n\n"
-        "Your answer is checked by code. You will be told what to fix if a check "
-        "fails."
+        "Your answer is checked by code for form and consistency, and you will be "
+        "told what to fix if a check fails."
     )
     return PromptPair(
         system_message=_with_user_instructions(system_message, context.instructions),

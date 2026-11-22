@@ -1612,7 +1612,7 @@ DEV-013 changes: `git diff HEAD -- src scripts examples docs pyproject.toml` has
 
 ### DEV-014 — Prompts present measured facts as hints
 
-`Status`: `PENDING` `Depends On`: `DEV-012, DEV-013` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-012, DEV-013` `Acceptance`:
 `AC-043, AC-045, AC-054`
 
 **Goal**
@@ -1658,6 +1658,80 @@ for byte, that the extraction user message holds no stored text beyond the
 repeated lines and field values, and that no message tells the model to match a
 hint or to put a repeated line in an artifact item; the existing tests and
 doctests.
+
+**Evidence**
+
+Evidence, 2026-11-22, repo root, on `4b552a6` (DEV-013) plus the uncommitted
+DEV-014 changes to `src/pydelity/extracting/prompts.py` and
+`src/pydelity/surveying/prompts.py`:
+`git diff HEAD -- src scripts examples docs pyproject.toml` has 52 insertions
+and 37 deletions over 2 files, SHA-256 starting `05ff60b550e4eb52` (macOS arm64,
+Python 3.13.9, `.venv`).
+
+- Scratch `dev014/snapshot_prompts.py` in the session scratchpad wrote 33
+  messages to `before.json` on `4b552a6` and to `after.json` with the change:
+  - page extraction's system and user messages, extractor and verifier, for
+    three page contexts (left to right with three repeated lines, `artifact`,
+    `content` and `unclassified`, two fillable fields and user instructions; top
+    to bottom, turned 90 degrees; right to left), and its retry message;
+  - the survey's and its verifier's messages and its retry message for
+    `caps_english_hl_pages_28_35.pdf` and `irs_form_1040a_1965_scan.pdf`, with
+    and without languages and instructions.
+- Scratch `dev014/compare_prompts.py before.json after.json`: 13 of 13 passed.
+  - 16 messages changed: the 12 page extraction messages and the 4 survey
+    verifier system messages. Unchanged: both retry messages, and the survey's
+    own system and user messages and its verifier's user messages, byte for
+    byte.
+  - The page text says "The survey found the page written left to right." (or
+    right to left, or top to bottom, in vertical columns). The line on how the
+    image was turned is unchanged.
+  - The repeated lines come under "Hints from the PDF's stored text and the
+    survey, which the image overrides." and the fillable fields under "Hints
+    from the PDF's stored form data, which the image overrides." The only stored
+    text in the user message is the three repeated lines and the fields' names
+    and values.
+  - Both page prompts' rules hold the new "Hints." paragraph. The page furniture
+    rule says to decide from the image whether each repeated line is page
+    furniture, part of the content, or not on the page, and no message says
+    "include each one found to be page furniture". The forms rule sets
+    `fillable_name` when a field item is one of the fields given, with the value
+    or mark the image shows. The reading order rule follows the direction the
+    page is written in, with the survey's as a hint, and says when to set
+    `column_order`, which the top-to-bottom direction line said before.
+  - The extraction model's system message ends "Your answer is checked by code
+    for form and consistency, and you will be told what to fix if a check
+    fails."
+  - The page verifier's verdict rules say the checks test form and consistency
+    and a correction must pass them, the hint differences come from stored data
+    and the survey and can be wrong, a difference is a problem only when the
+    image shows the extraction is wrong, and a correction need not agree with
+    the hints. The survey verifier's say the same of the measured facts.
+  - No message asks a model to match or agree with a hint, a fact or stored
+    text, apart from "need not agree".
+- `ruff check` "All checks passed!"; `ruff format --check scripts src tests` "89
+  files already formatted"; `ty check scripts src` "All checks passed!";
+  `interrogate` 100.0%; doctests 28 passed, 1 skipped. The module order check
+  finds nothing in the two modules. `generate_reference_docs.py` and the
+  formatter change no reference page.
+- Tests: 191 passed, 16 failed: DEV-012's 12, DEV-013's 2, and
+  `test_extraction.py::test_each_page_request_carries_one_upright_image_and_only_its_own_instructions`
+  (`anthropic`, `openai`), which looks for the old line "The page is written
+  left to right.", a replaced contract for Tester. `ty check tests` reports the
+  same 3 errors as after DEV-013.
+- `PROMPT_VERSION` stays 1, as the scope says; the required `hints` field keeps
+  older page files and surveys from being reused.
+- Not run: the wheel smoke test and Python 3.14, as before. No real model ran,
+  so how models respond to the new wording rests on the user's real runs.
+
+**Implementation Notes**
+
+- The top-to-bottom direction line no longer tells the model to set
+  `column_order`, since the direction is now a hint. The reading order rule says
+  it instead: set it on a page written in vertical columns, null on any other.
+- The "Hints." paragraph sits after the reading order rule, before the text
+  rule, in the rules both page prompts share.
+- The module docstring of `extracting/prompts.py` now says the page details are
+  hints the image overrides and that no message asks a model to match one.
 
 ---
 
