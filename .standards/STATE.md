@@ -1,7 +1,8 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
-`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `REVIEWING_IMPLEMENTATION` `CycleMode`: `STANDARD`
+`PendingCycleMode`: `UNSET` `PendingCycleRequest`: `UNSET`
+`PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -17,8 +18,7 @@
 `.standards/docs/specs/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
 `Development`:
 `.standards/docs/development/add-opt-in-verifiers-to-the-survey-and-20261121T021844Z-c829eada.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`Tester needs CI on the final content (Python 3.14, wheel install on three runners; AC-026, AC-027, AC-028, AC-029): will the user commit the test changes with the verification report and STATE.md and open a draft pull request to main?`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
@@ -31,8 +31,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
-`Hints rerun built (DEV-012 to DEV-015) and the plan is COMPLETE; Tester runs full verification under recovery frame 1.`
+`Kind`: `FORWARD` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
+`Full verification of the hints rerun is COMPLETE on 3648a0b (CI green on pull request 13); Reviewer runs the implementation review under recovery frame 1.`
 
 ## Recovery
 
