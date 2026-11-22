@@ -810,6 +810,9 @@ def _has_page_file(*, output_folder: Path, page_index: int, sha256: str) -> bool
 def _issue_place(issue: ReviewIssue) -> str:
     """Name where a review issue is, for the summary.
 
+    A break issue's message already names both pages of the break, so its place
+    leaves them out.
+
     Parameters
     ----------
     issue
@@ -818,18 +821,13 @@ def _issue_place(issue: ReviewIssue) -> str:
     Returns
     -------
     str
-        Such as ``extraction, page 4, item p0003-012`` or ``page_breaks, pages 4 and
-        5``.
+        Such as ``extraction, page 4, item p0003-012`` or ``page_breaks, item
+        p0003-012``.
     """
 
     where = [issue.step]
-    if issue.page_index is not None:
-        number = issue.page_index + 1
-        where.append(
-            f"pages {number} and {number + 1}"
-            if issue.step == _BREAKS_STEP
-            else f"page {number}"
-        )
+    if issue.page_index is not None and issue.step != _BREAKS_STEP:
+        where.append(f"page {issue.page_index + 1}")
     if issue.item_id is not None:
         where.append(f"item {issue.item_id}")
     return ", ".join(where)

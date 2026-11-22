@@ -743,9 +743,10 @@ run that judges the break; `pause=False` in one run; `pages` narrowed with and
 without the other pages current; a one-page PDF; spend control with the estimate
 in each of the three steps; `load` after each.
 
-Evidence, 2026-11-22, repo root, on `cc61f50` (the user's DEV-007 commit) plus
-the uncommitted DEV-008 changes. Assessed content, lines and SHA-256 prefix:
-`src/pydelity/pipeline/runner.py` (2,369, `d1b64c8616b11ba6`),
+Evidence, 2026-11-22, repo root, on `203aa10` (the user's DEV-008 commit) plus
+the uncommitted change that names a break's pages once in the summary, rerun in
+full. Assessed content, lines and SHA-256 prefix:
+`src/pydelity/pipeline/runner.py` (2,367, `b66d384213472a06`),
 `src/pydelity/pipeline/schemas.py` (229, `fd9148c191c58db9`) and
 `docs/src/content/docs/reference/run-json.md` (147, `b44358da74f1d4b8`), with no
 other change under `src`, `scripts`, `examples` or `docs`.
@@ -821,7 +822,8 @@ other change under `src`, `scripts`, `examples` or `docs`.
     with its verifier when `verify` is on and pause off. It writes nothing.
   - Review: a verdict failing `continues` with no retries is kept; `run.json`
     lists the survey's, the pages' and then the break's issues, and the summary
-    shows `page_breaks, pages 1 and 2: ...` and `continues 1`.
+    shows `page_breaks: pages 1 and 2: continues: ...`, naming the pages once,
+    and `continues 1`.
   - Failure: a break with no answer fails the run and the step with
     `ProviderError` and counts 0 judged; the next run judges only that break.
     `extract()` makes no page-break request and writes no `page_breaks/`.
@@ -847,10 +849,10 @@ other change under `src`, `scripts`, `examples` or `docs`.
 - The `--overwrite` note cannot follow a page-extraction pause, because
   `--overwrite` always runs the survey again and the run pauses there, so the
   note stays the survey pause's.
-- A break issue's summary line reads
-  `page_breaks, pages 1 and 2: pages 1 and 2: continues: ...`, since the design
-  names the pages in both the line and the issue's message. It is left as
-  designed.
+- A break issue's summary line leaves the pages out of its place, as
+  `page_breaks, item p0004-012: pages 4 and 5: ...`, because the issue's message
+  already names them. **Summary and log lines** shows them in both, which
+  repeated them; the user chose to name them once on 2026-11-22.
 
 ### DEV-009 — Python functions and the CLI
 
