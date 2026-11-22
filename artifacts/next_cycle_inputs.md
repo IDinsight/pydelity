@@ -25,14 +25,14 @@ prints the verifier cycle's design.
 `artifacts/design_brief.md` holds the full request, the design directions, each
 step's design points (including step 3's options), known defects in the source
 code, evidence E1–E23 and the KGForEdGlobal consumer contract. Where the brief
-and this file disagree, this file is newer. The user styles for each role are in
-`artifacts/user-styles/`. Nothing here is an acceptance condition, and old AC
-numbers are retired.
+and this file disagree, this file is newer. The user styles for each role, which
+hold the code conventions, are in `artifacts/user-styles/`. Nothing here is an
+acceptance condition, and old AC numbers are retired.
 
 ## User decisions that apply to later steps
 
-Where a rule was a design's choice rather than the user's, the bullet says so,
-and a later Architect may revisit it.
+A rule marked as a design choice was an Architect's rather than the user's, and
+a later Architect may revisit it.
 
 Acceptance and reviews:
 
@@ -48,9 +48,8 @@ Acceptance and reviews:
 
 Design rules:
 
-- Reuse before rewriting: port KGForEdGlobal's code where it fits, without the
-  defects the brief lists. KGForEdGlobal
-  (`/Users/tzz/Projects/private/idi/KGForEdGlobal`) is read-only.
+- Reuse before rewriting: port KGForEdGlobal's code where it fits (see
+  **KGForEdGlobal sources**), without the defects the brief lists.
 - Document-type agnostic: no core logic, prompt, output field or default may
   assume a document type, a language or a writing direction, and there is no
   hand-written per-document config, domain Pydantic class or language-specific
@@ -81,31 +80,31 @@ Design rules:
 - Each check sits where it can be enforced: Pydantic classes for shape,
   `<step>/validators.py` for what code can decide, and the step's verifier for
   what code cannot judge. A verifier is a second request to the step's own model
-  with that step's instructions only. It is opt-in (see **Pushed to later
-  steps**), runs on all of the step's work or none of it, and may return a full
-  correction, kept when it passes every check. The brief's terms differ: there
+  with that step's instructions only. It runs on all of the step's work or none
+  of it, and may return a full correction, kept when it passes every check. Its
+  settings are under **Pushed to later steps**. The brief's terms differ: there
   the "verifier" makes step 3's main judgment on each break, and a "validator"
   is a second model that reviews it, the role page extraction's verifier plays.
-  Whether step 3 has a validator on every break, some (the brief's option D) or
-  none is step 3's design.
 - One structured-output mode per provider for every request: prompted output on
-  Anthropic and native output on OpenAI (the user's choice). Anthropic compiles
-  native output into a grammar whose limits page extraction's answer exceeded,
-  and those limits can change, so no step depends on them.
-- pydelity keeps no per-model limits and checks none before a model call. The
-  provider enforces its own, the CLI shows its error, and Python raises
-  `ProviderError`. Page extraction keeps each provider's documented image limits
-  in `providers/profiles.py` to size its images.
-- There is no default `max_cost`. When a run would go over it, the CLI asks at
-  most once per run (`--yes` answers yes), and Python callers pass
-  `allow_over_max_cost=True` or get `BudgetExceededError`. The question can come
-  partway through a run.
+  Anthropic and native output on OpenAI. Anthropic compiles native output into a
+  grammar whose limits page extraction's answer exceeded, and those limits can
+  change, so no step depends on them.
+- pydelity keeps no per-model limits and checks none before a model call, which
+  drops the brief's per-model PDF limits. The provider enforces its own, the CLI
+  shows its error, and Python raises `ProviderError`. Page extraction keeps each
+  provider's documented image limits in `providers/profiles.py` to size its
+  images.
+- The CLI shows an estimate and asks once before spending (`--yes` answers yes),
+  and Python never asks. There is no default `max_cost`. When a run could go
+  over it, the CLI asks (at most once per run, a design choice), and Python
+  callers pass `allow_over_max_cost=True` or get `BudgetExceededError`. That
+  question can come partway through a run.
 - PDF transport, whenever a step sends the PDF: upload it with the provider's
   file API, reuse the upload recorded in `uploads.json` while it is usable, and
   send it inside the request only when the upload path fails.
 - Every Python function that measures, estimates or runs has an async version
-  named with an `a` prefix, and `load` stays sync. The docs lead with the async
-  functions.
+  named with an `a` prefix. `load` stays sync (a design choice). The docs lead
+  with the async functions.
 - PyMuPDF 2.x is the PDF library, and the user accepted its AGPL-3.0 license
   (pydelity stays MIT). PyMuPDF is not safe across threads, so page extraction
   runs its PyMuPDF calls on one worker thread per run (`PdfWorker`).
@@ -137,10 +136,11 @@ Platform, release and repo:
   there without a POSIX shell have not been a goal so far.
 - Releases come from release-please, and a pull request's squash-merge title is
   the commit it reads, so it must be a Conventional Commit. `feat:` makes a
-  minor release; `fix:`, `perf:`, `revert:`, `docs:` and `deps:` a patch;
+  minor release, `fix:`, `perf:`, `revert:`, `docs:` and `deps:` a patch, and
   `chore:`, `test:`, `ci:`, `build(deps):` and `ci(deps):` none. A breaking
-  change below 1.0.0 would propose 1.0.0. Work merges to `main` only after its
-  cycle is signed off and STANDARDS is uninstalled on the branch.
+  change below 1.0.0 would propose 1.0.0. Each cycle decides its own release,
+  and its work merges to `main` only after sign-off and after STANDARDS is
+  uninstalled on the branch.
 - Commit messages carry no `Co-Authored-By` trailer or other AI attribution.
 - A new runtime dependency's minimum version is its latest stable release on the
   day it is added.
@@ -165,57 +165,34 @@ Working with the user:
   paths a provider cannot produce on demand use fault injection in scratch
   scripts, never in pydelity code. While `PROMPT_VERSION` is not raised, real
   runs after a prompt change use new output folders or `--overwrite`.
-- Code conventions are in the developer and tester user styles.
-- Work moved out of the current step goes in **Pushed to later steps** at the
-  bottom of this file, naming the step that picks it up.
 
-These replace earlier plans in the brief:
-
-- The brief's per-model PDF limits are dropped, and going over `max_cost` no
-  longer stops a run on its own.
-- The brief's survey design points for its checks are history, and so are three
-  of its page extraction design points: text-layer hints with pre-matched
-  artifact lines (a page request carries only the repeated lines, with the
-  survey's finding, and the form field values), a validator only on failed or
-  hard pages plus a sample (a verifier runs on all of a step's work or none),
-  and a DPI chosen from the page size (images are sized from the providers'
-  limits).
-- Containers carry no open-top or open-bottom hints, and page extraction judges
-  no continuity, so the brief's step 3 option E is out.
-- Each cycle decides its own release, rather than one release after all six
-  steps.
+The brief's survey design points for its checks are history, and so are three of
+its page extraction design points: text-layer hints with pre-matched artifact
+lines (see the hints rule above), a validator only on failed or hard pages plus
+a sample (a verifier runs on all of a step's work or none), and a DPI chosen
+from the page size (images are sized from the providers' limits).
 
 ## Answers to the brief's open questions
 
 The numbers follow **Open questions for Scoper to settle with the user** in the
-brief.
+brief. Questions 2, 4, 5, 6, 10 and 11 are settled by the rules above, the
+pipeline outcomes and **Pushed to later steps**.
 
-1. A default run goes through all six steps, with a setting to stop after
-   `document.json`. Today `pydelity <pdf>` runs the survey and page extraction,
-   pausing after a new survey unless `pause` is off.
-2. The CLI shows an estimate and asks before spending, `--yes` skips the
-   question, and the Python API never asks.
-3. The review list in `run.json`, a CLI summary at the end of a run, and an HTML
-   report.
-4. No parity target. Acceptance rests on the user's real runs.
-5. Two-column right-to-left, Chinese or Japanese, tax or fillable forms, slide
-   decks or image-heavy PDFs, and CAPS.
-6. Every step defaults to `anthropic:claude-opus-5-5` at effort `high`. The
-   global `model` sets every step, and each step except the survey has its own
-   override (see **Pushed to later steps**). There is no default `max_cost`.
-7. Both CLI and config file, and a PDF path given on the CLI is used over the
-   file's.
-8. No. A user-supplied domain schema does not seed page-profile labels, so
-   changing it reruns only steps 5–6.
-9. The item lists stay: kind `text`, `list`, `table`, `figure`, `field`,
-   `formula`, `code`; role `heading`, `body`, `caption`, `footnote`, `artifact`,
-   `navigation`, `aside`. `code` keeps its whitespace exactly, and a cross-page
-   join of code is a newline with no dehyphenation (a survey design choice).
-10. Option (a): bordered or shaded boxes become containers on each page, and
-    assembly joins a box that crosses pages into one container.
-11. pydelity keeps no per-model limits.
-12. Step 3's Architect picks its design, with no measured comparison first. The
-    brief's options A–D, which can be combined, are inputs, not a closed list.
+- **1.** A default run goes through all six steps, with a setting to stop after
+  `document.json`.
+- **3.** The review list in `run.json`, a CLI summary at the end of a run, and
+  an HTML report.
+- **7.** Both CLI and config file, and a PDF path given on the CLI is used over
+  the file's.
+- **8.** A user-supplied domain schema does not seed page-profile labels, so
+  changing it reruns only steps 5–6.
+- **9.** The item lists stay: kind `text`, `list`, `table`, `figure`, `field`,
+  `formula`, `code`, and role `heading`, `body`, `caption`, `footnote`,
+  `artifact`, `navigation`, `aside`. `code` keeps its whitespace exactly, and a
+  cross-page join of code is a newline with no dehyphenation (a design choice).
+- **12.** Step 3's Architect picks its design, with no measured comparison
+  first. The brief's options A–D, which can be combined, are inputs, not a
+  closed list.
 
 ## What step 3 builds on
 
@@ -236,8 +213,9 @@ most needs to know:
   entries `<item id>.<k>`, containers `p<NNNN>-c<nn>`). The same answer gives
   the same IDs, but a page extracted again can number its items differently, so
   an output that cites item IDs must depend on the page files it read.
-- **No continuity marks.** Items and containers carry no continuation mark or
-  open-top or open-bottom hint. Page furniture is extracted as items with role
+- **No continuity marks.** Page extraction judges no continuity, and items and
+  containers carry no continuation mark or open-top or open-bottom hint, so the
+  brief's step 3 option E is out. Page furniture is extracted as items with role
   `artifact` where a reader meets them, and captions name what they caption in
   `caption_of`. Boxes are `[x0, y0, x1, y1]` in points on the displayed page,
   origin top left.
@@ -251,16 +229,15 @@ most needs to know:
   the PDF is tagged and one quality rating. Option A needs the tag tree linked
   to page content, and `_walk_structure` in `surveying/probe.py` is a starting
   point.
-- **Images.** Option B's seam images can build on `PdfWorker.page_image` and
-  `PdfWorker.crop` and on the 0–1000 grid mapping in `extracting/rendering.py`.
-- **Text layer.** `extracting/text_layer.py` normalizes stored text for
-  comparison (NFKC, case-folded, character trigrams that ignore spaces). A step
-  3 comparison with stored text is a hint, never a check.
+- **Images and text.** Option B's seam images can build on
+  `PdfWorker.page_image` and `PdfWorker.crop` and on the 0–1000 grid mapping in
+  `extracting/rendering.py`. `extracting/text_layer.py` normalizes stored text
+  for comparison (NFKC, case-folded, character trigrams that ignore spaces).
 - **Extending the pipeline.** A new step adds its name to `StepName` and its
-  check and hint names to `review.py`, names its agents in `cost.jsonl` (today
-  `surveyor`, `extractor` and `verifier`), adds its estimate to
-  `costs/budget.py`, its settings under `advanced.<step>`, its guide and its
-  generated reference pages (CI fails on stale ones).
+  check and hint names to `IssueName` in `review.py`, names its agents in
+  `cost.jsonl` (today `surveyor`, `extractor` and `verifier`), and adds its
+  estimate to `costs/budget.py`, its settings under `advanced.<step>`, its guide
+  and its generated reference pages (CI fails on stale ones).
 - **Tests.** `tests/fixtures/mock_providers.py` is a stand-in Anthropic and
   OpenAI server that routes answers by request content: each page request's
   first text line is `Page index <i> (page <i+1> of <n>)`, and verifier requests
@@ -275,11 +252,13 @@ most needs to know:
   page extraction cost about $0.24 a page on Anthropic and $0.41 on OpenAI
   (`gpt-6.2-astra`). On 2026-11-22 (5 PDFs, 18 pages, the acceptance runs for
   0.2.0) it cost $2.09 without verifiers and $3.39 with them on Anthropic, and
-  $3.00 and $4.16 on OpenAI. The five surveys cost $0.79 and $1.58 on Anthropic,
-  and $1.78 and $2.03 on OpenAI.
+  $3.00 and $4.16 on OpenAI. The five surveys cost $0.79 without the verifier
+  and $1.58 with it on Anthropic, and $1.78 and $2.03 on OpenAI. The survey's
+  verifier wrote 90 to 4,075 output tokens, under the estimate's 6,000.
 
 ## KGForEdGlobal sources
 
+KGForEdGlobal (`/Users/tzz/Projects/private/idi/KGForEdGlobal`) is read-only.
 Paths are under `backend/src/kgfeg/`. Step 3's source is `page_ir_verification/`
 and `entries/verify_page_ir_continuity.py`, and the brief's step 3 section and
 evidence E1–E10 describe it and its costs. Assembly's is `document_ir/` (such as
@@ -304,7 +283,7 @@ Scoped before the pipeline was split into one cycle per step.
   repeated header rows to drop, and which repeated items above the continued
   unit to drop. The verdict also names any continuation marker on the continued
   unit, such as a row label or heading that says it continues ("(contd)",
-  "continued"; the brief's E9), which assembly folds into the original label.
+  "continued", the brief's E9), which assembly folds into the original label.
   Code cannot find these markers, since no language-specific patterns are
   allowed. The verdict also says which containers continue across the break,
   even when the content inside starts a new unit.
@@ -313,10 +292,10 @@ Scoped before the pipeline was split into one cycle per step.
   provenance kept, and artifacts out of the reading flow unless
   `keep_headers_footers` is set. An outline tree of headings, with
   `section_path` as outline ancestors outermost first. Contents-page mismatches
-  and cross-page role or kind inconsistencies go on the review list. One
-  container per cross-page box, an ID per list item, and table grids with spans
-  marked as spans, plus a filled-down view for grouped tables unless `fill_down`
-  is off.
+  and cross-page role or kind inconsistencies go on the review list. The pieces
+  of a box that crosses pages join into one container, using step 3's verdicts.
+  Each list item gets an ID, and table grids mark spans as spans, plus a
+  filled-down view for grouped tables unless `fill_down` is off.
 - Domain schema (step 5): without a user schema, `schema_proposed.json` (`x-key`
   on every array of objects with required key fields, `x-verbatim` only on
   strings, a place for content that is not a main record) and `schema_notes.md`
@@ -336,13 +315,12 @@ Scoped before the pipeline was split into one cycle per step.
   loads `stitching/document_ir.json` with `extra="forbid"` models, so even a
   top-level `schema_version` fails there, and reading pydelity's output needs
   KGForEdGlobal-side changes outside pydelity's cycles. The brief's field-use
-  counts are substring matches; whole-word counts are lower for `segment_id`
+  counts are substring matches. Whole-word counts are lower for `segment_id`
   (38, not 223), `section_path` (23, not 72), `grid_sources` (46, not 53) and
   `columns_signature` (19, not 31).
-- The user signs off each step's output. Each later step extends the
-  cross-cutting outcomes (configuration, CLI and library use, cost and spend
-  controls, resume, providers and tests, the review list and HTML report, user
-  docs) to its own outputs.
+- Each later step extends the cross-cutting outcomes (configuration, CLI and
+  library use, cost and spend controls, resume, providers and tests, the review
+  list and HTML report, user docs) to its own outputs.
 
 ## Open for step 3's Scoper and Architect
 
@@ -352,11 +330,8 @@ Scoped before the pipeline was split into one cycle per step.
   only breaks between two selected pages that follow each other.
 - Step 3's other settings and output files (the brief proposes
   `page_breaks/NNNN-NNNN.json`), and how its fingerprint covers the two page
-  files each break reads. Already settled: the default run includes step 3, with
-  a pause after page extraction, and step 3 has its own model, instructions and
-  verifier overrides (see **Pushed to later steps**).
-- How step 3 treats page files from another PDF or an older survey (see **Pushed
-  to later steps**).
+  files each break reads. The default run includes step 3, and the entries under
+  **Pushed to later steps** for step 3 and for each later step apply.
 - How text joins inside a list entry or table cell that continues across the
   break. The brief's join rules cover only text items, today's KGForEdGlobal
   join always inserts a space and knows only Latin sentence ends, and code
@@ -375,10 +350,8 @@ Scoped before the pipeline was split into one cycle per step.
   and "TruffleHog secret scan" stay required checks on `main`.
 - Non-goals: any change to KGForEdGlobal; KG, Learning Component and Learning
   Progression logic; generating KG config from a pydelity schema; splitting or a
-  chunked survey for PDFs a provider rejects as too large; per-model PDF limits;
-  continuity judged in page extraction; a measured comparison of step 3 designs;
-  a default spending limit; a hosted service, a web UI beyond the HTML report,
-  telemetry and other Level 4 features.
+  chunked survey for PDFs a provider rejects as too large; a hosted service, a
+  web UI beyond the HTML report, telemetry and other Level 4 features.
 
 ## Risks
 
@@ -399,9 +372,7 @@ Scoped before the pipeline was split into one cycle per step.
 - The cost estimate is a heuristic. Maximums assume every retry with the longest
   answer, prompt text is counted at 4 characters a token, which undercounts
   non-Latin text, and request bounds price input at the plain rate though
-  Anthropic bills cache writes at 1.25 times. In the 2026-11-22 runs the
-  survey's verifier wrote 90 to 4,075 output tokens, under the estimate's 6,000.
-  A verified survey cost twice as much on Anthropic and 1.1 times on OpenAI.
+  Anthropic bills cache writes at 1.25 times.
 - Prompted output on Anthropic has no grammar behind it, so an answer that is
   not valid JSON costs a retry and, on the last attempt, stops the run. A dense
   page can exceed 32,000 output tokens at effort `high` and stop the run with
@@ -414,11 +385,8 @@ Scoped before the pipeline was split into one cycle per step.
 - The review list is the only signal when the model is wrong. A verifier that
   wrongly passes, or a kept correction that drops or adds a line, keeps that
   difference off the list, visible only in the output's `hints`. Without
-  verifiers, which is the default, pages with wrong stored text list many text
-  differences (22–23 issues for the two Arabic test pages and 7–8 for the
-  Japanese gazette in the 2026-11-22 runs), and nothing beyond the checks
-  catches missed or merged items, a wrong reading order or boxes on the wrong
-  content.
+  verifiers, which is the default, nothing beyond the checks catches missed or
+  merged items, a wrong reading order or boxes on the wrong content.
 - One changed word in a long line stays within the text hints' tolerance, so
   single-word misreadings never reach the review list. The 2026-11-22 runs had a
   few in Arabic (such as `بشأن` for the printed `بشان`) and Japanese (such as
@@ -438,8 +406,8 @@ Scoped before the pipeline was split into one cycle per step.
   region boxes are often off, and page boxes rest on the models (see **Pushed to
   later steps**).
 - One run per output folder at a time, which is not detected. On Windows,
-  `os.replace` fails while another program holds the target open. Output folders
-  from builds before 0.2.0 do not carry over. Large PDFs make large reports.
+  `os.replace` fails while another program holds the target open. Large PDFs
+  make large reports.
 - `docs/pnpm-lock.yaml` may approach the large-file hook's 500 KB limit. If it
   goes over, exclude that one path with a comment.
 
@@ -458,13 +426,11 @@ Still open from page extraction's implementation review:
   page, against about 5 MB for Anthropic, not checked against its current docs),
   and figure crops have no pixel cap (a full-page figure on a 36 x 48 in page
   takes about 0.8 GB to render).
-- Page extraction's design says crops are clipped in unrotated coordinates,
-  while the code clips in displayed-page coordinates.
 
-From the verifier cycle's reviews, none of them blocking:
+From the verifier cycle's reviews:
 
-- The survey verifier's replacement upload after a 404 and an outline link from
-  the PDF's root to a missing object have no test of their own.
+- The survey verifier's replacement upload after a 404, and a catalog `Outlines`
+  entry naming a missing object, have no test of their own.
 - A survey verifier problem's `page_index` is not checked against the page
   count, so an out-of-range one links nowhere in the report.
 - The CLI reference's exit code `0` leaves out a paused run, and a run stopped
@@ -476,8 +442,9 @@ From the user's real runs:
   Chinese page in one list where Anthropic gave 20 heading and body items, and
   marks more containers). Both fit the rules, so later steps must not assume one
   provider's structure.
-- On a one-page PDF the survey may make no label for page furniture, so its
-  furniture items get the label `other` with `no_matching_label` issues.
+- In one run, the one-page Japanese gazette's survey made no label for page
+  furniture, so its furniture items got the label `other` with
+  `no_matching_label` issues.
 - Under the hint rule, no model made up a field for the Japanese gazette's 0.6 x
   0.8 pt `Signature1` widget. It is a `form_fields` review issue without a
   verifier, and both verifiers accepted the page.
@@ -509,29 +476,22 @@ whenever work is moved out of the current step.
   for other uses though KGForEdGlobal does not translate. A run for
   KGForEdGlobal leaves it off. Translating after assembly keeps text continued
   across a break as one unit.
-- **Page continuity (step 3).** Page extraction records no continuity. Step 3
-  decides whether content continues across each page break.
-- **Boxes that cross pages (step 4).** Page extraction records a bordered or
-  shaded box as a container on each page it appears on. Assembly joins the
-  pieces into one container, using step 3's verdicts.
 - **Pauses between steps (each later step).** A run stops after a step that
   wrote new output, so the user can check it before paying for the next, and the
   next run continues. `pause` (`--no-pause`/`-np`) turns every pause off. Each
   later step adds its own pause under the same setting.
 - **Model per step (each later step).** The global `model` chooses every step's
   model, and each later step gets an optional `advanced.<step>.model`, as page
-  extraction has. With neither set, every step defaults to
+  extraction has (the survey has none). With neither set, every step defaults to
   `anthropic:claude-opus-5-5` at effort `high`, from its own default constant in
   `providers/profiles.py`.
 - **Verifier per step (each later step).** Every step's verifier is off by
   default. `verify` (`--verify`/`-vf`, `verify=True`) turns on every step's
   verifier, and each step has an optional `advanced.<step>.verify` (`true`,
   `false`, or `null` to follow `verify`), with no CLI option. Each later step
-  adds its override, a `Config.verify_<step>` property, a verifier that is a
-  second request to its own model with its own instructions,
-  `verification: null` when none ran, an estimate that prices the verifier only
-  when it runs, and the reuse rule that redoes outputs no verifier reviewed
-  while it is on.
+  adds that override, a `Config.verify_<step>` property, `verification: null` in
+  its outputs when no verifier ran, and an estimate that prices the verifier
+  only when it runs.
 - **Instructions per step (each later step).** Each step's instructions live in
   `advanced.<step>.instructions`, set in the config file or from Python with no
   CLI option, and go only to that step's models.
@@ -554,9 +514,11 @@ whenever work is moved out of the current step.
 - **Judging each page's stored text (page extraction, not yet scheduled).** The
   text hints skip a page with no text layer, a garbled one, and one where fewer
   than half of the answer's trigrams are in the text layer. Pages whose stored
-  text is wrong in part still list differences the model is right about.
-  Comparing the stored text with the model's reading first, and skipping the
-  hints when the stored text is wrong, would cut that noise.
+  text is wrong in part still list differences the model is right about, such as
+  22–23 issues for the two Arabic test pages and 7–8 for the Japanese gazette
+  without verifiers in the 2026-11-22 runs. Comparing the stored text with the
+  model's reading first, and skipping the hints when the stored text is wrong,
+  would cut that noise.
 - **Two box rules for the page prompt (page extraction, not yet scheduled).**
   The prompt has no rule for a paragraph that continues at the top of the next
   column (two Chinese items' text held the continuation while their boxes
