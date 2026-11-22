@@ -73,9 +73,10 @@ A problem a person should review.
 - `details` (map of string to any value; required): The values the problem is
   about. A survey hint gives values such as `{"measured": 90, "profile": 0}`,
   and a check gives its failure's `details`, such as `{"item_ref": "t3"}` on a
-  page. A `no_matching_label` issue gives the `kind` and `role` that no label
-  fits, with the items' refs and IDs (`item_refs`, `item_ids`). A `verifier`
-  issue gives the problem's `category`, and on a page its `item_ref`.
+  page or `{"item": "p0004-002"}` on a page break. A `no_matching_label` issue
+  gives the `kind` and `role` that no label fits, with the items' refs and IDs
+  (`item_refs`, `item_ids`). A `verifier` issue gives the problem's `category`,
+  with its `item_ref` on a page and its `item` on a page break.
 - `item_id` (string or null; required): The item the problem is about, or `None`
   when no single item applies.
 - `message` (string; required): What is wrong.

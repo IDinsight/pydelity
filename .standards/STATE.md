@@ -18,7 +18,7 @@
 `Development`:
 `.standards/docs/development/build-step-3-page-break-verification-of-20261122T170208Z-00fe2896.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-002 is done. Continue with DEV-003 (checks and the start-marker hint)?`
+`DEV-003 is done. Continue with DEV-004 (prompts, agents and requests)?`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

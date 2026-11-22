@@ -198,7 +198,7 @@ deletions) with the new `src/pydelity/verifying/__init__.py` and `schemas.py`
 
 ### DEV-003 — Checks and the start-marker hint
 
-`Status`: `PENDING` `Depends On`: `DEV-002` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-002` `Acceptance`:
 `AC-013, AC-014, AC-016, AC-017, AC-019, AC-021, AC-022, AC-023, AC-024, AC-025, AC-026`
 
 **Goal**
@@ -237,6 +237,69 @@ files and verdicts that makes each check pass and fail at least once, runs every
 **Robustness** fault without an exception, matches repeated titles and header
 rows in Latin, Chinese and Arabic text, and confirms `retry_message` never holds
 a hint difference.
+
+Evidence, 2026-11-22, repo root, on `10a8d7e` (the user's DEV-002 commit) plus
+the uncommitted DEV-003 changes. Assessed content:
+`git diff HEAD -- src scripts examples docs` (4 files, 29 insertions and 16
+deletions) with the new `src/pydelity/verifying/validators.py` (2,068 lines)
+appended, SHA-256 starting `5ba61e33cd0af3a7`.
+
+- `ruff check scripts src tests`, `ruff format --check scripts src tests` and
+  `ty check scripts src tests`: all passed. `interrogate scripts src tests`:
+  100%.
+- `.venv/bin/pytest --numprocesses auto`: 211 passed. `--doctest-modules src`:
+  33 passed, 1 skipped (5 new examples in `verifying/validators.py`).
+- Scratchpad `dev003_check.py`, run with `PYTHONPATH=src` on page files built
+  from a local page file's structure with hand-made items: 73 of 73 checks
+  passed. A verdict with `continue_text` (text and code), `continue_entry`,
+  `merge_split_row`, two `append_rows`, repeated items, markers in an item and a
+  table cell and a continuing container passes all eight checks, as do a
+  `new_entry` verdict and an empty one. Each check fails at least once with the
+  failures the design names: `ids` (missing end, entry of another item, missing
+  repeated item, six bad marker places including negative positions, missing
+  containers on both pages, each on its own page), `continues` (both
+  directions), `duplicates` (item, entry, containers on each page, repeated item
+  that starts a piece), `joins` (20 cases covering kinds, same kind, text joins,
+  the fields each join sets or leaves null, entry ends, header-row bounds, cell
+  join count and `newline`, a figure end), `furniture` (both ends),
+  `header_rows` (no match, match within the first n + h rows only, empty rows,
+  too few rows), `repeats` (no match, with text-less and missing items skipped,
+  matches on an entry and a joined row) and `markers` (item, cell and a
+  text-less item, with a symbol-only marker passing). Repeated titles and header
+  rows match in Latin, Chinese and Arabic. The `start_markers` hint finds starts
+  in a text item, a list's first entry and a table's first row after the header
+  rows, skips a marker whose comparison form is empty, names the marker and says
+  nothing about what to change. `retry_message` holds no `start_markers` text.
+  Every **Robustness** fault (table items with `table: null`, lists with
+  `entries: null`, text items with `text: null`, a table with no rows and
+  negative `header_rows`, negative counts, a `column_order` that does not fit)
+  runs through all checks and the hint without an exception, and missing content
+  fails `joins`, `header_rows` or `ids`. Review issues list checks, then hints,
+  then verifier problems, leave hints out when the verifier passed the verdict
+  or its correction was kept, leave problems out when the correction was kept,
+  and carry `step: "page_breaks"`, the earlier page, `pages 4 and 5:` in the
+  message, and an `item_id` (a container ID included) only when one of the pages
+  has it.
+- `scripts/generate_reference_docs.py` and the Markdown formatter (outside the
+  sandbox): `page-json.md`, `pdf-survey-json.md` and `run-json.md` carry the new
+  `details` forms. Markdownlint passed.
+
+**Implementation Notes**
+
+- Failure messages name pieces as `piece 2 (p0003-007 to p0004-001)` and the
+  pages as the earlier and later page, so they read the same to the model and in
+  the review list, where the issue adds `pages 4 and 5:`.
+- A failure about a piece's fields rather than one end (`joins` field rules,
+  `continue_entry` with no entry) has `page_index` `null` and names the earlier
+  item in `details`. `continues` failures have `page_index` `null` and empty
+  `details`.
+- `markers` and `repeats` leave a marker or repeated item whose item, row or
+  cell does not exist to `ids`, so one fault is reported once. `header_rows` and
+  `joins` both report a missing table, since each needs it.
+- For `start_markers`, a list item's start without `later_entry` is its first
+  entry, since list items have no `text`. A `new_entry` or `append_rows` start
+  that begins with a start marker is reported like any other, as the design
+  says.
 
 ### DEV-004 — Prompts, agents and requests
 

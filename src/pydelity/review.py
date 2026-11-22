@@ -106,7 +106,10 @@ class CheckFailure(_Output):
     and the profile's, such as ``{"measured": 90, "profile": 0}``. A page extraction
     check or hint gives the ref that the model's answer gave the item or container,
     or ``None`` when no single one applies, such as ``{"item_ref": "t3"}``. That ref
-    comes from the answer, and the page file's items have IDs instead."""
+    comes from the answer, and the page file's items have IDs instead. A page-break
+    verification check or hint gives the IDs of the item, list entry or container it
+    is about, and the row and cell of a table cell, such as ``{"item": "p0004-002"}``
+    or ``{"cell": 1, "item": "p0004-002", "row": 0}``."""
 
     message: str
     """What is wrong or differs, starting with the check's or hint's name."""
@@ -130,10 +133,11 @@ class ReviewIssue(_Output):
     details: dict[str, object]
     """The values the problem is about. A survey hint gives values such as
     ``{"measured": 90, "profile": 0}``, and a check gives its failure's ``details``,
-    such as ``{"item_ref": "t3"}`` on a page. A ``no_matching_label`` issue gives the
-    ``kind`` and ``role`` that no label fits, with the items' refs and IDs
-    (``item_refs``, ``item_ids``). A ``verifier`` issue gives the problem's
-    ``category``, and on a page its ``item_ref``."""
+    such as ``{"item_ref": "t3"}`` on a page or ``{"item": "p0004-002"}`` on a page
+    break. A ``no_matching_label`` issue gives the ``kind`` and ``role`` that no
+    label fits, with the items' refs and IDs (``item_refs``, ``item_ids``). A
+    ``verifier`` issue gives the problem's ``category``, with its ``item_ref`` on a
+    page and its ``item`` on a page break."""
 
     item_id: str | None
     """The item the problem is about, or ``None`` when no single item applies."""
