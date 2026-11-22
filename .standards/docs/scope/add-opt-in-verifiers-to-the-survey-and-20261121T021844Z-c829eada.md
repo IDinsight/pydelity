@@ -12,7 +12,7 @@ is signed off but not merged. This cycle runs on the same branch before
 page-break verification, and its work merges with page extraction and ships with
 it as 0.2.0.
 
-The cycle does four things:
+The cycle does five things:
 
 - First, before the other work, each Python module in the package, the scripts
   and the tests is reordered to the ordering rule that the developer and tester
@@ -30,10 +30,20 @@ The cycle does four things:
   on OpenAI, and a verified survey sends the whole PDF a second time.
 - The correctness fixes and docs wording fixes left from page extraction's
   reviews are made.
+- Code's measurements of the PDF become hints only, in every step that calls a
+  model. The user asked for this on 2026-11-22, during synchronization and
+  before 0.2.0. In their real runs on the GPF reading and math PDFs, the text
+  check's retries pushed the model to merge each grade grid's nine grade cells
+  into one cell to match stored lines such as "x x x x x" and "123456789", and
+  which grades the marks belong to was lost. The retry message also made the
+  verifier drop correct fixes. Code still measures facts about the PDF and gives
+  them to the model, but the model's own reading decides the answer. A
+  difference from a hint goes on the review list and never causes a retry or a
+  failed run.
 
-With the verifiers off, a run checks each answer with code only, and a
-difference from the measured facts that no verifier has accepted goes on the
-review list.
+With the verifiers off, a run checks each answer with code only. Checks of the
+answer's own consistency and of hard limits may send it back, and every check
+still failing and every difference from a hint goes on the review list.
 
 ## Constraints
 
@@ -48,11 +58,34 @@ review list.
 - Document-type agnostic: no core logic, prompt, output field or default may
   assume a document type, a language or a writing direction, and there are no
   language-specific word lists or patterns.
-- The model's reading is trusted over measured facts. Code may send an answer
-  back with a difference it found, but the model's last answer is kept, and a
-  difference left goes on the review list unless that step's verifier passed the
-  answer or its correction was kept. The user extended this rule to the survey's
-  comparisons with the measured facts on 2026-11-20.
+- Code's measurements of the PDF are hints, in every step that calls a model:
+  the survey, page extraction (its verifier included) and every later step. Code
+  measures facts such as stored text, page labels, rotation, repeated lines and
+  form fields and gives them to the model as hints. The survey's finding for
+  each repeated line (page furniture, content or not decided) reaches page
+  extraction as a hint too. The model may use them, but its own reading of the
+  PDF decides the answer. No message asks a model to change an answer to match a
+  hint, and a difference from a hint never causes a retry and never fails a run.
+  It goes on the review list unless that step's verifier passed the answer or
+  its correction was kept. This replaces the earlier rule that code may send an
+  answer back with a difference it found.
+- Checks come in three groups:
+  - Hints compare the answer with what code measured or worked out about the
+    PDF: page extraction's `text_dropped`, `text_added`, `artifacts`,
+    `form_fields` and `reading_order`, and the survey's `rotation_differs` and
+    `page_number_differs`.
+  - Consistency checks test the answer against itself and the survey's profile:
+    the survey's `labels`, `artifacts` and `languages`, and page extraction's
+    `labels`, `content`, `languages`, `containers`, `captions` and `boxes` (well
+    formed, and no two items share one).
+  - Hard limits are the PDF's page count and each page's area: the survey's
+    `regions`, `rotation`, `page_numbering` and `writing_direction` stay inside
+    the PDF, and page boxes stay on the page.
+
+  Consistency checks and hard limits may send an answer back within the step's
+  check retries. A final answer that still fails one is kept, and the run goes
+  on. Only an unusable answer stops a run.
+
 - Each check sits where it can be enforced: Pydantic classes for shape, the
   step's `validators.py` for what code can decide, and the step's verifier for
   what code cannot judge. This replaces the survey cycle's rule that the survey
@@ -103,8 +136,12 @@ review list.
 - Page-break verification and the later steps, including their verifiers. When
   each is built, its verifier follows this cycle's settings: the global setting
   and an override of its own.
-- Changing what page extraction's verifier does when it is on. With it on, pages
-  keep 0.2.0's rules for applying the verdict and for listing text differences.
+- Changing what page extraction's verifier does when it is on, beyond what the
+  hint rule changes. With it on, a page keeps 0.2.0's rules for applying the
+  verdict, except that a correction no longer has to agree with the hints.
+- Sending the page's stored text in page extraction's first request, or stopping
+  a run or a page because a final answer still fails a consistency check or hard
+  limit.
 - A verifier that runs on only some pages, on a sample, or only when checks
   fail. A step's verifier runs on all of that step's work or on none of it.
 - A separate model, effort or other model setting for the verifiers.
@@ -244,10 +281,6 @@ code finds on pages that no verifier reviewed.
 - `AC-018`: With page extraction's verifier off, each page's extraction goes
   through the code checks and their retries and is kept, and no verifier request
   is made for the page.
-- `AC-019`: On a page that no verifier reviewed, each check still failing goes
-  on the review list, `text_dropped` and `text_added` included. With the
-  verifier on, pages follow 0.2.0's rules: text differences are listed only when
-  the verifier did not pass the page and the page keeps the extraction.
 - `AC-020`: A page file says whether a verifier reviewed the page and holds the
   verdict when one did. For a page that no verifier reviewed, the HTML report
   and the page's log line say that no verifier ran instead of showing a verifier
@@ -300,8 +333,17 @@ supports.
 - `AC-028`: On Linux, macOS and Windows, the built wheel installs with pip, and
   the `pydelity` command and the Python API run the survey and page extraction
   with mocked model responses.
+- `AC-050`: Automated tests cover item 10 with both providers' responses mocked
+  and no network calls to model providers. For the survey and page extraction,
+  each with its verifier on and off, they show that a hint difference sends
+  nothing back to the model and goes on the review list by `AC-011` and
+  `AC-048`, that a consistency check or hard limit failure still sends the
+  answer or correction back, that a page verifier's correction that differs from
+  the hints is kept, that a final answer still failing a consistency check is
+  kept and listed while the run completes, and that no request or retry message
+  asks the model to match a hint.
 
-**Depends on:** 1, 2, 3, 4, 5.
+**Depends on:** 1, 2, 3, 4, 5, 10.
 
 ### 7. Prepare release 0.2.0
 
@@ -341,11 +383,19 @@ code.
 - `AC-033`: The reference pages cover the new settings, the new CLI option, and
   every new or changed field of `pdf_survey.json`, the page file, `cost.jsonl`
   and `run.json`, and they match the code.
-- `AC-034`: The docs and docstrings describe what page extraction sends
-  accurately. None says that pydelity sends none of the PDF's stored text, since
-  page requests list the page's repeated lines with their stored text and text
-  retry messages quote stored lines, and the FAQ's list of what page extraction
-  sends includes form field values.
+- `AC-051`: The docs and docstrings say accurately what page extraction sends.
+  Its requests carry the page image, the page's repeated lines with their stored
+  text and its form fields with their values. With the verifier on, the
+  verifier's request also lists the answer's differences from the hints, quoting
+  stored lines. No page or docstring says that pydelity sends none of the PDF's
+  stored text or that a text difference is sent back to the model, and the FAQ's
+  list of what page extraction sends includes form field values.
+- `AC-052`: Following the docs site alone, a user knows that code's measurements
+  of the PDF are hints that the model's reading overrides, which checks are
+  hints and which are consistency checks or hard limits that may send an answer
+  back, that a hint difference never causes a retry or a failed run, when a hint
+  difference goes on the review list, and that a run stops only on an unusable
+  answer.
 - `AC-035`: The page file reference shows page extraction's own examples for
   `checks[].failures[]` and `issues[].details` and does not say that a failure
   names an item by its answer ref. The `run.json` reference says that
@@ -369,8 +419,14 @@ code.
   records that each later step's verifier is opt-in, under the global setting
   and an override of its own, and the file still lists the remaining issues this
   cycle left for later.
+- `AC-053`: Under "User decisions that apply to later steps",
+  `artifacts/next_cycle_inputs.md` records the hint rule in place of the rule
+  that code may send an answer back with a difference it found: code's
+  measurements are hints in every step, the model's reading decides, a hint
+  difference never causes a retry or a failed run, and consistency checks and
+  hard limits may still send an answer back.
 
-**Depends on:** 2, 3, 4, 5.
+**Depends on:** 2, 3, 4, 5, 10.
 
 ### 9. User review of real runs
 
@@ -391,7 +447,58 @@ list.
   the survey verdicts, page files, review lists and HTML reports, and accepts
   them, with every issue they raise resolved.
 
-**Depends on:** 2, 3, 4, 5.
+**Depends on:** 2, 3, 4, 5, 10.
+
+### 10. Treat code's measurements as hints
+
+**Intent:** Let the model's own reading of the PDF decide every answer, so that
+code's measurements, which can be wrong, never push a model to change a correct
+reading, and a person still sees where the two disagree.
+
+**Done when:**
+
+- `AC-043`: In every request of the survey and page extraction, their verifiers
+  included, the measured facts are presented as hints that the model's own
+  reading of the PDF overrides, and no message, retry messages included, asks
+  the model to change its answer to match a hint.
+- `AC-044`: A difference from a hint never sends an answer or a verifier's
+  correction back to the model and never fails a page, a step or a run. Only a
+  consistency check or a hard limit sends an answer or a correction back, within
+  the step's check retries.
+- `AC-045`: A page extraction request carries no stored text beyond the page's
+  repeated lines and its form fields with their values, as in 0.2.0, and the
+  model reads the rest of the page's text from the image.
+- `AC-046`: With page extraction's verifier on, the verifier's request lists the
+  answer's differences from every hint, quoting the stored lines a text
+  difference concerns, as hints that the page image overrides.
+- `AC-054`: A page extraction request presents the page's repeated lines and the
+  survey's finding for each one (page furniture, content or not decided) as
+  hints that the model's own reading of the page overrides. No message tells the
+  model to put a repeated line in an item with role `artifact`.
+- `AC-047`: A page verifier's correction is kept when it passes every
+  consistency check and hard limit, whatever its differences from the hints.
+- `AC-048`: On a page that no verifier reviewed, each difference from a hint
+  (`text_dropped`, `text_added`, `artifacts`, `form_fields` and `reading_order`)
+  goes on the review list. With page extraction's verifier on, a hint difference
+  goes on the review list only when the verdict did not pass and no correction
+  was kept. Each consistency check or hard limit still failing on the kept
+  answer goes on the review list, with or without a verifier.
+- `AC-049`: A final answer of the survey or of a page that still fails a
+  consistency check or a hard limit after the check retries is kept, each
+  failure goes on the review list, and the run goes on. A run stops only on an
+  unusable answer, as in 0.2.0: a model gives no answer in the answer format
+  within its retries, refuses, or uses up its output tokens. The CLI then shows
+  the error and exits non-zero, and the Python API raises an error.
+
+**Depends on:** 3, 4.
+
+## Retired Acceptance Identifiers
+
+- `AC-019`: Retired on 2026-11-22 when code's measurements became hints. Its
+  review list rule for pages is replaced by `AC-048`, which adds `artifacts`,
+  `form_fields` and `reading_order` to the hints.
+- `AC-034`: Retired on 2026-11-22 because text differences are no longer sent
+  back to the model. Replaced by `AC-051`.
 
 ## Assumptions
 
@@ -402,6 +509,11 @@ list.
   no verifier ran, the survey verifier's prompt and verdict, the expected size
   of its answer in the estimate, and what a failed survey verifier request
   leaves for the next run.
+- Architect also decides how the prompts present hints and hint differences, and
+  how the page file and `pdf_survey.json` record hint differences apart from
+  check failures.
+- The user's real runs for `AC-039` and `AC-040` include the GPF reading and
+  math PDFs, where the merged grade cells showed.
 - No measurement of a survey verifier's cost exists yet. Because it sends the
   whole PDF again, a verified survey is expected to cost about twice as much as
   one without the verifier; the real runs will show the actual figure.
