@@ -949,7 +949,7 @@ prefix: `src/pydelity/__init__.py` (90, `e94479723f274eb6`),
 
 ### DEV-010 — Page breaks in the HTML report
 
-`Status`: `PENDING` `Depends On`: `DEV-008` `Acceptance`: `AC-039`
+`Status`: `DONE` `Depends On`: `DEV-008` `Acceptance`: `AC-039`
 
 **Goal**
 
@@ -977,6 +977,68 @@ inputs.
 The lint commands; pytest and doctests; a report generated from a stand-in run
 and from hand-built verdicts with HTML-like text, checked for anchors, links,
 boxes and escaping, and viewed in the in-app browser.
+
+Evidence, 2026-11-22, repo root, on `7e5ea61` (the user's commit after DEV-009)
+plus the uncommitted DEV-010 changes. Assessed content, lines and SHA-256
+prefix: `src/pydelity/report/html.py` (1,660, `9ed3afa592c96e8f`),
+`src/pydelity/report/report.css` (290, `65d8df1cb78b8fb9`) and
+`src/pydelity/pipeline/runner.py` (2,458, `d2c449279577fdb7`), with no other
+change under `src`, `scripts`, `examples` or `docs`.
+
+- `ruff check scripts src tests`, `ruff format --check` and
+  `ty check scripts src tests`: all passed. `interrogate scripts src tests`:
+  100%.
+- `.venv/bin/pytest --numprocesses auto`: 200 passed, 11 failed, the same 11
+  tests of replaced contracts DEV-008 lists, and no other.
+  `--doctest-modules src`: 37 passed, 1 skipped (the new examples of
+  `_break_anchor`, `_break_labels` and `_marker_text`). The reference-page
+  generator followed by the Markdown formatter leaves `docs` unchanged.
+- Scratchpad `dev010_check.py` (`PYTHONPATH=src:.`, the stand-in with the canned
+  1965 scan answers): 45 of 45 checks passed. Every report parses with each
+  element closed in order, and every `id` is unique.
+  - The fixture's verdict (nothing continues): the "Page breaks" section comes
+    after the pages, with card `break-0000`, heading "Pages 1 and 2", both
+    `report/pages/` images, no boxes, "Content continues: no", "Verifier: no
+    verifier ran", no pieces or containers, a plain caption, the reason with its
+    quotes escaped, and the model in the header.
+  - A judge verdict naming real items, with the page-break verifier on and
+    finding one problem: boxes "end 1" on page 1 and "start 1, marker 1" and
+    "repeat 1" on page 2, those named by a review issue marked and labeled !,
+    containers the pages lack listed but not drawn, every piece field, "found 1
+    problem, listed for review", and the card's review issues. The review
+    table's "Page-break verification" heading has a "Pages" column whose links
+    go to `#break-0000`, and the page cards show none of the break's issues.
+  - `pages="1"` then `pages="2"`: the first report has no section. In the
+    second, page 1 has a survey card, not an extracted one, and the break card
+    still draws page 1's box from the page file page-break verification read.
+  - Hand-built verdicts written with `write_report`: a reason, entry, marker,
+    repeated item, container and issue holding `<script>`, `<img onerror>` and
+    other markup all appear escaped, with no `script` element and no extra
+    image. A `merge_split_row` piece shows its cell joins, repeated header rows
+    and entries. A kept correction reads "found 2 problems and its correction
+    was kept". A `no_content` verdict on a made-up third page shows "Requests:
+    none, because a page of the break has no content items" and no verifier
+    line. Review links reach both cards, and a break issue's item is plain
+    escaped text. With no verdicts the report has no section and no model line.
+  - Viewed in the in-app browser, served over a local port at 1400 pixels wide
+    and the pane's width: the two pages sit side by side and stack when narrow,
+    boxes and labels sit on the right items, escaped text shows as written, and
+    the review link to "2 and 3" goes to its card.
+
+**Implementation Notes**
+
+- The verdict's details go below the two images rather than beside them. Beside
+  them, three columns would shrink each page image too far to read.
+- Page cards leave out page-break issues. They keep their `page_index` (the
+  break's earlier page), so without the filter they would also show on page 1's
+  card. They appear on their break's card and in the review table.
+- Break-card boxes carry no `id`, so they never clash with the page cards' box
+  anchors. A break issue's item in the review table is plain text, because its
+  page may have no page card with items in this report.
+- `_run_header` adds "Page-break verification model" from the first verdict.
+- For the Tester: `test_a_page_no_verifier_reviewed_says_so_in_the_report`
+  counts `Verifier: no verifier ran` lines, and a break card adds one when the
+  run reaches page-break verification with the verifier off.
 
 ### DEV-011 — Smoke test, package description and reference pages
 

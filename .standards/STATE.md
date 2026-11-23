@@ -18,7 +18,7 @@
 `Development`:
 `.standards/docs/development/build-step-3-page-break-verification-of-20261122T170208Z-00fe2896.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`DEV-009 is done. Continue with DEV-010 (page breaks in the HTML report)?`
+`DEV-010 is done. Continue with DEV-011 (smoke test, package description and reference pages)?`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

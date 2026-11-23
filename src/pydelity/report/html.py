@@ -1,11 +1,12 @@
 """``report.html``, the page that shows a run's results.
 
-It shows the run, its cost and review issues, the profile, the facts and the pages.
-Each extracted page shows its items and containers drawn over the page image, beside
-a list of its items. Other pages show the survey's regions and the form fields. It is
-static HTML with its stylesheet inlined, so it runs no JavaScript and loads nothing
-from elsewhere. Every string taken from the PDF, the settings or the model is
-HTML-escaped.
+It shows the run, its cost and review issues, the profile, the facts, the pages and
+the page breaks. Each extracted page shows its items and containers drawn over the
+page image, beside a list of its items. Other pages show the survey's regions and the
+form fields. Each page break shows its two pages with the items and containers its
+verdict names drawn over them, and the verdict below. It is static HTML with its
+stylesheet inlined, so it runs no JavaScript and loads nothing from elsewhere. Every
+string taken from the PDF, the settings or the model is HTML-escaped.
 """
 
 # Standard Library
@@ -44,9 +45,23 @@ from pydelity.surveying.schemas import (
 )
 from pydelity.surveying.validators import covering_range
 from pydelity.utils.files import write_text_atomic
+from pydelity.verifying.schemas import (
+    BreakFile,
+    BreakVerdict,
+    BreakVerification,
+    ContinuationMarker,
+    ContinuingPiece,
+)
+
+# Page-break verification's name in the review issues.
+_BREAKS_STEP = "page_breaks"
 
 # Each step's heading in the review section, by the step's name in the review issues.
-_STEP_TITLES = {"extraction": "Page extraction", "survey": "Survey"}
+_STEP_TITLES = {
+    _BREAKS_STEP: "Page-break verification",
+    "extraction": "Page extraction",
+    "survey": "Survey",
+}
 
 # What a page file's text comparison status means, for the page's findings.
 _TEXT_COMPARISON = {
@@ -126,6 +141,267 @@ def _box_style(bbox: Sequence[float], *, height_pt: float, width_pt: float) -> s
     width = percent(bbox[2], width_pt) - left
     height = percent(bbox[3], height_pt) - top
     return f"left:{left:.2f}%;top:{top:.2f}%;width:{width:.2f}%;height:{height:.2f}%"
+
+
+def _break_anchor(earlier_page_index: int) -> str:
+    """Name a break's card, for the links to it.
+
+    Parameters
+    ----------
+    earlier_page_index
+        The page before the break.
+
+    Returns
+    -------
+    str
+        The card's ID.
+
+    Examples
+    --------
+    >>> _break_anchor(3)
+    'break-0003'
+    """
+
+    return f"break-{earlier_page_index:04d}"
+
+
+def _break_card(
+    break_file: BreakFile,
+    *,
+    images: dict[int, PageImage],
+    pages: dict[int, PageFile],
+) -> str:
+    """Show a break's two pages with what its verdict names, then the verdict.
+
+    Parameters
+    ----------
+    break_file
+        The break's verdict file.
+    images
+        The page images by page index, with both of the break's pages.
+    pages
+        The page files the verdict was judged from, by page index, with both of the
+        break's pages.
+
+    Returns
+    -------
+    str
+        An ``article`` element, with the anchor the break's review issues link to.
+    """
+
+    verdict = break_file.verdict
+    earlier, later = break_file.earlier_page_index, break_file.later_page_index
+    flagged = {issue.item_id for issue in break_file.issues if issue.item_id}
+    earlier_labels, later_labels = _break_labels(verdict)
+    figures = _break_page(
+        pages[earlier], flagged=flagged, image=images[earlier], labels=earlier_labels
+    ) + _break_page(
+        pages[later], flagged=flagged, image=images[later], labels=later_labels
+    )
+    pieces = "".join(
+        _piece_entry(piece, number=number)
+        for number, piece in enumerate(verdict.pieces, start=1)
+    )
+    containers = [
+        f"container {number}: {container.earlier} on page {earlier + 1} carries on "
+        f"as {container.later} on page {later + 1}"
+        for number, container in enumerate(verdict.containers, start=1)
+    ]
+    issues = (
+        "<h4>Review issues</h4>" + _list([issue.message for issue in break_file.issues])
+        if break_file.issues
+        else ""
+    )
+    details = (
+        f"{_definitions(_break_findings(break_file))}<h4>Pieces</h4>"
+        + (f'<ol class="pieces">{pieces}</ol>' if pieces else "<p>None.</p>")
+        + f"<h4>Containers</h4>{_list(containers)}<h4>Reason</h4>"
+        f'<p class="item-text" dir="auto">{_escape(verdict.reason)}</p>{issues}'
+    )
+    caption = (
+        "Boxes show where each piece ends and starts, the items that repeat it or mark "
+        "it as continued, and the containers that carry on. Solid boxes are items and "
+        "dotted boxes containers. A box marked ! has review issues."
+        if verdict.pieces or verdict.containers
+        else "The verdict names no items or containers on these pages."
+    )
+    return (
+        f'<article class="break" id="{_break_anchor(earlier)}">'
+        f"<h3>Pages {earlier + 1} and {later + 1}</h3>"
+        f'<figure><div class="break-pages">{figures}</div>'
+        f"<figcaption>{caption}</figcaption></figure>"
+        f'<div class="break-details">{details}</div></article>'
+    )
+
+
+def _break_findings(break_file: BreakFile) -> list[tuple[str, str]]:
+    """List whether content carries on across a break and how its verdict was made.
+
+    Parameters
+    ----------
+    break_file
+        The break's verdict file.
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        Each finding's name and value.
+    """
+
+    findings = [("Content continues", "yes" if break_file.verdict.continues else "no")]
+    if break_file.judgment == "no_content":
+        findings.append(
+            ("Requests", "none, because a page of the break has no content items")
+        )
+    else:
+        findings.append(("Verifier", _verifier_text(break_file.verification)))
+    return findings
+
+
+def _break_labels(
+    verdict: BreakVerdict,
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """Name what a verdict marks on each page of its break, by item or container ID.
+
+    Parameters
+    ----------
+    verdict
+        The verdict.
+
+    Returns
+    -------
+    tuple[dict[str, list[str]], dict[str, list[str]]]
+        The labels on the earlier page and on the later page, such as
+        ``{"p0001-001": ["start 1", "marker 1"]}``. Pieces and containers are
+        numbered from 1 in the verdict's order.
+
+    Examples
+    --------
+    >>> from pydelity.verifying.schemas import ContinuingContainer
+    >>> verdict = BreakVerdict(
+    ...     containers=[ContinuingContainer(earlier="p0000-c01", later="p0001-c01")],
+    ...     continues=True,
+    ...     pieces=[
+    ...         ContinuingPiece(
+    ...             cell_joins=None,
+    ...             earlier_entry=None,
+    ...             earlier_item="p0000-009",
+    ...             join="continue_text",
+    ...             later_entry=None,
+    ...             later_item="p0001-002",
+    ...             markers=[],
+    ...             repeated_header_rows=None,
+    ...             repeated_items=["p0001-001"],
+    ...             text_join="space",
+    ...         )
+    ...     ],
+    ...     reason="The sentence carries on.",
+    ... )
+    >>> earlier, later = _break_labels(verdict)
+    >>> earlier
+    {'p0000-009': ['end 1'], 'p0000-c01': ['container 1']}
+    >>> later
+    {'p0001-002': ['start 1'], 'p0001-001': ['repeat 1'], 'p0001-c01': ['container 1']}
+    """
+
+    earlier: defaultdict[str, list[str]] = defaultdict(list)
+    later: defaultdict[str, list[str]] = defaultdict(list)
+    for number, piece in enumerate(verdict.pieces, start=1):
+        earlier[piece.earlier_item].append(f"end {number}")
+        later[piece.later_item].append(f"start {number}")
+        for item_id in piece.repeated_items:
+            later[item_id].append(f"repeat {number}")
+        for marker in piece.markers:
+            later[marker.item].append(f"marker {number}")
+    for number, container in enumerate(verdict.containers, start=1):
+        earlier[container.earlier].append(f"container {number}")
+        later[container.later].append(f"container {number}")
+    return dict(earlier), dict(later)
+
+
+def _break_page(
+    page_file: PageFile,
+    *,
+    flagged: set[str],
+    image: PageImage,
+    labels: dict[str, list[str]],
+) -> str:
+    """Show one page of a break, with the items and containers its verdict names.
+
+    Parameters
+    ----------
+    page_file
+        The page file the verdict was judged from.
+    flagged
+        The IDs the break's review issues name, whose boxes are marked.
+    image
+        The page's image.
+    labels
+        What the verdict names each item or container on this page for, by its ID.
+        An ID the page does not have gets no box.
+
+    Returns
+    -------
+    str
+        A ``figure`` element.
+    """
+
+    boxes = []
+    for shape in [*page_file.containers, *page_file.items]:
+        if shape.id not in labels:
+            continue
+        style = _box_style(
+            shape.bbox, height_pt=page_file.height_pt, width_pt=page_file.width_pt
+        )
+        kind = "container" if isinstance(shape, Container) else "item"
+        flag, mark = (" flagged", " !") if shape.id in flagged else ("", "")
+        label = ", ".join(dict.fromkeys(labels[shape.id]))
+        boxes.append(
+            f'<div class="box {kind}{flag}" style="{style}">'
+            f'<span class="box-label">{_escape(label)}{mark}</span></div>'
+        )
+    heading = _page_heading(page_file.page_index)
+    return (
+        f'<figure><div class="page-image"><img src="{_escape(image.file)}" '
+        f'alt="{heading} as displayed" width="{image.width_px}" '
+        f'height="{image.height_px}">{"".join(boxes)}</div>'
+        f"<figcaption>{heading}</figcaption></figure>"
+    )
+
+
+def _breaks_section(
+    breaks: list[BreakFile],
+    *,
+    manifest: ReportManifest,
+    pages: dict[int, PageFile],
+) -> str:
+    """Show every verdict as a card, in break order.
+
+    Parameters
+    ----------
+    breaks
+        The verdicts, in break order.
+    manifest
+        The page images.
+    pages
+        The page files the verdicts were judged from, by page index.
+
+    Returns
+    -------
+    str
+        The section's HTML, or nothing when there are no verdicts.
+    """
+
+    if not breaks:
+        return ""
+    images = {image.index: image for image in manifest.pages}
+    shown = images.keys() & pages.keys()
+    cards = [
+        _break_card(break_file, images=images, pages=pages)
+        for break_file in breaks
+        if {break_file.earlier_page_index, break_file.later_page_index} <= shown
+    ]
+    return _section("page-breaks", "Page breaks", "".join(cards))
 
 
 def _container_box(container: Container, *, flagged: bool, page_file: PageFile) -> str:
@@ -279,7 +555,7 @@ def _extracted_page_card(
     image
         The page's image.
     issues
-        The review issues on this page, from every step.
+        The review issues on this page, from the survey and page extraction.
 
     Returns
     -------
@@ -665,6 +941,34 @@ def _list(items: list[str]) -> str:
     return "<ul>" + "".join(f"<li>{_escape(item)}</li>" for item in items) + "</ul>"
 
 
+def _marker_text(marker: ContinuationMarker) -> str:
+    """Describe a continuation marker and where it is printed.
+
+    Parameters
+    ----------
+    marker
+        The marker.
+
+    Returns
+    -------
+    str
+        Such as ``"cont." on p0004-001`` or ``"(continued)" on row 0 of p0004-002``.
+
+    Examples
+    --------
+    >>> _marker_text(
+    ...     ContinuationMarker(cell=2, item="p0004-002", row=0, text="(continued)")
+    ... )
+    '"(continued)" on row 0, cell 2 of p0004-002'
+    """
+
+    place = marker.item
+    if marker.row is not None:
+        cell = "" if marker.cell is None else f", cell {marker.cell}"
+        place = f"row {marker.row}{cell} of {marker.item}"
+    return f'"{marker.text}" on {place}'
+
+
 def _page_card(
     page: PageFacts,
     *,
@@ -832,7 +1136,8 @@ def _pages_section(
     pages
         The page files of the selected pages.
     review
-        The run's review issues.
+        The run's review issues. A break's issues go on its own card, not on its
+        pages' cards.
     survey
         The survey, if any.
 
@@ -848,7 +1153,11 @@ def _pages_section(
     for page in facts.pages:
         if page.index not in images:
             continue
-        issues = [issue for issue in review if issue.page_index == page.index]
+        issues = [
+            issue
+            for issue in review
+            if issue.page_index == page.index and issue.step != _BREAKS_STEP
+        ]
         page_file = extracted.get(page.index)
         if page_file is None:
             cards.append(
@@ -871,6 +1180,47 @@ def _pages_section(
             )
         )
     return _section("pages", "Pages", "".join(cards))
+
+
+def _piece_entry(piece: ContinuingPiece, *, number: int) -> str:
+    """Show one piece of a verdict: where it ends and starts, and how it joins.
+
+    Parameters
+    ----------
+    piece
+        The piece.
+    number
+        The piece's position in the verdict, from 1, which its boxes are labeled
+        with.
+
+    Returns
+    -------
+    str
+        An ``li`` element.
+    """
+
+    def place(item_id: str, entry_id: str | None) -> str:
+        """Name an item, and the entry in it when there is one."""
+
+        return item_id if entry_id is None else f"{item_id}, entry {entry_id}"
+
+    lines = [
+        ("Join", str(piece.join)),
+        ("Ends in", place(piece.earlier_item, piece.earlier_entry)),
+        ("Starts in", place(piece.later_item, piece.later_entry)),
+    ]
+    if piece.text_join is not None:
+        lines.append(("Text join", str(piece.text_join)))
+    if piece.cell_joins is not None:
+        joins = ", ".join(str(join or "none") for join in piece.cell_joins)
+        lines.append(("Cell joins", joins or "none"))
+    if piece.repeated_header_rows is not None:
+        lines.append(("Repeated header rows", str(piece.repeated_header_rows)))
+    lines += [
+        ("Repeated items", ", ".join(piece.repeated_items) or "none"),
+        ("Markers", "; ".join(map(_marker_text, piece.markers)) or "none"),
+    ]
+    return f"<li><h5>Piece {number}</h5>{_definitions(lines)}</li>"
 
 
 def _profile_section(survey: PdfSurvey) -> str:
@@ -974,6 +1324,39 @@ def _repeated_lines_table(facts: Facts, *, survey: PdfSurvey | None) -> str:
     )
 
 
+def _review_row(issue: ReviewIssue) -> list[str]:
+    """Write a review issue's row in the review section, linked to where it is.
+
+    A break's issue links to the break's card. Any other issue links to its page and
+    to the box it names.
+
+    Parameters
+    ----------
+    issue
+        The issue.
+
+    Returns
+    -------
+    list[str]
+        The issue's check, page or pages, item and message.
+    """
+
+    index, item_id = issue.page_index, issue.item_id
+    if issue.step == _BREAKS_STEP and index is not None:
+        place = _Html(
+            f'<a class="ref" href="#{_break_anchor(index)}">{index + 1} and '
+            f"{index + 2}</a>"
+        )
+        return [issue.check, place, item_id or "-", issue.message]
+    page = _Html(
+        "-"
+        if index is None
+        else f'<a class="ref" href="#page-{index}">{index + 1} (index {index})</a>'
+    )
+    item = _Html("-" if item_id is None else _item_link(item_id))
+    return [issue.check, page, item, issue.message]
+
+
 def _review_section(review: list[ReviewIssue]) -> str:
     """Show the review issues, counted by check, then by step and page.
 
@@ -999,32 +1382,24 @@ def _review_section(review: list[ReviewIssue]) -> str:
             (issue for issue in review if issue.step == step),
             key=lambda issue: -1 if issue.page_index is None else issue.page_index,
         )
-        rows = [
-            [
-                issue.check,
-                _Html(
-                    "-"
-                    if issue.page_index is None
-                    else f'<a class="ref" href="#page-{issue.page_index}">'
-                    f"{issue.page_index + 1} (index {issue.page_index})</a>"
-                ),
-                _Html("-" if issue.item_id is None else _item_link(issue.item_id)),
-                issue.message,
-            ]
-            for issue in issues
-        ]
-        title = _STEP_TITLES.get(step, step)
+        place = "Pages" if step == _BREAKS_STEP else "Page"
         parts.append(
-            f"<h3>{_escape(title)}</h3>"
+            f"<h3>{_escape(_STEP_TITLES.get(step, step))}</h3>"
             + _table(
-                caption=None, headers=["Check", "Page", "Item", "Issue"], rows=rows
+                caption=None,
+                headers=["Check", place, "Item", "Issue"],
+                rows=[_review_row(issue) for issue in issues],
             )
         )
     return _section("review", "Review issues", "".join(parts))
 
 
 def _run_header(
-    record: RunRecord, *, pages: list[PageFile], survey: PdfSurvey | None
+    record: RunRecord,
+    *,
+    breaks: list[BreakFile],
+    pages: list[PageFile],
+    survey: PdfSurvey | None,
 ) -> str:
     """Show which PDF the run processed, how it ended and with which models.
 
@@ -1032,6 +1407,8 @@ def _run_header(
     ----------
     record
         The run's record.
+    breaks
+        The verdicts, for the page-break verification model.
     pages
         The page files of the selected pages, for the page extraction model.
     survey
@@ -1049,6 +1426,8 @@ def _run_header(
         items.append(("Survey model", survey.inputs.model))
     if pages:
         items.append(("Page extraction model", pages[0].inputs.model))
+    if breaks:
+        items.append(("Page-break verification model", breaks[0].inputs.model))
     items += [
         ("PDF", f"{pdf.path} ({pdf.page_count} pages, {pdf.bytes:,} bytes)"),
         ("SHA-256", pdf.sha256),
@@ -1143,15 +1522,15 @@ def _table(*, caption: str | None, headers: list[str], rows: list[list[str]]) ->
 
 
 def _verifier_text(
-    verification: PageVerification | SurveyVerification | None,
+    verification: BreakVerification | PageVerification | SurveyVerification | None,
 ) -> str:
-    """Say what the verifier made of a page or of the survey.
+    """Say what the verifier made of the survey, a page or a break's verdict.
 
     Parameters
     ----------
     verification
-        The verifier's review of the page or the survey, or ``None`` when no verifier
-        ran.
+        The verifier's review of the survey, the page or the verdict, or ``None``
+        when no verifier ran.
 
     Returns
     -------
@@ -1199,6 +1578,13 @@ def _warnings_section(record: RunRecord) -> str:
 class ReportInputs:
     """What a report is written from: the run's record and the files it has."""
 
+    break_pages: dict[int, PageFile]
+    """The page files the verdicts were judged from, by page index. They can include
+    pages the run did not select."""
+
+    breaks: list[BreakFile]
+    """The verdicts, in break order."""
+
     facts: PdfFacts | None
     """The facts, if the run measured or reused them."""
 
@@ -1234,7 +1620,7 @@ def write_report(inputs: ReportInputs) -> Path:
 
     record, survey = inputs.record, inputs.survey
     parts = [
-        _run_header(record, pages=inputs.pages, survey=survey),
+        _run_header(record, breaks=inputs.breaks, pages=inputs.pages, survey=survey),
         "<main>",
         _cost_section(record),
         _warnings_section(record),
@@ -1254,6 +1640,11 @@ def write_report(inputs: ReportInputs) -> Path:
                 survey=survey,
             )
         )
+    parts.append(
+        _breaks_section(
+            inputs.breaks, manifest=inputs.manifest, pages=inputs.break_pages
+        )
+    )
     parts.append("</main>")
 
     stylesheet = files("pydelity.report").joinpath("report.css").read_text("utf-8")

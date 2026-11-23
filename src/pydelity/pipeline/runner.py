@@ -250,6 +250,9 @@ class _Run:
         When the run started (UTC).
     warnings
         The warnings issued so far, in order, each with the step that issued it.
+    break_pages
+        The page files page-break verification read, by page index, which can include
+        pages the run did not select.
     breaks
         The verdict files by the page before each break, reused or written so far.
     extracted
@@ -272,6 +275,7 @@ class _Run:
     run_id: str
     started_at: datetime
     warnings: list[IssuedWarning] = field(default_factory=list)
+    break_pages: dict[int, PageFile] = field(default_factory=dict)
     breaks: dict[int, BreakFile] = field(default_factory=dict)
     extracted: set[int] = field(default_factory=set)
     facts: PdfFacts | None = None
@@ -1378,6 +1382,7 @@ async def _page_breaks(
             step.end("skipped")
             return "completed" if pages is None else "paused"
 
+        run.break_pages = {page.page_index: page.page_file for page in pages}
         step.outputs.append(f"{BREAKS_FOLDER_NAME}/")
         planned = plan_breaks(
             config=config,
@@ -1625,6 +1630,8 @@ def _report_files(record: RunRecord, *, run: _Run) -> Path:
     )
     return write_report(
         ReportInputs(
+            break_pages=run.break_pages,
+            breaks=[run.breaks[index] for index in sorted(run.breaks)],
             facts=run.facts,
             manifest=manifest,
             output_folder=run.config.output_folder,
