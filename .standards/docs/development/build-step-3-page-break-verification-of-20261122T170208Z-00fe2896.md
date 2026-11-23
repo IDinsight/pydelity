@@ -856,7 +856,7 @@ other change under `src`, `scripts`, `examples` or `docs`.
 
 ### DEV-009 — Python functions and the CLI
 
-`Status`: `PENDING` `Depends On`: `DEV-008` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-008` `Acceptance`:
 `AC-001, AC-006, AC-031, AC-038`
 
 **Goal**
@@ -889,6 +889,63 @@ The lint commands; pytest and doctests; a scratchpad script calling
 `verify_breaks` and `averify_breaks` through the stand-in (fresh folder, reuse,
 narrowed `pages`, one-page PDF); the CLI against the stand-in with `-np`, a
 paused run, and an injected page-break failure (exit 1).
+
+Evidence, 2026-11-22, repo root, on `35034f1` (the user's commit after DEV-008)
+plus the uncommitted DEV-009 changes. Assessed content, lines and SHA-256
+prefix: `src/pydelity/__init__.py` (90, `e94479723f274eb6`),
+`src/pydelity/api.py` (906, `098dfe89de3d9bd9`), `src/pydelity/cli.py` (388,
+`b74fa8c65df4f0a9`), `src/pydelity/pipeline/runner.py` (2,451,
+`54f84989e705602b`), `docs/src/content/docs/reference/cli.md` (54,
+`f59508352ab19817`) and `docs/src/content/docs/reference/python-api.md` (612,
+`059818e58fb2d7dc`), with no other change under `src`, `scripts`, `examples` or
+`docs`.
+
+- `ruff check scripts src tests`, `ruff format --check` and
+  `ty check scripts src tests`: all passed. `interrogate scripts src tests`:
+  100%.
+- `.venv/bin/pytest --numprocesses auto`: 200 passed, 11 failed, the same 11
+  tests of replaced contracts DEV-008 lists, and no other.
+  `--doctest-modules src`: 34 passed, 1 skipped. The reference-page generator
+  followed by the Markdown formatter changes `python-api.md` (`verify_breaks`,
+  the async forms line, and the `run`, `estimate` and `load` docstrings) and
+  `cli.md` (`--no-pause`). `markdownlint-cli2 --all-files`: passed.
+- Scratchpad `dev009_check.py` (`PYTHONPATH=src:.`, the stand-in with the canned
+  1965 scan answers): 35 of 35 checks passed.
+  - `pydelity.__all__` holds `verify_breaks`, `averify_breaks`, `BreakFile` and
+    `PageBreakError`.
+  - `averify_breaks` on a fresh folder runs the survey, both pages and the
+    judge, with pause on by default and no pause, logs one estimate of the three
+    steps, writes no `run.json` and no report, and returns the verdict `load`
+    reads. A second call sends nothing and returns the same verdict.
+  - With `pages="1"` it returns no verdict, issues one warning naming page 2 and
+    sends no judge request. With `pages="2"` next it judges the break.
+  - A one-page PDF returns no verdict, with the info line and no warning.
+  - `max_cost` below the folder's spend raises `BudgetExceededError` before any
+    request, and `allow_over_max_cost=True` goes on with the warning.
+  - `verify_breaks` works without a running event loop and, inside one, raises
+    `RuntimeError` naming `averify_breaks`.
+  - A judge answer that is not a verdict raises `PageBreakError`: "Break after
+    page 1 (pages 1 and 2), judge: the model gave no usable answer: Exceeded
+    maximum output retries (2)". The page files stay and no verdict file is
+    written.
+  - The `pydelity` command, run as a subprocess against the stand-in: `--help`
+    shows the new `--no-pause` text. `-np -y` exits 0 with three completed
+    steps, the summary line and the page-break estimate line. Without `-np`,
+    three runs pause after the survey, pause after page extraction with its
+    message, then judge the break, each exiting 0. `run(pause=False)` records
+    the same steps and statuses as `-np`. With a judge answer that is not a
+    verdict, the command exits 1, logs the error, and `run.json` records the run
+    and the step `failed` with `PageBreakError`.
+
+**Implementation Notes**
+
+- The CLI already maps every `PydelityError` other than input and spend errors
+  to exit code 1, so `PageBreakError` needed no handler of its own. Only the
+  `--no-pause` help changed.
+- `run_page_breaks_step` shares a new `_open_run` with `run_extraction_step`,
+  which opens the PDF, prepares the folder and starts a run without a record.
+- `api.py`'s module docstring lists `verify_breaks`, and `load`'s names it among
+  the functions whose folder it reads.
 
 ### DEV-010 — Page breaks in the HTML report
 

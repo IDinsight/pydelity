@@ -5,9 +5,10 @@ verification. With ``pause`` on, a run stops after a step that wrote new output,
 survey or new page files, so that output can be checked before the next step is paid
 for. Page-break verification runs only when every page of the PDF has a current page
 file, and a PDF of one page has no breaks to verify. `run_measure`, `run_estimate`,
-`run_survey_step` and `run_extraction_step` do parts of it for the Python API's
-``measure``, ``estimate``, ``survey`` and ``extract``, which write no ``run.json`` and
-no report and never pause. `load_run` reads a folder back.
+`run_survey_step`, `run_extraction_step` and `run_page_breaks_step` do parts of it for
+the Python API's ``measure``, ``estimate``, ``survey``, ``extract`` and
+``verify_breaks``, which write no ``run.json`` and no report and never pause.
+`load_run` reads a folder back.
 
 The cost estimate, the question before spending, the ``max_cost`` check on it and the
 API-key checks cover every step the run will reach, once, before its first model
@@ -1296,6 +1297,44 @@ async def _open(config: Config) -> PdfInfo:
     return pdf
 
 
+async def _open_run(
+    *, config: Config, decide_over_max_cost: OverMaxCostDecision
+) -> _Run:
+    """Open the PDF, prepare the output folder and start a run that writes no record.
+
+    Parameters
+    ----------
+    config
+        The run's settings, already checked.
+    decide_over_max_cost
+        Called with the warning's details when the run could exceed ``max_cost``;
+        returns whether to continue.
+
+    Returns
+    -------
+    _Run
+        The run, with the selected pages and nothing done yet.
+
+    Raises
+    ------
+    ConfigError
+        If ``pages`` names a page past the PDF's last page.
+    PdfError
+        If the PDF is empty, password-protected or cannot be opened.
+    """
+
+    pdf = await _open(config)
+    selected = _selected_pages(config=config, pdf=pdf)
+    _prepare_folder(config.output_folder)
+    _warn_other_pdf(folder=config.output_folder, sha256=pdf.sha256)
+    return _new_run(
+        config=config,
+        decide_over_max_cost=decide_over_max_cost,
+        pdf=pdf,
+        selected=selected,
+    )
+
+
 async def _page_breaks(
     run: _Run, *, confirm: SpendConfirmation | None, estimate: bool, pause: bool
 ) -> RunStatus:
@@ -2175,18 +2214,9 @@ async def run_extraction_step(
         answer that matches the survey's answer format.
     """
 
-    pdf = await _open(config)
-    selected = _selected_pages(config=config, pdf=pdf)
-    _prepare_folder(config.output_folder)
-    _warn_other_pdf(folder=config.output_folder, sha256=pdf.sha256)
-    run = _new_run(
-        config=config,
-        decide_over_max_cost=decide_over_max_cost,
-        pdf=pdf,
-        selected=selected,
-    )
+    run = await _open_run(config=config, decide_over_max_cost=decide_over_max_cost)
     await _steps(run, confirm=None, page_breaks=False, pause=False)
-    return [run.pages[index] for index in selected]
+    return [run.pages[index] for index in run.selected]
 
 
 async def run_measure(*, config: Config) -> PdfFacts:
@@ -2216,6 +2246,60 @@ async def run_measure(*, config: Config) -> PdfFacts:
     return await measure_facts(
         output_folder=config.output_folder, overwrite=config.overwrite, pdf=pdf
     )
+
+
+async def run_page_breaks_step(
+    *, config: Config, decide_over_max_cost: OverMaxCostDecision
+) -> list[BreakFile]:
+    """Verify the page breaks, running or reusing the survey and page extraction first.
+
+    No ``run.json`` and no report are written, and the run never pauses, since the
+    caller asked for page-break verification. The estimate, the ``max_cost`` check on
+    it and the API-key checks cover every step the run will reach before the first
+    request, as in a full run. Page-break verification is skipped, with an info line
+    or a warning, when the PDF has one page or a page has no current page file after
+    page extraction.
+
+    Parameters
+    ----------
+    config
+        The run's settings, already checked.
+    decide_over_max_cost
+        Called with the warning's details when the run could exceed ``max_cost``;
+        returns whether to continue.
+
+    Returns
+    -------
+    list[BreakFile]
+        Every break's verdict file, reused or new, in break order, or none when
+        page-break verification was skipped.
+
+    Raises
+    ------
+    BudgetExceededError
+        If the run could go over ``max_cost`` and the decision is no.
+    ConfigError
+        If ``pages`` names a page past the PDF's last page.
+    ExtractionError
+        If a model refuses, runs out of output tokens, or never gives a usable
+        answer for a page.
+    MissingApiKeyError
+        If the API key of a step's provider is not set.
+    PageBreakError
+        If a model refuses, runs out of output tokens, or never gives a usable
+        answer for a break.
+    PdfError
+        If the PDF is empty, password-protected or cannot be opened.
+    ProviderError
+        If a request fails after the provider retries.
+    SurveyError
+        If the survey's model refuses, runs out of output tokens, or never gives an
+        answer that matches the survey's answer format.
+    """
+
+    run = await _open_run(config=config, decide_over_max_cost=decide_over_max_cost)
+    await _steps(run, confirm=None, page_breaks=True, pause=False)
+    return [run.breaks[index] for index in sorted(run.breaks)]
 
 
 async def run_pipeline(

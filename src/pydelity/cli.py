@@ -260,7 +260,7 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
         typer.Option(
             "--no-pause",
             "-np",
-            help="Run every step without stopping after the survey.",
+            help="Run every step without stopping after a step that wrote new output.",
             show_default=False,
         ),
     ] = None,
@@ -323,7 +323,8 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
     overwrite
         Whether to redo steps whose outputs could be reused.
     no_pause
-        Whether to run every step without stopping after the survey.
+        Whether to run every step without stopping after a step that wrote new
+        output.
     verify
         Whether a verifier reviews each step's answer.
     yes

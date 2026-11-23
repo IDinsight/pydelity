@@ -8,8 +8,8 @@ sidebar:
 <!-- Generated from pydelity's code by scripts/generate_reference_docs.py. Run `just docs-reference` instead of editing this file. -->
 
 `import pydelity` gives these functions and classes. `estimate`, `extract`,
-`measure`, `run` and `survey` also have async forms, named with an `a` prefix,
-to await in code that runs an event loop.
+`measure`, `run`, `survey` and `verify_breaks` also have async forms, named with
+an `a` prefix, to await in code that runs an event loop.
 
 ## Functions
 
@@ -60,10 +60,12 @@ async def aestimate(
 Estimate what a run on a PDF would cost, writing nothing and calling no model.
 
 The saved facts are used when they match, and otherwise the PDF is measured
-without saving them. A survey or page file that would be reused costs nothing.
-The estimate covers page extraction whenever the run would extract pages: the
-selected pages without a page file to reuse, or every selected page when the
-survey runs first and the run would not pause. No API key is needed.
+without saving them. A survey, page file or verdict file that would be reused
+costs nothing. The estimate covers page extraction whenever the run would
+extract pages: the selected pages without a page file to reuse, or every
+selected page when the survey runs first and the run would not pause. It covers
+page-break verification whenever the run would reach it, with the breaks whose
+verdict would not be reused. No API key is needed.
 
 **Parameters**
 
@@ -190,21 +192,24 @@ including in a running event loop.
 
 **Parameters**
 
-- `output_dir`: The output folder of an earlier `run`, `survey` or `measure`.
+- `output_dir`: The output folder of an earlier `run`, `verify_breaks`,
+  `extract`, `survey` or `measure`.
 
 **Returns**
 
 - `RunResult`: The folder's `run.json`, `pdf_facts.json`, `pdf_survey.json`,
-  `cost.jsonl`, and the page files in `pages/` made from the PDF in
-  `pdf_facts.json`, in page order. A part is `None`, or empty, when its files
-  are absent; the pages are empty without `pdf_facts.json`.
+  `cost.jsonl`, the page files in `pages/` made from the PDF in
+  `pdf_facts.json`, in page order, and the verdict files in `page_breaks/` made
+  from that PDF and from two of those page files as written, in break order. A
+  part is `None`, or empty, when its files are absent; the pages and verdicts
+  are empty without `pdf_facts.json`.
 
 **Raises**
 
 - `OutputError`: If the folder does not exist, holds none of those files, or
   holds one that is not valid JSON, does not match its schema or has another
-  major schema version, or a page file of the folder's PDF names a figure image
-  that is missing.
+  major schema version, verdict files included, or a page file of the folder's
+  PDF names a figure image that is missing.
 
 ### `measure`
 
@@ -299,8 +304,8 @@ Run pydelity on a PDF (the sync version of `arun`).
 
 **Returns**
 
-- `RunResult`: The run's record, facts, survey, selected pages' page files and
-  the output folder's ledger.
+- `RunResult`: The run's record, facts, survey, selected pages' page files,
+  verdict files and the output folder's ledger.
 
 **Raises**
 
@@ -311,6 +316,8 @@ Run pydelity on a PDF (the sync version of `arun`).
 - `ExtractionError`: If a model refuses, runs out of output tokens, or never
   gives a usable answer for a page.
 - `MissingApiKeyError`: If the API key of a step's provider is not set.
+- `PageBreakError`: If a model refuses, runs out of output tokens, or never
+  gives a usable answer for a break.
 - `PdfError`: If the PDF is empty, password-protected or cannot be opened.
 - `ProviderError`: If the provider rejects the upload for an invalid API key or
   as too large, or a request fails after the provider retries.
@@ -338,11 +345,14 @@ facts saved in `pdf_facts.json` in the output folder. It then reuses the survey
 saved in `pdf_survey.json` when its inputs are unchanged. Otherwise it checks
 the providers' API keys and the cost estimate against `max_cost`, uploads the
 PDF (or reuses its upload from `uploads.json`), asks the model to survey it and
-saves `pdf_survey.json`. With `pause` on, the default, a run that made a new
-survey ends there with status `paused`, so the survey can be checked first; the
-next run goes on. Page extraction then reuses or writes a page file in `pages/`
-for each selected page. The run is recorded in `run.json` and `report.html`,
-also when it fails, stops or pauses, and does not prompt for input.
+saves `pdf_survey.json`. Page extraction then reuses or writes a page file in
+`pages/` for each selected page. When every page of the PDF has a current page
+file, page-break verification then reuses or writes a verdict file in
+`page_breaks/` for each break between two pages. With `pause` on, the default, a
+run that made a new survey or wrote new page files ends there with status
+`paused`, so that output can be checked before the next step is paid for, and
+the next run goes on. The run is recorded in `run.json` and `report.html`, also
+when it fails, stops or pauses, and does not prompt for input.
 
 **Parameters**
 
@@ -357,8 +367,8 @@ also when it fails, stops or pauses, and does not prompt for input.
 
 **Returns**
 
-- `RunResult`: The run's record, facts, survey, selected pages' page files and
-  the output folder's ledger.
+- `RunResult`: The run's record, facts, survey, selected pages' page files,
+  verdict files and the output folder's ledger.
 
 **Raises**
 
@@ -369,6 +379,8 @@ also when it fails, stops or pauses, and does not prompt for input.
 - `ExtractionError`: If a model refuses, runs out of output tokens, or never
   gives a usable answer for a page.
 - `MissingApiKeyError`: If the API key of a step's provider is not set.
+- `PageBreakError`: If a model refuses, runs out of output tokens, or never
+  gives a usable answer for a break.
 - `PdfError`: If the PDF is empty, password-protected or cannot be opened.
 - `ProviderError`: If the provider rejects the upload for an invalid API key or
   as too large, or a request fails after the provider retries.
@@ -463,8 +475,113 @@ requests, but no `run.json` and no report. It does not prompt for input.
 - `SurveyError`: If the model refuses, runs out of output tokens, or never gives
   an answer that matches the survey's answer format.
 
+### `verify_breaks`
+
+```python
+def verify_breaks(
+    pdf: str | PathLike[str] | None = None,
+    *,
+    allow_over_max_cost: bool = False,
+    config: ConfigSource | None = None,
+    **settings: object,
+) -> list[BreakFile]
+```
+
+Verify the breaks between a PDF's pages (the sync version of `averify_breaks`).
+
+**Parameters**
+
+- `pdf`: The PDF. Overrides a `pdf` in `config`.
+- `allow_over_max_cost`: Whether to continue, with a warning, when the run could
+  exceed `max_cost`. If false, such a run raises `BudgetExceededError` instead.
+- `config`: A JSON or YAML config file, a `pydelity.config.schemas.Config`, or a
+  mapping of settings.
+- `**settings`: Settings by name. They override `config`.
+
+**Returns**
+
+- `list[BreakFile]`: Every break's verdict file, in break order, or none when
+  the PDF has one page or a page has no current page file.
+
+**Raises**
+
+- `BudgetExceededError`: If the run could go over `max_cost` and
+  `allow_over_max_cost` is not set.
+- `ConfigError`: Listing every invalid setting, or naming a config file that
+  cannot be read, or `pages` naming a page past the PDF's last page.
+- `ExtractionError`: If a model refuses, runs out of output tokens, or never
+  gives a usable answer for a page.
+- `MissingApiKeyError`: If the API key of a step's provider is not set.
+- `PageBreakError`: If a model refuses, runs out of output tokens, or never
+  gives a usable answer for a break.
+- `PdfError`: If the PDF is empty, password-protected or cannot be opened.
+- `ProviderError`: If the provider rejects the upload for an invalid API key or
+  as too large, or a request fails after the provider retries.
+- `RuntimeError`: If called while an event loop is running, as in Jupyter or
+  async code. Use `await pydelity.averify_breaks(...)` there instead.
+- `SurveyError`: If the survey's model refuses, runs out of output tokens, or
+  never gives an answer that matches the survey's answer format.
+
+### `averify_breaks`
+
+```python
+async def averify_breaks(
+    pdf: str | PathLike[str] | None = None,
+    *,
+    allow_over_max_cost: bool = False,
+    config: ConfigSource | None = None,
+    **settings: object,
+) -> list[BreakFile]
+```
+
+Verify the breaks between a PDF's pages, running or reusing earlier steps first.
+
+The survey and the selected pages' page files are reused when their inputs are
+unchanged, and otherwise made, as `aextract` makes them. Then each break between
+two consecutive pages gets a verdict on whether content continues across it and
+how it joins. A verdict file in `page_breaks/` is reused when its inputs are
+unchanged, and the other breaks are judged, several at a time. Every page of the
+PDF needs a current page file, so with `pages` set, the breaks are judged only
+when each other page has a page file that page extraction would reuse. Otherwise
+a warning names the pages without one, and no break is judged. It never pauses,
+writes no `run.json` and no report, and does not prompt for input.
+
+**Parameters**
+
+- `pdf`: The PDF. Overrides a `pdf` in `config`.
+- `allow_over_max_cost`: Whether to continue, with a warning, when the run could
+  exceed `max_cost`. If false, such a run raises `BudgetExceededError` instead.
+- `config`: A JSON or YAML config file, a `pydelity.config.schemas.Config`, or a
+  mapping of settings.
+- `**settings`: Settings by name, such as `verify=True` or
+  `advanced={"page_breaks": {"concurrent_breaks": 4}}`. They override `config`.
+
+**Returns**
+
+- `list[BreakFile]`: Every break's verdict file, in break order, or none when
+  the PDF has one page or a page has no current page file.
+
+**Raises**
+
+- `BudgetExceededError`: If the run could go over `max_cost` and
+  `allow_over_max_cost` is not set.
+- `ConfigError`: Listing every invalid setting, or naming a config file that
+  cannot be read, or `pages` naming a page past the PDF's last page.
+- `ExtractionError`: If a model refuses, runs out of output tokens, or never
+  gives a usable answer for a page.
+- `MissingApiKeyError`: If the API key of a step's provider is not set.
+- `PageBreakError`: If a model refuses, runs out of output tokens, or never
+  gives a usable answer for a break.
+- `PdfError`: If the PDF is empty, password-protected or cannot be opened.
+- `ProviderError`: If the provider rejects the upload for an invalid API key or
+  as too large, or a request fails after the provider retries.
+- `SurveyError`: If the survey's model refuses, runs out of output tokens, or
+  never gives an answer that matches the survey's answer format.
+
 ## Classes and errors
 
+- `BreakFile`: The contents of `page_breaks/<NNNN>-<NNNN>.json`: one break's
+  verdict.
 - `BudgetExceededError`: A run would go over `max_cost` and the caller did not
   allow it.
 - [`Config`](../configuration/): All the settings for a pydelity run.
@@ -475,6 +592,8 @@ requests, but no `run.json` and no report. It does not prompt for input.
 - `MissingApiKeyError`: The API key for the selected model provider is missing
   or empty.
 - `OutputError`: An output folder, or a file in it, cannot be read back.
+- `PageBreakError`: Page-break verification could not get a usable verdict for a
+  page break.
 - [`PageFile`](../page-json/): The contents of `pages/<NNNN>.json`: one page's
   items, checks and hints.
 - `PdfError`: The PDF is empty, password-protected or cannot be opened.

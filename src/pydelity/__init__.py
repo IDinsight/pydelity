@@ -19,12 +19,14 @@ from pydelity.api import (
     ameasure,
     arun,
     asurvey,
+    averify_breaks,
     estimate,
     extract,
     load,
     measure,
     run,
     survey,
+    verify_breaks,
 )
 from pydelity.config.schemas import Config
 from pydelity.costs.schemas import CostEstimate
@@ -34,6 +36,7 @@ from pydelity.errors import (
     ExtractionError,
     MissingApiKeyError,
     OutputError,
+    PageBreakError,
     PdfError,
     ProviderError,
     PydelityError,
@@ -43,8 +46,10 @@ from pydelity.errors import (
 from pydelity.extracting.schemas import PageFile
 from pydelity.pipeline.schemas import RunRecord, RunResult
 from pydelity.surveying.schemas import PdfFacts, PdfSurvey
+from pydelity.verifying.schemas import BreakFile
 
 __all__ = [
+    "BreakFile",
     "BudgetExceededError",
     "Config",
     "ConfigError",
@@ -52,6 +57,7 @@ __all__ = [
     "ExtractionError",
     "MissingApiKeyError",
     "OutputError",
+    "PageBreakError",
     "PageFile",
     "PdfError",
     "PdfFacts",
@@ -68,12 +74,14 @@ __all__ = [
     "ameasure",
     "arun",
     "asurvey",
+    "averify_breaks",
     "estimate",
     "extract",
     "load",
     "measure",
     "run",
     "survey",
+    "verify_breaks",
 ]
 
 __version__ = _distribution_version("pydelity")
