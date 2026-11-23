@@ -1,8 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `REVIEWING_IMPLEMENTATION` `CycleMode`: `STANDARD`
-`PendingCycleMode`: `UNSET` `PendingCycleRequest`: `UNSET`
-`PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `DOCUMENTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -31,8 +30,9 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
-`Full verification complete: 248 tests pass on Python 3.13 and 3.14 with no open defect; AC-042 (Linux and Windows CI), AC-044 (README), AC-045 to AC-051 wait on later roles as the report lists; implementation review is due.`
+`Kind`: `FORWARD` `From`: `REVIEWING_IMPLEMENTATION` `FailureType`: `NONE`
+`Reason`:
+`Implementation review complete with no material findings; AC-042 (Linux and Windows CI), AC-044, AC-046 to AC-049 and AC-050 to AC-051 wait on later work as the review report lists; documentation is due.`
 
 ## Recovery
 
