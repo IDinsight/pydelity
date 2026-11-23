@@ -362,7 +362,7 @@ def test_a_failed_page_stops_the_run_and_the_next_run_extracts_only_what_is_miss
     With one page at a time, the first page is written, the second fails with the
     provider's error, and the third never starts. The run is recorded as failed
     and its report is written. The next run reuses the survey and the first page,
-    and asks only for the other two.
+    asks only for the other two, and pauses after the new page files.
     """
 
     pdf = _blank_pdf(pages=3)
@@ -391,7 +391,12 @@ def test_a_failed_page_stops_the_run_and_the_next_run_extracts_only_what_is_miss
     result = pydelity.run(pdf, advanced=advanced, output_dir="out")
 
     assert result.record is not None
-    assert result.record.status == "completed"
+    assert result.record.status == "paused"
+    assert [step.status for step in result.record.steps] == [
+        "reused",
+        "completed",
+        "skipped",
+    ]
     assert sorted(_page_requests(retry)) == [(1, "extractor"), (2, "extractor")]
     assert [page.page_index for page in result.pages] == [0, 1, 2]
 

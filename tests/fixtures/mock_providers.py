@@ -15,7 +15,9 @@ when its text holds the extraction to review, for the verifier. A page-break req
 whose text names its break with ``Page break between page indexes N and``, gets that
 break's answer for the judge or, when its text holds the verdict to review, for the
 verifier. Page and break answers do not depend on the order concurrent requests
-arrive in. An upload succeeds and gets a new file ID. A model
+arrive in. The answer `REFUSAL` makes the reply a refusal with no text, and
+`OUTPUT_LIMIT` a reply cut off at the output token limit. An upload succeeds and gets
+a new file ID. A model
 request that names a file ID the server does not hold gets HTTP 404 naming that ID,
 which is how the providers answer once an upload has expired. Faults the caller adds
 make requests fail; temporary ones (408, 409, 429 and 5xx) carry a ``retry-after-ms``
@@ -120,9 +122,18 @@ DEFAULT_INPUT_TOKENS = 3_000
 # The output tokens each model reply reports, unless the caller gives another figure.
 DEFAULT_OUTPUT_TOKENS = 600
 
+# An answer that makes the reply stop with no text because the model used all its
+# output tokens: Anthropic's ``max_tokens`` stop reason, or an OpenAI response left
+# incomplete at ``max_output_tokens``.
+OUTPUT_LIMIT = "<mock provider: output limit>"
+
 # The value `MockProviders.environment` gives both API keys. pydelity refuses to start
 # a run without a key, and the server never looks at it.
 PLACEHOLDER_KEY = "mock-provider-placeholder"
+
+# An answer that makes the reply a refusal with no text: Anthropic's ``refusal`` stop
+# reason, or an OpenAI response left incomplete by its content filter.
+REFUSAL = "<mock provider: refusal>"
 
 # Which agent a model request comes from: ``surveyor`` or ``verifier`` for the survey,
 # ``extractor`` or ``verifier`` for page extraction, ``judge`` or ``verifier`` for
@@ -347,7 +358,8 @@ def _anthropic_message(*, answer: str, model: str, usage: tuple[int, int]) -> _R
     Parameters
     ----------
     answer
-        The reply's text.
+        The reply's text, or `REFUSAL` or `OUTPUT_LIMIT` for a reply that stops with
+        no text.
     model
         The model the request named.
     usage
@@ -360,12 +372,16 @@ def _anthropic_message(*, answer: str, model: str, usage: tuple[int, int]) -> _R
     """
 
     input_tokens, output_tokens = usage
+    stop_reason = {REFUSAL: "refusal", OUTPUT_LIMIT: "max_tokens"}.get(answer)
+    content = (
+        [] if stop_reason else [{"citations": None, "text": answer, "type": "text"}]
+    )
     payload: dict[str, object] = {
-        "content": [{"citations": None, "text": answer, "type": "text"}],
+        "content": content,
         "id": _new_id("msg_"),
         "model": model,
         "role": "assistant",
-        "stop_reason": "end_turn",
+        "stop_reason": stop_reason or "end_turn",
         "stop_sequence": None,
         "type": "message",
         "usage": {
@@ -536,7 +552,8 @@ def _openai_response(*, answer: str, model: str, usage: tuple[int, int]) -> _Rep
     Parameters
     ----------
     answer
-        The reply's text.
+        The reply's text, or `REFUSAL` or `OUTPUT_LIMIT` for a response left
+        incomplete with no text.
     model
         The model the request named.
     usage
@@ -549,6 +566,9 @@ def _openai_response(*, answer: str, model: str, usage: tuple[int, int]) -> _Rep
     """
 
     input_tokens, output_tokens = usage
+    incomplete = {REFUSAL: "content_filter", OUTPUT_LIMIT: "max_output_tokens"}.get(
+        answer
+    )
     message = {
         "content": [{"annotations": [], "text": answer, "type": "output_text"}],
         "id": _new_id("msg_"),
@@ -560,12 +580,12 @@ def _openai_response(*, answer: str, model: str, usage: tuple[int, int]) -> _Rep
         "created_at": time.time(),
         "error": None,
         "id": _new_id("resp_"),
-        "incomplete_details": None,
+        "incomplete_details": None if incomplete is None else {"reason": incomplete},
         "model": model,
         "object": "response",
-        "output": [message],
+        "output": [] if incomplete else [message],
         "parallel_tool_calls": True,
-        "status": "completed",
+        "status": "incomplete" if incomplete else "completed",
         "tool_choice": "auto",
         "tools": [],
         "usage": {

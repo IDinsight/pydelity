@@ -161,9 +161,9 @@ def test_a_rerun_with_unchanged_inputs_reuses_everything(
 ) -> None:
     """A rerun whose inputs match measures nothing and sends nothing.
 
-    The survey and every page file are reused. Settings outside their inputs, such
-    as ``max_cost``, the provider retries, the request timeouts and how many pages
-    run at once, may change without a rerun.
+    The survey, every page file and every verdict file are reused. Settings outside
+    their inputs, such as ``max_cost``, the provider retries, the request timeouts
+    and how many pages or breaks run at once, may change without a rerun.
     """
 
     mock = mock_providers(**canned_answers(_SCAN))
@@ -174,6 +174,7 @@ def test_a_rerun_with_unchanged_inputs_reuses_everything(
         pdf_path(_SCAN),
         advanced={
             "extraction": {"concurrent_pages": 1, "request_timeout_seconds": 60},
+            "page_breaks": {"concurrent_breaks": 1, "request_timeout_seconds": 60},
             "provider_retries": 5,
             "survey": {"request_timeout_seconds": 60},
         },
@@ -181,15 +182,17 @@ def test_a_rerun_with_unchanged_inputs_reuses_everything(
         output_dir="out",
     )
 
-    assert requests_after_first == 3
+    assert requests_after_first == 4
     assert _model_requests(mock) == requests_after_first
     assert first.facts is not None
     assert second.facts is not None
     assert second.facts.measured_at == first.facts.measured_at
     assert second.survey == first.survey
     assert second.pages == first.pages
+    assert len(first.breaks) == 1
+    assert second.breaks == first.breaks
     assert second.record is not None
-    survey_step, extraction_step = second.record.steps
+    survey_step, extraction_step, breaks_step = second.record.steps
     assert (
         survey_step.status,
         survey_step.requests,
@@ -203,6 +206,14 @@ def test_a_rerun_with_unchanged_inputs_reuses_everything(
         "reused": 2,
         "selected": 2,
     }
+    assert (breaks_step.name, breaks_step.status, breaks_step.requests) == (
+        "page_breaks",
+        "reused",
+        0,
+    )
+    assert breaks_step.breaks is not None
+    assert breaks_step.breaks.model_dump() == {"judged": 0, "reused": 1, "total": 1}
+    assert breaks_step.outputs == ["page_breaks/"]
     assert second.record.cost.run_usd == 0
 
 
@@ -328,9 +339,9 @@ def test_run_json_records_each_step_its_pages_cost_and_review_issues(
     """``run.json`` holds a record per step, its pages, its cost and its issues.
 
     With page extraction's verifier on, a verifier problem about an item is a review
-    issue naming
-    the step, the page and the item's ID. Each page request is a ledger line with
-    its page and agent, and a warning issued during page extraction names that step.
+    issue naming the step, the page and the item's ID. Each page request and
+    page-break request is a ledger line with its page and agent (a break's earlier
+    page), and a warning issued during page extraction names that step.
     """
 
     answers = canned_answers(_SCAN)
@@ -344,7 +355,11 @@ def test_run_json_records_each_step_its_pages_cost_and_review_issues(
     page_answers[1] = page_answers[1] | {
         "verifier": {"corrected": None, "passed": False, "problems": [problem]}
     }
-    mock_providers(answers=answers["answers"], page_answers=page_answers)
+    mock_providers(
+        answers=answers["answers"],
+        break_answers=answers["break_answers"],
+        page_answers=page_answers,
+    )
 
     advanced = {"extraction": {"verify": True}}
     first = pydelity.run(
@@ -362,23 +377,28 @@ def test_run_json_records_each_step_its_pages_cost_and_review_issues(
     assert issue.message == "verifier: The first box is ticked on the page."
     # Pages run at the same time, so their ledger lines can come in any order.
     assert sorted(
-        (entry.step, entry.page_index, entry.agent) for entry in first.ledger[1:]
+        (entry.step, entry.page_index, entry.agent) for entry in first.ledger[1:5]
     ) == [
         ("extraction", 0, "extractor"),
         ("extraction", 0, "verifier"),
         ("extraction", 1, "extractor"),
         ("extraction", 1, "verifier"),
     ]
+    assert [
+        (entry.step, entry.page_index, entry.agent) for entry in first.ledger[5:]
+    ] == [("page_breaks", 0, "judge")]
     cost = first.record.cost
-    assert set(cost.by_step) == {"survey", "extraction"}
-    assert cost.by_step["survey"] + cost.by_step["extraction"] == cost.run_usd
+    assert set(cost.by_step) == {"survey", "extraction", "page_breaks"}
+    assert sum(cost.by_step.values()) == cost.run_usd
     assert [step.cost_usd for step in first.record.steps] == [
         cost.by_step["survey"],
         cost.by_step["extraction"],
+        cost.by_step["page_breaks"],
     ]
     extraction = first.record.steps[1]
     assert extraction.outputs == ["pages/", "figures/"]
     assert extraction.pdf_transport is None
+    assert first.record.steps[2].outputs == ["page_breaks/"]
     Path("out/pages/0000.json").write_text("{", encoding="utf-8")
 
     with pytest.warns(PydelityWarning, match="extracting page 1"):
@@ -387,7 +407,7 @@ def test_run_json_records_each_step_its_pages_cost_and_review_issues(
     assert second.record is not None
     (warning,) = second.record.warnings
     assert (warning.code, warning.step) == ("damaged_output", "extraction")
-    survey_step, extraction_step = second.record.steps
+    survey_step, extraction_step, breaks_step = second.record.steps
     assert survey_step.status == "reused"
     assert extraction_step.pages is not None
     assert extraction_step.pages.model_dump() == {
@@ -395,4 +415,7 @@ def test_run_json_records_each_step_its_pages_cost_and_review_issues(
         "reused": 1,
         "selected": 2,
     }
+    # Page 1 was extracted again, so the run pauses before page-break verification.
+    assert second.record.status == "paused"
+    assert (breaks_step.status, breaks_step.breaks) == ("skipped", None)
     assert second.record.review == first.record.review

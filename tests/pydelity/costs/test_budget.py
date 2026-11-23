@@ -354,9 +354,9 @@ def test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing(
     """`estimate` sends nothing and writes nothing; after a full run it costs zero.
 
     Before the first run, the survey would pause the run, so only the survey is
-    estimated. After a run through both steps with the verifiers on, the survey and
-    every page file are reused, so no step's figures include a verifier. The
-    estimate also reports the folder's spend so far.
+    estimated. After a run through every step with the verifiers on, the survey,
+    every page file and every verdict file are reused, so no step's figures include
+    a verifier. The estimate also reports the folder's spend so far.
     """
 
     mock = mock_providers(**canned_answers(_SCAN), survey_verdicts=[survey_verdict()])
@@ -382,6 +382,7 @@ def test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing(
     assert [(step.name, step.reused, step.verifier) for step in after.steps] == [
         ("survey", True, False),
         ("extraction", True, False),
+        ("page_breaks", True, False),
     ]
     assert (after.expected_usd, after.max_usd, after.over_max_cost) == (0, 0, False)
     assert run.record is not None
@@ -506,16 +507,19 @@ def test_the_check_before_spending_counts_the_verifier_only_when_it_runs(
     assert projected[0] < projected[1]
 
 
-def test_the_estimate_covers_page_extraction_and_its_verifier_only_when_it_runs(
+def test_the_estimate_covers_the_later_steps_and_their_verifiers_only_when_they_run(
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
     survey_answer: Callable[..., dict],
 ) -> None:
-    """Without the pause, the estimate adds the selected pages' extraction.
+    """Without the pause, the estimate adds page extraction and page-break verification.
 
-    Each page counts its extraction requests with their check retries, and its
-    verifier requests only when the verifier is on, which the step's estimate
-    says. The run's figures are the two steps' sums.
+    Each page counts its extraction requests with their check retries, and each
+    break its page-break requests with theirs, with each step's verifier requests
+    only when the verifier is on, which the step's estimate says. With only page 2
+    selected, page 1 would have no page file, so the run would judge no break and
+    the estimate leaves page-break verification out. The run's figures are the
+    steps' sums.
     """
 
     mock = mock_providers(answers=[survey_answer()])
@@ -530,25 +534,42 @@ def test_the_estimate_covers_page_extraction_and_its_verifier_only_when_it_runs(
     ]
 
     assert mock.requests == []
-    for estimate in estimates:
-        survey, extraction = estimate.steps
-        assert (survey.name, extraction.name) == ("survey", "extraction")
-        assert extraction.model == "anthropic:claude-opus-5-5"
-        assert extraction.expected_usd is not None
-        assert extraction.max_usd is not None
-        assert 0 < extraction.expected_usd < extraction.max_usd
-        assert survey.expected_usd is not None
-        assert survey.max_usd is not None
-        assert estimate.expected_usd == survey.expected_usd + extraction.expected_usd
-        assert estimate.max_usd == survey.max_usd + extraction.max_usd
-    steps = [estimate.steps[1] for estimate in estimates]
-    assert [(step.pages, step.requests_max, step.verifier) for step in steps] == [
-        (2, 6, False),
-        (2, 12, True),
-        (1, 3, False),
-        (1, 6, True),
+    assert [[step.name for step in estimate.steps] for estimate in estimates] == [
+        ["survey", "extraction", "page_breaks"],
+        ["survey", "extraction", "page_breaks"],
+        ["survey", "extraction"],
+        ["survey", "extraction"],
     ]
-    for without, with_verifier in (steps[:2], steps[2:]):
+    for estimate in estimates:
+        for step in estimate.steps:
+            assert step.expected_usd is not None
+            assert step.max_usd is not None
+            assert 0 < step.expected_usd < step.max_usd
+        assert estimate.expected_usd == sum(
+            (step.expected_usd or 0 for step in estimate.steps), start=Decimal(0)
+        )
+        assert estimate.max_usd == sum(
+            (step.max_usd or 0 for step in estimate.steps), start=Decimal(0)
+        )
+    pages = [estimate.steps[1] for estimate in estimates]
+    assert [
+        (step.model, step.pages, step.breaks, step.requests_max, step.verifier)
+        for step in pages
+    ] == [
+        ("anthropic:claude-opus-5-5", 2, None, 6, False),
+        ("anthropic:claude-opus-5-5", 2, None, 12, True),
+        ("anthropic:claude-opus-5-5", 1, None, 3, False),
+        ("anthropic:claude-opus-5-5", 1, None, 6, True),
+    ]
+    breaks = [estimate.steps[2] for estimate in estimates[:2]]
+    assert [
+        (step.model, step.pages, step.breaks, step.requests_max, step.verifier)
+        for step in breaks
+    ] == [
+        ("anthropic:claude-opus-5-5", None, 1, 3, False),
+        ("anthropic:claude-opus-5-5", None, 1, 6, True),
+    ]
+    for without, with_verifier in (pages[:2], pages[2:], breaks):
         assert without.expected_usd is not None
         assert without.max_usd is not None
         assert with_verifier.expected_usd is not None

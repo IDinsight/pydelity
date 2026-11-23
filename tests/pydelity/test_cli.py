@@ -97,8 +97,10 @@ def test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment(
     """``pydelity <pdf> --yes`` with no config file surveys, pauses and says so.
 
     The output goes to the default folder, named after the PDF. The run stops after
-    the new survey and tells how to go on; the same command again reuses the survey
-    and extracts the pages with no verifier, which its estimate leaves out too.
+    the new survey and tells how to go on. The same command again reuses the survey,
+    extracts the pages with no verifier, which its estimate leaves out too, and
+    pauses after the new page files. A third run reuses both and verifies the page
+    break, with its estimate before the request.
     """
 
     mock = mock_providers(**canned_answers(_SCAN))
@@ -113,12 +115,14 @@ def test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment(
     assert [(step.name, step.status) for step in record.steps] == [
         ("survey", "completed"),
         ("extraction", "skipped"),
+        ("page_breaks", "skipped"),
     ]
     assert "Survey cost estimate: about $" in result.stderr
     assert "Extraction cost estimate" not in result.stderr
     assert (
-        "Run paused: survey completed, extraction skipped; cost $0.02 this run "
-        "(survey $0.02), $0.02 in the output folder; 0 review issues" in result.stderr
+        "Run paused: survey completed, extraction skipped, page_breaks skipped; cost "
+        "$0.02 this run (survey $0.02), $0.02 in the output folder; 0 review issues"
+        in result.stderr
     )
     assert "Paused after the new survey." in result.stderr
     assert "run pydelity again to extract the pages" in result.stderr
@@ -131,14 +135,38 @@ def test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment(
     assert _sent(mock) == ["upload"] + ["model"] * 3
     assert all(line.agent != "verifier" for line in pydelity.load(folder).ledger)
     record = _record(str(folder))
-    assert record.status == "completed"
+    assert record.status == "paused"
     assert [(step.name, step.status) for step in record.steps] == [
         ("survey", "reused"),
         ("extraction", "completed"),
+        ("page_breaks", "skipped"),
     ]
     assert "Extraction cost estimate: about $" in resumed.stderr
     assert "(2 pages, up to 6 requests to anthropic:claude-opus-5-5)" in resumed.stderr
-    assert "Paused" not in resumed.stderr
+    assert "Page-break verification cost estimate" not in resumed.stderr
+    assert "Paused after page extraction wrote new page files." in resumed.stderr
+    assert "run pydelity again to verify the page breaks" in resumed.stderr
+
+    judged = run_cli([str(pdf_path(_SCAN)), "--yes"])
+
+    assert judged.exit_code == ExitCode.COMPLETED, judged.output
+    assert [
+        (request.break_index, request.agent)
+        for request in mock.requests
+        if request.route == "model"
+    ][-1] == (0, "judge")
+    assert _sent(mock) == ["upload"] + ["model"] * 4
+    record = _record(str(folder))
+    assert record.status == "completed"
+    assert [(step.name, step.status) for step in record.steps] == [
+        ("survey", "reused"),
+        ("extraction", "reused"),
+        ("page_breaks", "completed"),
+    ]
+    assert "Page-break verification cost estimate: about $" in judged.stderr
+    assert "(1 break, up to 3 requests to anthropic:claude-opus-5-5)" in judged.stderr
+    assert "page_breaks completed (1 break: 1 judged, 0 reused)" in judged.stderr
+    assert "Paused" not in judged.stderr
 
 
 def test_a_pdf_the_provider_rejects_ends_with_its_message(
@@ -405,9 +433,11 @@ def test_pages_and_no_pause_extract_only_those_pages_in_one_run(
 ) -> None:
     """``-p 2 -np`` surveys the PDF and extracts only page 2 in the same run.
 
-    The estimate before spending covers both steps. The summary gives each step's
-    status, page counts and cost, and lists the page's review issue with its step,
-    its page numbered from 1 and its item.
+    The estimate before spending covers the survey and page extraction. Page 1 has
+    no page file, so page-break verification makes no request, is skipped with a
+    warning naming page 1, and the run still completes. The summary gives each
+    step's status, page counts and cost, and lists the page's review issue with its
+    step, its page numbered from 1 and its item.
     """
 
     answers = canned_answers(_SCAN)
@@ -429,13 +459,27 @@ def test_pages_and_no_pause_extract_only_those_pages_in_one_run(
     assert [(step.name, step.status) for step in record.steps] == [
         ("survey", "completed"),
         ("extraction", "completed"),
+        ("page_breaks", "skipped"),
     ]
+    (warning,) = record.warnings
+    assert (warning.code, warning.step, warning.details) == (
+        "missing_page_files",
+        "page_breaks",
+        {"page_indexes": [0]},
+    )
+    assert warning.message == (
+        "Page-break verification needs a current page file for every page, and page "
+        "1 has none. Run pydelity again without --pages (pages in the config file), "
+        "or with pages that include it, to verify the page breaks."
+    )
     assert "Paused" not in result.stderr
     assert "Extraction cost estimate: about $" in result.stderr
     assert "(1 page, up to 3 requests to anthropic:claude-opus-5-5)" in result.stderr
+    assert "Page-break verification cost estimate" not in result.stderr
     assert (
         "Run completed: survey completed, extraction completed (1 page selected: 1 "
-        "extracted, 0 reused); cost $0.10 this run (survey $0.02, extraction $0.07)"
+        "extracted, 0 reused), page_breaks skipped; cost $0.10 this run (survey "
+        "$0.02, extraction $0.07)"
     ) in result.stderr
     assert (
         "extraction, page 2, item p0001-001: labels: item 'f1' has the label "
@@ -524,41 +568,55 @@ def test_verify_adds_a_verifier_request_for_each_step_and_to_the_estimate(  # no
     run_cli: Callable[..., Result],
     survey_verdict: Callable[..., dict],
 ) -> None:
-    """``--verify`` and ``-vf`` turn the survey's and page extraction's verifiers on.
+    """``--verify`` and ``-vf`` turn every step's verifier on.
 
-    The survey and the page each get a verifier request after their own, the
-    estimate before spending names page extraction's verifier and counts its
-    requests, and the ledger, the survey and the page file hold the verifiers'
-    reviews.
+    The survey, each page and the break each get a verifier request after their
+    own, the estimate before spending names page extraction's and page-break
+    verification's verifiers and counts their requests, and the ledger, the survey,
+    the page files and the verdict file hold the verifiers' reviews.
     """
 
     mock = mock_providers(**canned_answers(_SCAN), survey_verdicts=[survey_verdict()])
 
-    result = run_cli(
-        [str(pdf_path(_SCAN)), "-y", "-d", "out", "-p", "2", "-np", option]
-    )
+    result = run_cli([str(pdf_path(_SCAN)), "-y", "-d", "out", "-np", option])
 
     assert result.exit_code == ExitCode.COMPLETED, result.output
-    agents = [(r.page_index, r.agent) for r in mock.requests if r.route == "model"]
-    assert agents == [
-        (None, "surveyor"),
-        (None, "verifier"),
-        (1, "extractor"),
-        (1, "verifier"),
+    agents = [
+        (r.page_index, r.break_index, r.agent)
+        for r in mock.requests
+        if r.route == "model"
     ]
+    # Pages run at the same time, so their requests can come in any order.
+    assert agents[:2] == [(None, None, "surveyor"), (None, None, "verifier")]
+    assert sorted(agents[2:6], key=str) == [
+        (0, None, "extractor"),
+        (0, None, "verifier"),
+        (1, None, "extractor"),
+        (1, None, "verifier"),
+    ]
+    assert agents[6:] == [(None, 0, "judge"), (None, 0, "verifier")]
     assert "Extraction with its verifier cost estimate: about $" in result.stderr
-    assert "(1 page, up to 6 requests to anthropic:claude-opus-5-5)" in result.stderr
+    assert "(2 pages, up to 12 requests to anthropic:claude-opus-5-5)" in result.stderr
+    assert (
+        "Page-break verification with its verifier cost estimate: about $"
+        in result.stderr
+    )
+    assert "(1 break, up to 6 requests to anthropic:claude-opus-5-5)" in result.stderr
     loaded = pydelity.load("out")
-    assert [(line.step, line.page_index, line.agent) for line in loaded.ledger] == [
-        ("survey", None, "surveyor"),
-        ("survey", None, "verifier"),
-        ("extraction", 1, "extractor"),
-        ("extraction", 1, "verifier"),
+    assert [(line.step, line.agent) for line in loaded.ledger[:2]] == [
+        ("survey", "surveyor"),
+        ("survey", "verifier"),
+    ]
+    assert [(line.step, line.page_index, line.agent) for line in loaded.ledger[6:]] == [
+        ("page_breaks", 0, "judge"),
+        ("page_breaks", 0, "verifier"),
     ]
     assert loaded.survey is not None
     assert loaded.survey.verification is not None
-    (page,) = loaded.pages
-    assert page.verification is not None
+    assert all(page.verification is not None for page in loaded.pages)
+    (verdict,) = loaded.breaks
+    assert verdict.verification is not None
+    assert verdict.verification.verdict.passed is True
 
 
 def test_verify_counts_the_survey_s_verifier_in_the_estimate_and_the_question(

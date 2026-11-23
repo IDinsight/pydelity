@@ -16,6 +16,22 @@ import pydelity
 from pydelity.surveying.schemas import Facts
 from tests.fixtures.mock_providers import MockProviders
 
+# The survey's labels in the tests of break cards: tables and titles.
+_BREAK_LABELS = [
+    {
+        "description": "Running text and tables.",
+        "kinds": ["table", "text"],
+        "name": "Body",
+        "role": "body",
+    },
+    {
+        "description": "Titles of tables.",
+        "kinds": ["text"],
+        "name": "Heading",
+        "role": "heading",
+    },
+]
+
 # The 6-page fillable test form, with form fields and two repeated lines.
 _FORM = "irs_form_w9.pdf"
 
@@ -181,6 +197,68 @@ class _TableCells(HTMLParser):
             self.groups[-1][-1].append(self._cell)
 
 
+def _break_answers_page(title: str, rows: list[list[str]]) -> dict[str, object]:
+    """Write a page answer with a title and a table, inside one shaded box.
+
+    Parameters
+    ----------
+    title
+        The title's text, item ``t1``.
+    rows
+        The table's rows of cell texts, item ``t2``, whose first row is its header.
+
+    Returns
+    -------
+    dict[str, object]
+        The answer, as JSON-ready data.
+    """
+
+    item: dict[str, object] = {
+        "caption_of": None,
+        "container": "c1",
+        "entries": None,
+        "field": None,
+        "figure": None,
+        "language": "en",
+        "latex": None,
+        "table": None,
+        "text": None,
+    }
+    table = {
+        "header_rows": 1,
+        "rows": [
+            [{"col_span": 1, "row_span": 1, "text": text} for text in row]
+            for row in rows
+        ],
+    }
+    return {
+        "column_order": None,
+        "containers": [
+            {"box": [50, 50, 950, 950], "container": None, "label": "Body", "ref": "c1"}
+        ],
+        "items": [
+            item
+            | {
+                "box": [100, 100, 900, 150],
+                "kind": "text",
+                "label": "Heading",
+                "ref": "t1",
+                "role": "heading",
+                "text": title,
+            },
+            item
+            | {
+                "box": [100, 200, 900, 600],
+                "kind": "table",
+                "label": "Body",
+                "ref": "t2",
+                "role": "body",
+                "table": table,
+            },
+        ],
+    }
+
+
 def _columns(groups: list[list[list[_Cell]]]) -> dict[str, int]:
     """Place each cell in its column, as HTML does.
 
@@ -310,6 +388,155 @@ def _parse(path: Path) -> _Links:
     return parser
 
 
+def test_a_break_card_shows_its_pieces_beside_both_pages_with_links_from_issues(
+    blank_pdf: Callable[..., Path],
+    mock_providers: Callable[..., MockProviders],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """A break's card draws what its verdict names and lists every verdict field.
+
+    A table carries on with its header repeated, below a repeated title marked
+    "(continued)", in a box that carries on. The verifier lists a problem with the
+    table's start, which is flagged on its box, listed on the card, and linked to
+    the card from the review section.
+    """
+
+    piece = {
+        "cell_joins": None,
+        "earlier_entry": None,
+        "earlier_item": "p0000-002",
+        "join": "append_rows",
+        "later_entry": None,
+        "later_item": "p0001-002",
+        "markers": [
+            {"cell": None, "item": "p0001-001", "row": None, "text": "(continued)"}
+        ],
+        "repeated_header_rows": 1,
+        "repeated_items": ["p0001-001"],
+        "text_join": None,
+    }
+    verdict = {
+        "containers": [{"earlier": "p0000-c01", "later": "p0001-c01"}],
+        "continues": True,
+        "pieces": [piece],
+        "reason": "Table 4 carries on.",
+    }
+    review = {
+        "corrected": None,
+        "passed": False,
+        "problems": [
+            {
+                "category": "piece",
+                "description": "The table may start a new list of names.",
+                "item": "p0001-002",
+            }
+        ],
+    }
+    mock_providers(
+        answers=[survey_answer(labels=_BREAK_LABELS)],
+        break_answers={0: {"judge": verdict, "verifier": review}},
+        page_answers={
+            0: {
+                "extractor": _break_answers_page(
+                    "Table 4. Results", [["Name", "Score"], ["Ana", "9"]]
+                )
+            },
+            1: {
+                "extractor": _break_answers_page(
+                    "Table 4. Results (continued)", [["Name", "Score"], ["Ben", "7"]]
+                )
+            },
+        },
+    )
+
+    pydelity.run(
+        blank_pdf(2),
+        advanced={"page_breaks": {"verify": True}},
+        output_dir="out",
+        pause=False,
+    )
+
+    html = Path("out/report.html").read_text(encoding="utf-8")
+    parsed = _parse(Path("out/report.html"))
+    card = html[html.index('<article class="break" id="break-0000">') :]
+    card = card[: card.index("</article>")]
+    assert "<h3>Pages 1 and 2</h3>" in card
+    for label in ("end 1", "container 1", "repeat 1, marker 1", "start 1 !"):
+        assert f'<span class="box-label">{label}</span>' in card
+    for term, value in (
+        ("Content continues", "yes"),
+        ("Verifier", "found 1 problem, listed for review"),
+        ("Join", "append_rows"),
+        ("Ends in", "p0000-002"),
+        ("Starts in", "p0001-002"),
+        ("Repeated header rows", "1"),
+        ("Repeated items", "p0001-001"),
+        ("Markers", html_text.escape('"(continued)" on p0001-001')),
+    ):
+        assert f"<dt>{term}</dt><dd>{value}</dd>" in card
+    assert "container 1: p0000-c01 on page 1 carries on as p0001-c01 on page 2" in card
+    assert "pages 1 and 2: verifier: The table may start a new list of names." in card
+    assert "#break-0000" in parsed.links
+
+
+def test_a_break_with_an_empty_page_and_markup_in_a_verdict_show_safely(
+    blank_pdf: Callable[..., Path],
+    mock_providers: Callable[..., MockProviders],
+    survey_answer: Callable[..., dict],
+) -> None:
+    """A ``no_content`` break says no request was made; a verdict's markup is shown.
+
+    The first break's verdict quotes markup, which its card shows as text. The
+    third page has no items, so the second break is judged without a request.
+    """
+
+    reason = "<script>alert(1)</script> The title <b>Notes</b> starts a new part."
+    mock_providers(
+        answers=[survey_answer(labels=_BREAK_LABELS)],
+        break_answers={
+            0: {
+                "judge": {
+                    "containers": [],
+                    "continues": False,
+                    "pieces": [],
+                    "reason": reason,
+                }
+            }
+        },
+        page_answers={
+            0: {
+                "extractor": _break_answers_page(
+                    "Table 4. Results", [["Name", "Score"], ["Ana", "9"]]
+                )
+            },
+            1: {
+                "extractor": _break_answers_page(
+                    "Notes", [["Name", "Note"], ["Ben", "Late"]]
+                )
+            },
+            2: {"extractor": {"column_order": None, "containers": [], "items": []}},
+        },
+    )
+
+    pydelity.run(blank_pdf(3), output_dir="out", pause=False)
+
+    html = Path("out/report.html").read_text(encoding="utf-8")
+    parsed = _parse(Path("out/report.html"))
+    second = html[html.index('id="break-0001"') :]
+    second = second[: second.index("</article>")]
+    assert (
+        "<dt>Requests</dt><dd>none, because a page of the break has no content "
+        "items</dd>" in second
+    )
+    assert "<dt>Content continues</dt><dd>no</dd>" in second
+    assert "The verdict names no items or containers on these pages." in second
+    assert "Page 3 has no content items, so nothing can carry on" in second
+    assert "<script>alert(1)</script>" not in html
+    assert "<b>Notes</b>" not in html
+    assert html_text.escape(reason) in html
+    assert "script" not in parsed.tags
+
+
 def test_a_header_cell_spanning_into_the_body_keeps_each_body_cell_in_its_column(
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
@@ -408,13 +635,22 @@ def test_a_page_no_verifier_reviewed_says_so_in_the_report(
     mock_providers: Callable[..., MockProviders],
     pdf_path: Callable[[str], Path],
 ) -> None:
-    """With the verifiers off, the survey's and each page's details say so."""
+    """With the verifiers off, the survey's, the pages' and the break's cards say so.
+
+    The scan has two pages and one break, so four cards say no verifier ran.
+    """
 
     answers = canned_answers("irs_form_1040a_1965_scan.pdf")
     page_answers = answers["page_answers"]
+    break_answers = answers["break_answers"]
     assert isinstance(page_answers, dict)
+    assert isinstance(break_answers, dict)
     mock_providers(
         answers=answers["answers"],
+        break_answers={
+            index: {"judge": by_agent["judge"]}
+            for index, by_agent in break_answers.items()
+        },
         page_answers={
             index: {"extractor": by_agent["extractor"]}
             for index, by_agent in page_answers.items()
@@ -426,7 +662,7 @@ def test_a_page_no_verifier_reviewed_says_so_in_the_report(
     )
 
     html = Path("out/report.html").read_text(encoding="utf-8")
-    assert html.count("<dt>Verifier</dt><dd>no verifier ran</dd>") == 3
+    assert html.count("<dt>Verifier</dt><dd>no verifier ran</dd>") == 4
 
 
 def test_item_boxes_take_only_the_box_styles_and_the_item_list_keeps_its_own(

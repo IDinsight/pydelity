@@ -16,6 +16,7 @@ from functools import cache
 from pathlib import Path
 
 # Third Party Library
+import pymupdf
 import pytest
 import typer.testing
 
@@ -26,10 +27,15 @@ from typer.testing import CliRunner, Result
 from pydelity.cli import app
 from pydelity.surveying.probe import probe_pdf
 from pydelity.surveying.schemas import Facts
-from tests.fixtures.mock_providers import MockProviders, read_page_answers
+from tests.fixtures.mock_providers import (
+    MockProviders,
+    read_break_answers,
+    read_page_answers,
+)
 
 # The canned answers for committed test PDFs, in files named after the PDF: the
-# survey's answer, and page extraction's answers by page and agent.
+# survey's answer, page extraction's answers by page and agent, and page-break
+# verification's answers by break and agent.
 _FIXTURES_DIR = Path(__file__).absolute().parent / "fixtures"
 
 # The committed test PDFs (see SOURCES.md there).
@@ -108,18 +114,49 @@ def _probed(name: str) -> Facts:
 
 
 @pytest.fixture
+def blank_pdf() -> Callable[..., Path]:
+    """Return a function that writes a PDF of blank US Letter pages.
+
+    The pages have no text layer, so page extraction compares no text on them.
+
+    Returns
+    -------
+    Callable[..., Path]
+        Takes the number of pages and, as ``rotations``, each page's rotation
+        attribute in page order (pages past the end have 0), and returns the PDF,
+        ``blank.pdf`` in the current folder.
+    """
+
+    def write(pages: int, *, rotations: Sequence[int] = ()) -> Path:
+        """Write the PDF with this many pages and these rotation attributes."""
+
+        path = Path("blank.pdf")
+        with pymupdf.open() as document:
+            for index in range(pages):
+                page = document.new_page(height=792, width=612)
+                if index < len(rotations):
+                    page.set_rotation(rotations[index])
+            document.save(path)
+        return path
+
+    return write
+
+
+@pytest.fixture
 def canned_answers() -> Callable[[str], dict[str, object]]:
     """Return a function that gives a test PDF's canned answers for the stand-in.
 
-    The survey's answer gives the profile whose labels the page answers use, and
-    every page answer passes page extraction's checks against it.
+    The survey's answer gives the profile whose labels the page answers use, every
+    page answer passes page extraction's checks against it, and every break answer
+    names items of those page answers.
 
     Returns
     -------
     Callable[[str], dict[str, object]]
         Takes the PDF's file name in ``tests/fixtures/pdfs`` and returns
-        `MockProviders`' ``answers`` (the survey's answer) and ``page_answers`` (the
-        extraction and verifier answers for each page), as keyword arguments.
+        `MockProviders`' ``answers`` (the survey's answer), ``page_answers`` (the
+        extraction and verifier answers for each page) and ``break_answers`` (the
+        judge and verifier answers for each break), as keyword arguments.
     """
 
     def answers(name: str) -> dict[str, object]:
@@ -130,7 +167,8 @@ def canned_answers() -> Callable[[str], dict[str, object]]:
             (_FIXTURES_DIR / "survey_answers" / file_name).read_text(encoding="utf-8")
         )
         pages = read_page_answers(_FIXTURES_DIR / "extraction_answers" / file_name)
-        return {"answers": [survey], "page_answers": pages}
+        breaks = read_break_answers(_FIXTURES_DIR / "break_answers" / file_name)
+        return {"answers": [survey], "break_answers": breaks, "page_answers": pages}
 
     return answers
 

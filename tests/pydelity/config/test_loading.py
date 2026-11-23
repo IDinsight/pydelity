@@ -146,55 +146,87 @@ def test_config_file_paths_resolve_against_its_folder_and_keywords_win(
 
 
 @pytest.mark.parametrize(
-    ("settings", "survey_model", "extraction_model"),
+    ("settings", "expected"),
     [
-        (
-            {"model": "openai:gpt-6.2-astra"},
-            "openai:gpt-6.2-astra",
-            "openai:gpt-6.2-astra",
-        ),
+        ({"model": "openai:gpt-6.2-astra"}, ("openai:gpt-6.2-astra",) * 3),
         (
             {"advanced": {"extraction": {"model": "openai:gpt-6.2-astra"}}},
-            "anthropic:claude-opus-5-5",
-            "openai:gpt-6.2-astra",
+            (
+                "anthropic:claude-opus-5-5",
+                "openai:gpt-6.2-astra",
+                "anthropic:claude-opus-5-5",
+            ),
+        ),
+        (
+            {
+                "advanced": {"page_breaks": {"model": "anthropic:claude-sonnet-5-5"}},
+                "model": "openai:gpt-6.2-astra",
+            },
+            (
+                "openai:gpt-6.2-astra",
+                "openai:gpt-6.2-astra",
+                "anthropic:claude-sonnet-5-5",
+            ),
         ),
     ],
-    ids=["model", "extraction-model"],
+    ids=["model", "extraction-model", "page-breaks-model"],
 )
 def test_each_step_resolves_its_own_model(
-    extraction_model: str,
+    expected: tuple[str, str, str],
     pdf_path: Callable[[str], Path],
     settings: dict[str, object],
-    survey_model: str,
 ) -> None:
-    """Page extraction uses its own model, else ``model``; the survey uses ``model``.
+    """Each later step uses its own model, else ``model``; the survey uses ``model``.
 
-    Page extraction's effort stays ``high`` unless set.
+    With neither set, a step uses ``anthropic:claude-opus-5-5``. ``expected`` is
+    the survey's, page extraction's and page-break verification's model. Both
+    later steps' effort stays ``high`` unless set.
     """
 
     config = resolve_config(pdf=pdf_path("irs_form_w9.pdf"), settings=settings)
 
-    assert config.survey_model.setting == survey_model
-    assert config.extraction_model.setting == extraction_model
+    assert (
+        config.survey_model.setting,
+        config.extraction_model.setting,
+        config.page_breaks_model.setting,
+    ) == expected
     assert config.advanced.extraction.effort == "high"
+    assert config.advanced.page_breaks.effort == "high"
 
 
 @pytest.mark.parametrize(
     ("file_text", "settings", "expected"),
     [
-        (None, {}, (False, False)),
-        ("verify: false\nadvanced:\n  survey:\n    verify: true\n", {}, (True, False)),
+        (None, {}, (False, False, False)),
+        (
+            "verify: false\nadvanced:\n  survey:\n    verify: true\n",
+            {},
+            (True, False, False),
+        ),
         (
             "verify: true\nadvanced:\n  survey:\n    verify: false\n",
             {"advanced": {"extraction": {"verify": False}}},
-            (False, False),
+            (False, False, True),
         ),
-        (None, {"advanced": {"extraction": {"verify": True}}}, (False, True)),
+        (None, {"advanced": {"extraction": {"verify": True}}}, (False, True, False)),
+        (None, {"advanced": {"page_breaks": {"verify": True}}}, (False, False, True)),
+        (
+            "verify: true\nadvanced:\n  page_breaks:\n    verify: false\n",
+            {},
+            (True, True, False),
+        ),
     ],
-    ids=["default", "survey-on-in-file", "both-off-file-and-keyword", "extraction-on"],
+    ids=[
+        "default",
+        "survey-on-in-file",
+        "two-off-file-and-keyword",
+        "extraction-on",
+        "page-breaks-on",
+        "page-breaks-off-in-file",
+    ],
 )
 def test_each_step_s_verifier_follows_verify_unless_its_own_setting_is_set(
-    expected: tuple[bool, bool],
+    expected: tuple[bool, bool, bool],
     file_text: str | None,
     pdf_path: Callable[[str], Path],
     settings: dict[str, object],
@@ -202,11 +234,11 @@ def test_each_step_s_verifier_follows_verify_unless_its_own_setting_is_set(
 ) -> None:
     """A step's ``verify`` under ``advanced`` turns its verifier on or off alone.
 
-    With no setting, both verifiers are off. A step's own setting decides for that
-    step whatever ``verify`` is, and the other step follows ``verify``. It can be
+    With no setting, every verifier is off. A step's own setting decides for that
+    step whatever ``verify`` is, and the other steps follow ``verify``. It can be
     set in a config file or by a nested ``advanced`` keyword, which keeps the file's
-    other ``advanced`` settings. ``expected`` is whether the survey's verifier and
-    page extraction's verifier run.
+    other ``advanced`` settings. ``expected`` is whether the survey's verifier,
+    page extraction's verifier and page-break verification's verifier run.
     """
 
     config_file = None
@@ -218,7 +250,11 @@ def test_each_step_s_verifier_follows_verify_unless_its_own_setting_is_set(
         config=config_file, pdf=pdf_path("irs_form_w9.pdf"), settings=settings
     )
 
-    assert (config.verify_survey, config.verify_extraction) == expected
+    assert (
+        config.verify_survey,
+        config.verify_extraction,
+        config.verify_page_breaks,
+    ) == expected
 
 
 def test_every_invalid_setting_is_named_in_one_error_before_any_request(
@@ -356,14 +392,14 @@ def test_the_removed_instructions_setting_is_unknown_before_any_request(
     assert mock.requests == []
 
 
-def test_verify_turns_on_both_steps_verifiers_from_a_file_or_a_keyword(
+def test_verify_turns_on_every_step_s_verifier_from_a_file_or_a_keyword(
     pdf_path: Callable[[str], Path], tmp_path: Path
 ) -> None:
     """``verify`` is off by default and can be turned on in a file or as a keyword.
 
     Set to true in a JSON file, a YAML file or the ``verify`` keyword, it turns on
-    both the survey's verifier and page extraction's verifier, whose own settings
-    stay unset.
+    the survey's, page extraction's and page-break verification's verifiers, whose
+    own settings stay unset.
     """
 
     pdf = pdf_path("irs_form_w9.pdf")
@@ -383,11 +419,17 @@ def test_verify_turns_on_both_steps_verifiers_from_a_file_or_a_keyword(
         default.verify,
         default.advanced.survey.verify,
         default.advanced.extraction.verify,
-    ) == (False, None, None)
+        default.advanced.page_breaks.verify,
+    ) == (False, None, None, None)
     for config in turned_on:
         assert config.verify is True
-        assert (config.advanced.survey.verify, config.advanced.extraction.verify) == (
-            None,
-            None,
-        )
-        assert (config.verify_survey, config.verify_extraction) == (True, True)
+        assert (
+            config.advanced.survey.verify,
+            config.advanced.extraction.verify,
+            config.advanced.page_breaks.verify,
+        ) == (None, None, None)
+        assert (
+            config.verify_survey,
+            config.verify_extraction,
+            config.verify_page_breaks,
+        ) == (True, True, True)
