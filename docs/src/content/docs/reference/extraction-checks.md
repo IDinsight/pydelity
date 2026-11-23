@@ -4,7 +4,7 @@ description:
   The checks every page answer goes through, the hints it is compared with, and
   the other review issues page extraction records.
 sidebar:
-  order: 11
+  order: 12
 ---
 
 <!-- Generated from pydelity's code by scripts/generate_reference_docs.py. Run `just docs-reference` instead of editing this file. -->

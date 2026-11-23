@@ -4,7 +4,7 @@ description:
   The checks every survey answer goes through, the hints it is compared with,
   and the survey verifier's review issues.
 sidebar:
-  order: 10
+  order: 11
 ---
 
 <!-- Generated from pydelity's code by scripts/generate_reference_docs.py. Run `just docs-reference` instead of editing this file. -->

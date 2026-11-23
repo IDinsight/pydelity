@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Install the built wheel in a fresh virtual environment and run both steps with it.
+"""Install the built wheel in a fresh virtual environment and run every step with it.
 
 The script makes a new virtual environment with ``venv`` and installs the wheel with
 pip, taking pydelity's dependencies from PyPI. It then starts the stand-in provider
 server from ``tests/fixtures/mock_providers.py`` and, for each provider, runs the
-``pydelity`` command and the Python API on a committed test PDF, through the survey
-and page extraction without a pause. Every run must complete with a page file for each
-page, its output folder must load, and the stand-in must have received exactly the
-requests listed in `EXPECTED_REQUESTS`, so no run can reach a real provider or spend
-money.
+``pydelity`` command and the Python API on a committed test PDF, through the survey,
+page extraction and page-break verification without a pause. Every run must complete
+with a page file for each page and a verdict for each page break, its output folder
+must load, and the stand-in must have received exactly the requests listed in
+`EXPECTED_REQUESTS`, so no run can reach a real provider or spend money.
 
 It uses the standard library only, so any Python 3.13 or later can run it, on Windows,
 macOS or Linux. Run it from anywhere after ``just build``::
@@ -40,8 +40,8 @@ sys.path.insert(0, str(REPO_ROOT))
 from tests.fixtures.mock_providers import MockProviders  # noqa: E402
 
 # Python code the installed pydelity runs to check an output folder written by the
-# command: every file must load, figure crops included, and the run must have completed
-# with a survey and a page file for each page.
+# command. Every file must load, figure crops included, and the run must have completed
+# with a survey, a page file for each page and a verdict for each page break.
 _LOAD_CHECK = """
 import sys
 import pydelity
@@ -49,11 +49,13 @@ result = pydelity.load(sys.argv[1])
 status = result.record.status if result.record else None
 if status != "completed" or result.facts is None or result.survey is None:
     sys.exit(f"run.json status {status!r}; survey saved: {result.survey is not None}")
+count = result.record.pdf.page_count
 pages = [page.page_index for page in result.pages]
-if pages != list(range(result.record.pdf.page_count)) or not all(
-    page.items for page in result.pages
-):
+if pages != list(range(count)) or not all(page.items for page in result.pages):
     sys.exit(f"page files for page indexes {pages}, some without items")
+breaks = [verdict.earlier_page_index for verdict in result.breaks]
+if breaks != list(range(count - 1)):
+    sys.exit(f"verdicts for the breaks after page indexes {breaks}")
 """
 
 # The model each provider's runs use.
@@ -68,9 +70,9 @@ _PROVIDER_VARIABLES = (
     "OPENAI_BASE_URL",
 )
 
-# Python code the installed pydelity runs to survey the PDF and extract its pages
-# through its Python API. It first prints where pydelity was imported from, so the
-# script can tell it is the installed copy.
+# Python code the installed pydelity runs to survey the PDF, extract its pages and
+# verify its page breaks through its Python API. It first prints where pydelity was
+# imported from, so the script can tell it is the installed copy.
 _RUN_CHECK = """
 import sys
 import pydelity
@@ -80,9 +82,13 @@ result = pydelity.run(pdf, model=model, output_dir=output_dir, pause=False)
 status = result.record.status if result.record else None
 if status != "completed" or result.survey is None:
     sys.exit(f"run() ended with status {status!r}")
+count = result.record.pdf.page_count
 pages = [page.page_index for page in result.pages]
-if pages != list(range(result.record.pdf.page_count)):
+if pages != list(range(count)):
     sys.exit(f"run() returned page files for page indexes {pages}")
+breaks = [verdict.earlier_page_index for verdict in result.breaks]
+if breaks != list(range(count - 1)):
+    sys.exit(f"run() returned verdicts for the breaks after page indexes {breaks}")
 if pydelity.load(output_dir) != result:
     sys.exit("load() of the output folder differs from what run() returned")
 """
@@ -90,10 +96,15 @@ if pydelity.load(output_dir) != result:
 # The survey answer the stand-in gives, written for the test PDF below.
 ANSWER_PATH = REPO_ROOT / "tests/fixtures/survey_answers/irs_form_1040a_1965_scan.json"
 
+# The judge and verifier answers the stand-in gives for the test PDF's page break.
+BREAK_ANSWERS_PATH = (
+    REPO_ROOT / "tests/fixtures/break_answers/irs_form_1040a_1965_scan.json"
+)
+
 # The requests each run sends with the default settings, which run no verifier, as
-# (route, status): the survey's upload and its model request, then an extractor request
-# for each of the PDF's 2 pages.
-EXPECTED_REQUESTS = [("upload", 200)] + [("model", 200)] * 3
+# (route, status): the survey's upload and its model request, an extractor request for
+# each of the PDF's 2 pages, then a judge request for its 1 page break.
+EXPECTED_REQUESTS = [("upload", 200)] + [("model", 200)] * 4
 
 # The most seconds the wheel's installation may take, downloads included.
 INSTALL_TIMEOUT_SECONDS = 1800
@@ -198,7 +209,7 @@ class _Smoke:
 
 
 def _check_api(*, provider: str, smoke: _Smoke) -> None:
-    """Survey the PDF and extract its pages through the installed Python API.
+    """Run every step on the PDF through the installed Python API.
 
     Parameters
     ----------
@@ -228,7 +239,7 @@ def _check_api(*, provider: str, smoke: _Smoke) -> None:
     imported = Path(lines[0]).resolve() if lines else None
     smoke.checks.add(
         detail=result.stdout + result.stderr,
-        name=f"Python API with {provider}: both steps complete and load() matches",
+        name=f"Python API with {provider}: every step completes and load() matches",
         ok=result.returncode == 0,
     )
     smoke.checks.add(
@@ -240,7 +251,7 @@ def _check_api(*, provider: str, smoke: _Smoke) -> None:
 
 
 def _check_command(*, provider: str, smoke: _Smoke) -> None:
-    """Survey the PDF and extract its pages with the installed ``pydelity`` command.
+    """Run every step on the PDF with the installed ``pydelity`` command.
 
     Parameters
     ----------
@@ -277,7 +288,7 @@ def _check_command(*, provider: str, smoke: _Smoke) -> None:
     )
     smoke.checks.add(
         detail=loaded.stdout + loaded.stderr,
-        name=f"{name}: every output file loads, both steps completed",
+        name=f"{name}: every output file loads, every step completed",
         ok=loaded.returncode == 0,
     )
     _check_requests(name=name, smoke=smoke, start=before)
@@ -482,8 +493,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         description="Install a pydelity wheel in a fresh environment and run the "
-        "survey and page extraction on a PDF with it against a stand-in provider "
-        "server."
+        "survey, page extraction and page-break verification on a PDF with it against "
+        "a stand-in provider server."
     )
     parser.add_argument(
         "--wheel",
@@ -493,6 +504,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     wheel = _find_wheel(arguments.wheel)
     answer = json.loads(ANSWER_PATH.read_text(encoding="utf-8"))
+    break_answers = json.loads(BREAK_ANSWERS_PATH.read_text(encoding="utf-8"))
     page_answers = json.loads(PAGE_ANSWERS_PATH.read_text(encoding="utf-8"))
     checks = _Checks()
 
@@ -503,7 +515,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         base_env = _child_environment()
         venv = _install(env=base_env, folder=folder / "venv", wheel=wheel)
         _check_version(checks=checks, env=base_env, venv=venv, wheel=wheel)
-        with MockProviders(answers=[answer], page_answers=page_answers) as mock:
+        with MockProviders(
+            answers=[answer], break_answers=break_answers, page_answers=page_answers
+        ) as mock:
             smoke = _Smoke(
                 checks=checks,
                 env={**base_env, **mock.environment()},

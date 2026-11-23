@@ -7,8 +7,8 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
 
 `Cycle`: `build-step-3-page-break-verification-of-20261122T170208Z-00fe2896`
 `Mode`: `STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`IN_PROGRESS` `Verification Cadence`: `AFTER_IMPLEMENTATION`
-`Current Increment`: `NONE`
+`COMPLETE` `Verification Cadence`: `AFTER_IMPLEMENTATION` `Current Increment`:
+`NONE`
 
 ## Implementation Contract
 
@@ -1042,7 +1042,7 @@ change under `src`, `scripts`, `examples` or `docs`.
 
 ### DEV-011 — Smoke test, package description and reference pages
 
-`Status`: `PENDING` `Depends On`: `DEV-009, DEV-010` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-009, DEV-010` `Acceptance`:
 `AC-042, AC-044, AC-047`
 
 **Goal**
@@ -1074,6 +1074,63 @@ The lint commands; pytest and doctests; `scripts/generate_reference_docs.py`
 twice with no diff the second time, and the Markdown formatter; the smoke script
 from a built wheel where the sandbox allows it, otherwise its steps run from the
 source tree with the limitation recorded.
+
+Evidence, 2026-11-22, repo root, on `94ac1b6` (the user's commit after DEV-010)
+plus the uncommitted DEV-011 changes. Assessed content, lines and SHA-256
+prefix: `pyproject.toml` (199, `e16be032c8450389`),
+`scripts/smoke_installed_wheel.py` (538, `d1fab52124a94ff6`),
+`scripts/generate_reference_docs.py` (1,339, `d40f69e8f66eb18f`), the new
+`docs/src/content/docs/reference/page-break-json.md` (298, `89a26f4198085e31`)
+and `page-break-checks.md` (116, `57008dbfe7e8ce96`), and the regenerated
+`cost-jsonl.md`, `extraction-checks.md`, `python-api.md`, `run-json.md`,
+`survey-checks.md` and `uploads-json.md` (side-panel order, and the `BreakFile`
+link). Nothing under `src` or `examples` changed.
+
+- `ruff check scripts src tests`, `ruff format --check` and
+  `ty check scripts src tests`: all passed. `interrogate scripts src tests`:
+  100%.
+- `.venv/bin/pytest --numprocesses auto`: 200 passed, 11 failed, the same 11
+  tests of replaced contracts DEV-008 lists, and no other.
+  `--doctest-modules src`: 37 passed, 1 skipped.
+- `scripts/generate_reference_docs.py` followed by the Markdown formatter writes
+  13 pages. A second run of both leaves every page's bytes unchanged.
+  `markdownlint-cli2 --all-files`: passed.
+- The new pages cover `BreakFile` and every part of it, the eight checks and the
+  `start_markers` hint apart, text comparison with the match thresholds read
+  from the code (3 characters, Dice 0.8), and the `verifier` issue.
+  `advanced.page_breaks`, `verify_breaks`, `averify_breaks`,
+  `StepRecord.breaks`, `StepEstimate.breaks`, the ledger docstrings and the two
+  page-break cost constants were already on their pages from DEV-001 to DEV-009.
+  The Python API page's `RunResult` return text names the verdict files.
+- `uv build --wheel --offline` built `pydelity-0.2.0-py3-none-any.whl`, and
+  `twine check --strict` passed on it. Its `Summary` is the new description.
+- The smoke script against that wheel: 13 of 13 checks passed. For each
+  provider, `pydelity --yes --no-pause` exits 0, its folder loads with a page
+  file for each page and one verdict, and the run sends one upload and 4 model
+  requests (survey, two pages, one judge) to the stand-in. `run(pause=False)`
+  through the installed copy returns the same with `load()` equal. `--version`
+  prints 0.2.0.
+- Limitation: the sandbox has no network, and uv's cache lacks the locked
+  `pydantic-core` 2.50.4, so pip could not install the wheel's dependencies from
+  PyPI. A scratchpad wrapper replaced only the script's `_install`. It created a
+  fresh environment with `uv venv --offline`, installed the wheel with
+  `--no-deps`, and added the project environment's site-packages after it in a
+  `.pth` file for the dependencies. That directory is not a site directory, so
+  the project's editable pydelity was not importable, and the "installed copy"
+  check confirmed `pydelity` came from the new environment. The install from
+  PyPI itself runs in CI's wheel job on Linux, macOS and Windows.
+
+**Implementation Notes**
+
+- The verdict file page comes after the page file page, and the page-break
+  checks page after page extraction's, so `run.json`, `cost.jsonl`,
+  `uploads.json`, the survey checks and the extraction checks each move down one
+  place in the side panel.
+- A list whose items have more than one type now shows them in parentheses, such
+  as `cell_joins`: `list of (one of ... or null) or null`. No other page's text
+  changed with it.
+- The smoke script's load and run checks require a verdict for each break, so a
+  run that skipped page-break verification fails them.
 
 ---
 

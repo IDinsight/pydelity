@@ -580,8 +580,8 @@ writes no `run.json` and no report, and does not prompt for input.
 
 ## Classes and errors
 
-- `BreakFile`: The contents of `page_breaks/<NNNN>-<NNNN>.json`: one break's
-  verdict.
+- [`BreakFile`](../page-break-json/): The contents of
+  `page_breaks/<NNNN>-<NNNN>.json`: one break's verdict.
 - `BudgetExceededError`: A run would go over `max_cost` and the caller did not
   allow it.
 - [`Config`](../configuration/): All the settings for a pydelity run.

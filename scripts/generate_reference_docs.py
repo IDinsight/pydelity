@@ -4,11 +4,12 @@
 Run it with ``just docs-reference``; ``just lint`` runs it before formatting Markdown.
 It writes one Markdown page per topic to ``docs/src/content/docs/reference/``: the
 settings, the ``pydelity`` command, the Python API, each output file, and the checks
-of the survey and of page extraction. The pages come from the Pydantic models and
-their field docstrings, the Typer command, the public functions and their NumPy
-docstrings, and the constants the probe and the cost estimate use. Prettier formats
-the pages afterward, and running both again gives the same bytes, so CI catches a page
-the code has outgrown and a new page left uncommitted.
+of the survey, page extraction and page-break verification. The pages come from the
+Pydantic models and their field docstrings, the Typer command, the public functions
+and their NumPy docstrings, and the constants the probe, the cost estimate and the
+page-break checks use. Prettier formats the pages afterward, and running both again
+gives the same bytes, so CI catches a page the code has outgrown and a new page left
+uncommitted.
 """
 
 # Standard Library
@@ -51,6 +52,8 @@ from pydelity.providers.profiles import PROFILES
 from pydelity.providers.schemas import Uploads
 from pydelity.surveying import probe, validators
 from pydelity.surveying.schemas import PdfFacts, PdfSurvey
+from pydelity.verifying import validators as break_checks
+from pydelity.verifying.schemas import BreakFile
 
 # Words for the bounds Pydantic fields carry, by annotated_types class.
 _BOUND_WORDS: dict[type, tuple[str, str]] = {
@@ -74,6 +77,7 @@ _CHECK_REFERENCES = {
 
 # The reference page that describes each exported class, by class name.
 _CLASS_PAGES = {
+    "BreakFile": "page-break-json",
     "Config": "configuration",
     "PageFile": "page-json",
     "PdfFacts": "pdf-facts-json",
@@ -653,12 +657,15 @@ def _sequence_name(args: tuple[object, ...], links: dict[type, str]) -> str:
     Returns
     -------
     str
-        Such as ``list of strings`` or ``list of 4 numbers``.
+        Such as ``list of strings``, ``list of 4 numbers`` or, for items of more than
+        one type, ``list of (string or null)``.
     """
 
     if not args:
         return "list"
     item = _plural(_type_name(args[0], links))
+    if " or " in item:
+        item = f"({item})"
     if len(args) > 1 and args[-1] is not Ellipsis:
         return f"list of {len(args)} {item}"
     return f"list of {item}"
@@ -906,7 +913,7 @@ def cost_page() -> _Page:
             "estimate uses."
         ),
         name="cost-jsonl",
-        order=8,
+        order=9,
         title="cost.jsonl",
     )
 
@@ -979,7 +986,7 @@ def extraction_checks_page() -> _Page:
             "with, and the other review issues page extraction records."
         ),
         name="extraction-checks",
-        order=11,
+        order=12,
         title="Page extraction checks",
     )
 
@@ -1028,23 +1035,34 @@ def main(argv: Sequence[str] | None = None) -> int:
             order=6,
             title="pages/<NNNN>.json",
         ),
+        model_file_page(
+            description=(
+                "Every field of a verdict file, page_breaks/<NNNN>-<NNNN>.json."
+            ),
+            extra=[],
+            model=BreakFile,
+            name="page-break-json",
+            order=7,
+            title="page_breaks/<NNNN>-<NNNN>.json",
+        ),
         python_api_page(),
         model_file_page(
             description="Every field of run.json.",
             extra=[],
             model=RunRecord,
             name="run-json",
-            order=7,
+            order=8,
             title="run.json",
         ),
         survey_checks_page(),
         extraction_checks_page(),
+        page_break_checks_page(),
         model_file_page(
             description="Every field of uploads.json.",
             extra=[],
             model=Uploads,
             name="uploads-json",
-            order=9,
+            order=10,
             title="uploads.json",
         ),
     ]
@@ -1096,6 +1114,88 @@ def model_file_page(  # noqa: PLR0913 - one argument per part of the page
     body = "\n\n".join([_prose(summary), _models_page_body(model, title, {}), *extra])
     return _Page(
         body=body, description=description, name=name, order=order, title=title
+    )
+
+
+def page_break_checks_page() -> _Page:
+    """Describe page-break verification's checks, its hint and its verifier issue.
+
+    Returns
+    -------
+    _Page
+        The page.
+    """
+
+    checks = [
+        f"### `{name}`\n\n{_prose(_check_text(check.__doc__))}"
+        for name, check in break_checks.CHECKS.items()
+    ]
+    hints = [
+        f"### `{name}`\n\n{_prose(_check_text(hint.__doc__))}"
+        for name, hint in break_checks.HINTS.items()
+    ]
+    comparison = _docstring_parts(text_layer.__doc__)[0].split("\n\n")[2]
+    body = "\n\n".join(
+        [
+            _prose(
+                "Each verdict, from the judge or in a verifier's correction, goes "
+                "through the checks and is compared with the hint. A check tests the "
+                "verdict against the page files of the break's two pages. While "
+                "retries remain (``advanced.page_breaks.check_retries``), a verdict "
+                "that fails a check is sent back to the model with every failure "
+                "listed. The last verdict is kept as it is, and each check it still "
+                "fails becomes a review issue. The hint compares the verdict with the "
+                "survey's start markers, which can be wrong, so the model's reading "
+                "of the pages decides. A hint difference never sends a verdict back "
+                "and never stops a run."
+            ),
+            _prose(
+                "A verifier correction replaces the judge's verdict when it passes "
+                "every check, whatever its hint differences. The verdict file's "
+                "``checks`` holds each check's result on the kept verdict, and its "
+                "``hints`` the hint's differences. A hint difference becomes a review "
+                "issue unless the verifier passed the verdict or its correction was "
+                "kept. With the verifier off (``advanced.page_breaks.verify``, or "
+                "``verify``), every hint difference is a review issue. When a page of "
+                "a break has no content items, no request is made. The verdict says "
+                "nothing continues, and its ``checks`` record 0 attempts."
+            ),
+            _prose(
+                "Each review issue of a break has the page before the break as its "
+                "``page_index``, names both pages in its message, and names the item "
+                "it is about in ``item_id`` when that item is on either page."
+            ),
+            "## Checks",
+            *checks,
+            "## Hints",
+            *hints,
+            "## How text is compared",
+            _prose(comparison),
+            _prose(
+                "Two texts match when their comparison forms are equal, or when both "
+                f"have at least {break_checks._MIN_MATCH_CHARS} characters and a Dice "
+                f"coefficient of at least {break_checks._MATCH_DICE} over those runs "
+                "of three characters."
+            ),
+            "## Other review issues",
+            "### `verifier`",
+            _prose(
+                "A problem page-break verification's verifier found in a verdict it "
+                "did not replace, because it gave no correction or its correction "
+                "failed a check. The issue gives the problem's category and names the "
+                "item the problem is about, when there is one."
+            ),
+        ]
+    )
+    return _Page(
+        body=body,
+        description=(
+            "The checks every page-break verdict goes through, the hint it is "
+            "compared with, and the page-break verifier's review issues."
+        ),
+        name="page-break-checks",
+        order=13,
+        title="Page-break checks",
     )
 
 
@@ -1230,7 +1330,7 @@ def survey_checks_page() -> _Page:
             "with, and the survey verifier's review issues."
         ),
         name="survey-checks",
-        order=10,
+        order=11,
         title="Survey checks",
     )
 
