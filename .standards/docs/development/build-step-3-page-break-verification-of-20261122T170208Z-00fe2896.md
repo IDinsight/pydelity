@@ -7,8 +7,8 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
 
 `Cycle`: `build-step-3-page-break-verification-of-20261122T170208Z-00fe2896`
 `Mode`: `STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`IN_PROGRESS` `Verification Cadence`: `AFTER_IMPLEMENTATION`
-`Current Increment`: `NONE`
+`COMPLETE` `Verification Cadence`: `AFTER_IMPLEMENTATION` `Current Increment`:
+`NONE`
 
 ## Implementation Contract
 
@@ -1629,7 +1629,7 @@ Assessed content: `git diff -- src scripts examples docs tests` (DEV-015 alone,
 
 ### DEV-016 — Keep the judge's verdict when only the verifier's judgment is missing
 
-`Status`: `PENDING` `Depends On`: `DEV-015` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-015` `Acceptance`:
 `AC-033, AC-035, AC-042, AC-060`
 
 **Goal**
@@ -1666,6 +1666,77 @@ keeps each verdict, its checks and its hints; a rerun reuses every break;
 rerun asks only the verifier; the estimates price only the verifier for those
 breaks. A wheel built with `uv build --wheel --offline`, `twine check --strict`,
 and the smoke script against it, as DEV-011 ran it.
+
+Evidence, 2026-11-28, repo root, on `eda3953` (DEV-014 and DEV-015 committed)
+plus the uncommitted DEV-016 changes (macOS arm64, Python 3.13.9, tools from
+`.venv/bin`). Assessed content:
+`git diff HEAD -- src scripts examples docs tests` (2 files, 167 insertions and
+94 deletions), SHA-256 starting `9c2bc7fd5a188237`.
+
+- `ruff check scripts src tests`, `ruff format --check scripts src tests` (101
+  files) and `interrogate scripts src tests` (100%): passed.
+  `ty check scripts src`: passed. `ty check tests` gives the same 9 diagnostics
+  as DEV-015, at the same lines.
+- `--doctest-modules src`: 40 passed, 1 skipped.
+- `.venv/bin/pytest --numprocesses auto -p no:cacheprovider`: 214 passed, 25
+  failed, 1 collection error, the same tests as DEV-015 lists, for the same
+  reasons. No other test fails: no test builds `BreakRequestSize`.
+- Scratchpad `dev016_check.py`, run as
+  `PYTHONPATH=src:. pytest -p tests.conftest` with the repo's fixtures and the
+  test module's helpers: 5 of 5 passed.
+  - Three pages, survey start marker on pages 2 and 3, Anthropic and OpenAI
+    models: a run with the verifier off, then one with
+    `advanced.page_breaks.verify` on. The second run's ledger has one `verifier`
+    line per break and no `judge` line. Each file keeps its `verdict`, `checks`,
+    `hints`, `inputs`, `fingerprint` and `judgment` and gets a later `judged_at`
+    and a `verification`. The break whose verifier said nothing continues lists
+    `start_markers` then `verdicts_differ`, the agreeing one no issue, and
+    `run.json`'s review the same. The log has, per break, "Break after page 1
+    (pages 1 and 2): no verifier judged it, so the verifier judges it now and
+    the judge's verdict is kept", then "Page-break verification: 2 breaks, 0
+    reused, 2 to judge". `run.json` counts 2 judged, 0 reused. A third run sends
+    no request and logs "2 reused, 0 to judge".
+  - `overwrite` with the verifier on, after a run with it off: `judge` then
+    `verifier`.
+  - Answers judge verdict, refusal, verdict: the first run with the verifier on
+    stops with `PageBreakError` after saving the judge's verdict. The rerun
+    sends one `verifier` request, keeps the saved file's verdict, checks and
+    hints, and logs "0 review issues, verifier agrees; $0.02 for 1 request".
+  - After a run with the verifier off on three pages, `request_sizes` of the
+    planned breaks with the page-break verifier on gives `judge: False` for
+    both. `estimate(advanced={"page_breaks": {"verify": True}})` prices one
+    verifier request per break, $0.261600 expected and $4.912800 at most over 6
+    requests, equal to the figures computed by hand from the model's prices per
+    million tokens. Without the verifier, the step is reused with 0 breaks. With
+    the first break's verdict file removed, the estimate prices both agents for
+    it and the verifier for the other: $0.392396 and $7.369188 over 9 requests,
+    equal to the hand-computed figures.
+  - DEV-015's scratchpad script still passes, except its two estimate cases,
+    which build `BreakRequestSize` without `judge`.
+- `scripts/generate_reference_docs.py` then the Markdown formatter: no change to
+  `docs`. `prek run markdownlint-cli2 --all-files`: passed.
+- `uv build --wheel --offline` built `pydelity-0.2.0-py3-none-any.whl`, and
+  `twine check --strict` passed on it. The smoke script against that wheel,
+  outside the sandbox so pip could install the dependencies from PyPI: 13 of 13
+  checks passed, with one upload and 4 model requests (survey, two pages, one
+  judge) per run for each provider. DEV-011's `.pth` workaround was not needed.
+
+**Implementation Notes**
+
+- `PlannedBreak.unverified` holds the verdict file whose judge's verdict is
+  kept, so the break task skips the judge and adds the verifier's judgment to
+  it. `saved` stays the file reused as it is, so the runner's "to judge" lists
+  and counts need no change.
+- `_reusable_break` became `_matching_break` (fingerprint and `overwrite`) and
+  `_needs_verifier` (judged by a model, no verification, verifier on).
+- `_verified_file` adds a verification to a written file for both paths: it
+  keeps the verdict, checks and hints, makes the issues again, and sets
+  `judged_at` and `pydelity_version` to the rewrite's. `_KeptVerdict` lost
+  `verification`, since `_break_file` now always writes the judge's verdict
+  alone.
+- `runner.py` needed no change: its estimate paths size the planned breaks
+  through `request_sizes`, which sets `judge`, and breaks whose pages are not
+  written yet need the judge.
 
 ---
 
@@ -1746,3 +1817,15 @@ and the smoke script against it, as DEV-011 ran it.
 - No real model run, download or new dependency is planned. The user's next real
   runs (`AC-061`, `AC-062`) come after the build, with new output folders or
   `--overwrite`, since earlier verdict files with a verification no longer load.
+- Handoff to Tester, 2026-11-28: DEV-012 to DEV-016 are `DONE`, and the plan is
+  `COMPLETE` on `eda3953` plus DEV-016's uncommitted changes (see its evidence
+  for the content's SHA-256). For Tester, the tests of replaced contracts that
+  fail are listed in DEV-014's and DEV-015's evidence: 25 failures and
+  `tests/pydelity/verifying/test_validators.py`, which no longer imports. The
+  `ty check tests` diagnostics are the 9 that DEV-015 lists, which also fail the
+  `ty` commit hook until the tests are updated. `tests/conftest.py`'s
+  `canned_answers` docstring still describes break answers keyed by agent.
+  `test_break_requests_sent_at_once_are_held_to_max_cost_together` was flaky
+  under load before the rework (DEV-013). For Documenter:
+  `guides/command-line.md`, `guides/python.md`, `guides/outputs.md` and
+  `guides/verifiers.md` still describe the old page-break verifier (DEV-015).

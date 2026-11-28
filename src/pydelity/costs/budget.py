@@ -200,9 +200,13 @@ class BreakRequestSize:
         The request's instructions, both pages' details and the verdict format, in
         characters, without the images. The judge and the verifier send the same
         request.
+    judge
+        Whether the break needs the judge's request. ``False`` when its verdict file
+        keeps the judge's verdict and only the verifier's request is needed.
     """
 
     chars: int
+    judge: bool
 
 
 @dataclass(frozen=True)
@@ -521,12 +525,13 @@ def estimate_page_breaks(
 
     Each break's input tokens are its request size divided by
     `PROMPT_CHARS_PER_TOKEN`, plus the provider's tokens per image for each of its
-    two page images. The expected cost is one judge request and, when page-break
-    verification's verifier is on, one verifier request, the same request sent
-    again, each with `TYPICAL_BREAK_OUTPUT_TOKENS` of output. The maximum is the
-    first request and every check retry of each agent that runs, each with
-    ``max_output_tokens`` of output and the earlier answers added to its input. Both
-    ignore prompt caching, so they overestimate.
+    two page images. The expected cost is one judge request for each break that
+    needs the judge and, when page-break verification's verifier is on, one
+    verifier request, the same request sent again, each with
+    `TYPICAL_BREAK_OUTPUT_TOKENS` of output. The maximum is the first request and
+    every check retry of each agent that runs, each with ``max_output_tokens`` of
+    output and the earlier answers added to its input. Both ignore prompt caching,
+    so they overestimate.
 
     Parameters
     ----------
@@ -550,13 +555,16 @@ def estimate_page_breaks(
     attempts = settings.check_retries + 1
     image_tokens = 2 * choice.profile.image_tokens
     verify = config.verify_page_breaks
-    agents = 2 if verify else 1
 
     expected: list[Decimal | None] = []
     maximum: list[Decimal | None] = []
+    requests_max = 0
     for size in breaks:
         input_tokens = math.ceil(size.chars / PROMPT_CHARS_PER_TOKEN) + image_tokens
-        # Each agent that runs sends the same request, with its own retries.
+        # Each agent that runs sends the same request, with its own retries. A break
+        # whose verdict file keeps the judge's verdict runs the verifier alone.
+        agents = int(size.judge) + int(verify)
+        requests_max += agents * attempts
         expected += agents * [
             _price(
                 config=config,
@@ -584,7 +592,7 @@ def estimate_page_breaks(
         model=model,
         name="page_breaks",
         pages=None,
-        requests_max=agents * attempts * len(breaks),
+        requests_max=requests_max,
         reused=not breaks,
         verifier=verify and bool(breaks),
     )
