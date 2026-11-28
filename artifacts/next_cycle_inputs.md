@@ -436,6 +436,26 @@ From the verifier cycle's reviews:
 - The CLI reference's exit code `0` leaves out a paused run, and a run stopped
   at the spending question lists `pages/` and `figures/` before they exist.
 
+From page-break verification's implementation review (limitations of the checks,
+none of which makes a verdict wrong unless the model has already erred):
+
+- `repeats` accepts containment of any length, so a wrongly named repeated item
+  passes when its text contains a page number or a word printed anywhere on page
+  N, and assembly would drop it with no review line when no verifier runs.
+- `repeats` skips repeated items with no text, such as a table or list named as
+  repeated.
+- `duplicates` is per item. When page N's last list entry carries on as a text
+  item and the list goes on as a separate list item on page N+1, the correct
+  verdict needs two pieces ending in the same list item and fails `duplicates`.
+- `header_rows` uses text similarity only, so a repeated header row with a
+  continuation word in a short cell can score below 0.8 and fail a correct
+  count.
+- A marker made only of symbols, such as "→", always passes `markers`, because
+  its comparison form is empty.
+- A `ProviderError` from a break names the step and the earlier page
+  (`page_breaks, page 4 (index 3), judge`), not both pages as a `PageBreakError`
+  does.
+
 From the user's real runs:
 
 - The providers structure some pages differently (OpenAI put the ten rights on a
@@ -499,13 +519,23 @@ whenever work is moved out of the current step.
   `PROBE_VERSION`, a `PROMPT_VERSION` or an output `schema_version` for changed
   outputs again, and when pydelity starts keeping backwards compatibility, is
   open, likely once it has public users.
-- **Page files of another PDF in a reused folder (step 3).** When a different
-  PDF runs into a folder and does not extract every page the first PDF had, the
-  first PDF's other page files stay in `pages/`. `load()` leaves out page files
-  whose `inputs.pdf_sha256` differs from `pdf_facts.json`'s, and step 3, the
-  first step that reads page files, should skip them the same way. A page file
-  kept for a narrowed page selection can come from an older survey or other
-  settings, and step 3 should decide whether to use it.
+- **Continuation between pages that do not follow each other (assembly, step 4,
+  or later).** Page-break verification judges only page N against page N+1, so
+  text that jumps to a later page, or a table interrupted by an inserted
+  full-page figure, gets no verdict that joins it.
+- **A page with no content items between two pages (assembly, step 4).** A break
+  where either page has no content item (a blank page, or one with only page
+  furniture) gets a `no_content` verdict that nothing continues, with no
+  request. Whether a unit that continues around such a page should be joined
+  across it is open.
+- **"Continued on the next page" notes on the earlier page (page-break
+  verification or assembly, not yet scheduled).** The verdict names markers on
+  the continued unit on page N+1 and repeated items above it, but not a note on
+  page N that says the content continues, so assembly would keep such a note in
+  the joined text.
+- **Structure tags as evidence (page-break verification, not yet scheduled).**
+  The brief's option A. Tags exist on some PDFs only, and nothing links them to
+  page extraction's items yet, so that link is new probe work.
 - **Snapping boxes to measured text (page extraction, not yet scheduled).** A
   few boxes sit off their text, such as a Chinese footer's box about 7 pt below
   its line and a vertical Japanese line's about 9 pt to its left. Moving a box

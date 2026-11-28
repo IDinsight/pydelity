@@ -57,7 +57,7 @@ it can come out wrong too, and page extraction costs more than the survey. Open
 same command again. The next run reuses the survey and goes on to page
 extraction.
 
-To run both steps without stopping, turn the pause off:
+To run every step without stopping, turn the pause off:
 
 ```sh
 pydelity document.pdf --no-pause
@@ -74,8 +74,12 @@ import pydelity
 result = await pydelity.arun("document.pdf", pause=False)
 ```
 
-`-np` is the short form of `--no-pause`. A run that reuses a saved survey never
-pauses, because there's nothing new to check. A paused run exits with code 0.
+`-np` is the short form of `--no-pause`. A run that reuses a saved survey
+doesn't pause after it, because there's nothing new to check. The same pause
+comes after page extraction when it writes new page files, before page-break
+verification. See
+[Check the page files first](../page-breaks/#check-the-page-files-first). A
+paused run exits with code 0.
 
 ## Choose the pages
 
@@ -107,6 +111,12 @@ that names `pages`.
 Selecting more pages later extracts only the new ones. Selecting fewer leaves
 the page files of the pages you dropped in `pages/`, but `run.json` and the
 report cover only the pages selected in the latest run.
+
+Page-break verification judges the breaks only when every page of the PDF has a
+current page file, from this run or an earlier one. When `pages` leaves a page
+without one, the run extracts the selected pages and skips page-break
+verification with a warning. See
+[Every page needs a page file](../page-breaks/#every-page-needs-a-page-file).
 
 ## Choose the model
 

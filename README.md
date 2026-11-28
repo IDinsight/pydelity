@@ -3,7 +3,7 @@
 [![Docstring coverage](https://raw.githubusercontent.com/IDinsight/pydelity/main/interrogate_badge.svg)](https://interrogate.readthedocs.io/)
 
 pydelity reads a PDF with Anthropic or OpenAI models and turns it into
-structured JSON in two steps:
+structured JSON in three steps:
 
 - **The survey** records how the PDF's pages are laid out: page numbers,
   rotation, writing direction, languages and the lines that repeat on many
@@ -11,6 +11,9 @@ structured JSON in two steps:
 - **Page extraction** lists everything on each page you select in reading order:
   headings, paragraphs, lists, tables, formulas, figures and form fields, each
   with its position on the page.
+- **Page-break verification** looks at each pair of pages that follow each other
+  and decides whether content carries on across the break, such as a sentence, a
+  list or a table, and how the two parts join.
 
 Each step has an optional verifier, a second request to the same model that
 reviews the step's answer against the PDF and may correct it. Verifiers are off
@@ -80,15 +83,24 @@ you can check it before paying for page extraction. The results go to
 see them.
 
 Then run the same command again to extract the pages. It reuses the survey and
-asks before spending again:
+asks before spending again. When page extraction is done, the run stops again so
+you can check the pages:
 
 ```sh
 pydelity document.pdf
 ```
 
-To extract only some pages, add `--pages 1-5,8`. To run both steps without
-stopping, add `--no-pause`. To have a verifier review each step's answer, at
-extra cost, add `--verify`. Run `pydelity --help` for the options.
+Run it a third time to verify the page breaks. It reuses the survey and the page
+files and asks again:
+
+```sh
+pydelity document.pdf
+```
+
+To extract only some pages, add `--pages 1-5,8`. Page-break verification needs
+every page extracted, so it waits until each page has a page file. To run every
+step without stopping, add `--no-pause`. To have a verifier review each step's
+answer, at extra cost, add `--verify`. Run `pydelity --help` for the options.
 
 From Python:
 
@@ -107,6 +119,10 @@ async def main() -> None:
     for page in result.pages:
         for item in page.items:
             print(item.id, item.kind, item.text)
+
+    # Each page break's verdict: whether content carries on to the next page.
+    for page_break in result.breaks:
+        print(page_break.earlier_page_index, page_break.verdict.continues)
 
     # Each issue is something a person should check.
     for issue in result.record.review:
@@ -131,10 +147,11 @@ change what you need.
 ## Learn more
 
 - [Your first run](https://idinsight.github.io/pydelity/start/first-survey/)
-  walks through the survey, page extraction and the output files.
+  walks through the survey, page extraction, page-break verification and the
+  output files.
 - The [guides](https://idinsight.github.io/pydelity/guides/configuration/) cover
-  settings, the command line, Python, page extraction, verifiers, models, costs,
-  reruns and outputs.
+  settings, the command line, Python, page extraction, page-break verification,
+  verifiers, models, costs, reruns and outputs.
 - The [reference](https://idinsight.github.io/pydelity/reference/configuration/)
   lists every setting, option, function and output field.
 - [Contributing](https://idinsight.github.io/pydelity/contributing/development/)

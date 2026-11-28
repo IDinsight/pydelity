@@ -11,8 +11,9 @@ pydelity works with models from Anthropic and OpenAI. You pick one with the
 
 ## Choose a model
 
-Both the survey and page extraction use `anthropic:claude-opus-5-5` by default.
-To use an OpenAI model, name it with the `openai:` prefix:
+The survey, page extraction and page-break verification all use
+`anthropic:claude-opus-5-5` by default. To use an OpenAI model, name it with the
+`openai:` prefix:
 
 ```sh
 pydelity document.pdf --model openai:gpt-6.2-astra
@@ -25,9 +26,9 @@ result = await pydelity.arun("document.pdf", model="openai:gpt-6.2-astra")
 ```
 
 `model` sets the model for every step. To use a different model for page
-extraction only, set `advanced.extraction.model` in a config file or from
-Python. Page extraction then uses it in place of `model`, and the survey still
-uses `model`:
+extraction or page-break verification only, set `advanced.extraction.model` or
+`advanced.page_breaks.model` in a config file or from Python. That step then
+uses it in place of `model`, and the other steps still use `model`:
 
 ```yaml
 model: anthropic:claude-opus-5-5
@@ -38,9 +39,10 @@ advanced:
 
 pydelity sends the model ID to the provider exactly as you give it. It keeps no
 list of models, so you can use any model ID your provider accepts. The survey's
-model must read PDFs, page extraction's must read images, and both must support
-the `effort` setting (`advanced.survey.effort` and
-`advanced.extraction.effort`). An older model that doesn't fails with the
+model must read PDFs, and page extraction's and page-break verification's must
+read images. Every step's model must support the `effort` setting
+(`advanced.survey.effort`, `advanced.extraction.effort` and
+`advanced.page_breaks.effort`). An older model that doesn't fails with the
 provider's error.
 
 Each provider needs its own API key: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. A
@@ -75,17 +77,32 @@ For page extraction, each request carries one page:
 
 Page extraction doesn't send the PDF. Of the text stored in the PDF, it sends
 only the page's repeated lines and its form fields' values. The verifier's
-request also quotes the stored lines that a text difference is about. No request
-asks a model to change its answer to match a hint. Run with `--verbose` to see
-the text sent with the survey.
+request also quotes the stored lines that a text difference is about.
+
+For page-break verification, each request carries one break:
+
+- an image of each of the break's two pages, turned upright
+- each page's items as page extraction recorded them, with their IDs, boxes and
+  content, and its writing direction and column order
+- pydelity's instructions for page-break verification
+- the survey's notes on how content continues across pages and its start
+  markers, as hints that the pages override
+- your `advanced.page_breaks.instructions`, if you set them
+- with page-break verification's verifier on, a second request with the verdict
+  to review, the checks it still fails and its differences from the start
+  markers
+
+Page-break verification sends neither the PDF nor any text stored in it. No
+request asks a model to change its answer to match a hint. Run with `--verbose`
+to see the text sent with the survey.
 
 ## How long the provider keeps your PDF
 
 pydelity uploads the PDF to your provider account's file storage once for the
 survey, then points each survey request at the upload. It records the upload in
 `uploads.json` in the output folder, and later runs reuse it while at least an
-hour is left before it expires. Page extraction sends its page images inside
-each request and uploads nothing.
+hour is left before it expires. Page extraction and page-break verification send
+their page images inside each request and upload nothing.
 
 By default the provider keeps the PDF for as long as it allows:
 
@@ -123,8 +140,9 @@ is a `ProviderError`, with the provider's own message in `provider_message`.
 A rejected request reports no usage, so it adds nothing to `cost.jsonl`. Check
 your provider's documentation for its current limits on PDF size and pages.
 
-Page extraction sends one page image at a time, sized to fit both providers'
-image limits, so the PDF's length doesn't matter there.
+Page extraction sends one page image at a time, and page-break verification two,
+each sized to fit both providers' image limits, so the PDF's length doesn't
+matter there.
 
 ## Failed requests and retries
 
@@ -135,19 +153,23 @@ After the last retry, the run fails with a `ProviderError`.
 
 How long pydelity waits for one request is set per step:
 `advanced.survey.request_timeout_seconds` (900 seconds by default, which leaves
-room for a long PDF) and `advanced.extraction.request_timeout_seconds` (600
-seconds by default, for one page).
+room for a long PDF), `advanced.extraction.request_timeout_seconds` (600 seconds
+by default, for one page) and `advanced.page_breaks.request_timeout_seconds`
+(600 seconds by default, for one break).
 
 Page extraction sends up to 8 pages' requests at the same time
-(`advanced.extraction.concurrent_pages`). If your provider account has low rate
-limits, runs can fail with rate-limit errors after the retries. Lower
-`concurrent_pages` to send fewer requests at once.
+(`advanced.extraction.concurrent_pages`), and page-break verification up to 8
+breaks' requests (`advanced.page_breaks.concurrent_breaks`). If your provider
+account has low rate limits, runs can fail with rate-limit errors after the
+retries. Lower `concurrent_pages` or `concurrent_breaks` to send fewer requests
+at once.
 
 A request that times out on pydelity's side may still finish at the provider,
 and the provider may still bill it. pydelity never sees what such a request
 used, so it is missing from `cost.jsonl`. With retries, each timed-out attempt
-can add cost of this kind. The same goes for page requests still in flight when
-a run stops. If you see timeouts, check your provider's usage page.
+can add cost of this kind. The same goes for page and page-break requests still
+in flight when a run stops. If you see timeouts, check your provider's usage
+page.
 
 ## When the survey fails
 
@@ -186,3 +208,25 @@ pydelity sends it back up to `advanced.extraction.check_retries` times, then
 keeps the last answer and puts what is still wrong on the review list. A
 difference from the page's hints is never sent back and never fails a page. See
 [How a page is checked](../page-extraction/#how-a-page-is-checked).
+
+## When page-break verification fails
+
+A page break fails in the same ways: the model refuses, its answer runs out of
+output tokens (raise `advanced.page_breaks.max_output_tokens`, or lower
+`advanced.page_breaks.effort`), or it never gives a verdict in the form pydelity
+expects. A provider error that lasts through the retries fails the break too.
+
+When a break fails, the run stops: breaks still in progress are canceled and no
+new break starts. The command shows the error and exits with code 1. In Python,
+the error is a `PageBreakError` or a `ProviderError`. A `PageBreakError` names
+the break's two pages and the request that failed: `judge` for the request that
+judges the break, or `verifier`. A `ProviderError` names the step, the page
+before the break and the request. Verdict files already written stay saved, and
+the next run judges only the breaks that don't have one.
+
+A verdict that fails one of the
+[page-break checks](../../reference/page-break-checks/) is not a failure.
+pydelity sends it back up to `advanced.page_breaks.check_retries` times, then
+keeps the last verdict and puts what is still wrong on the review list. A
+difference from the survey's start markers is never sent back and never fails a
+break. See [How a verdict is checked](../page-breaks/#how-a-verdict-is-checked).

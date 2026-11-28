@@ -63,14 +63,15 @@ file in `pages/`. See [Extract pages](../guides/page-extraction/).
 
 By default, a run that makes a new survey stops before page extraction, so you
 can check the survey before paying for page extraction. Run the same command
-again to extract the pages, or add `--no-pause` to run both steps at once. See
+again to extract the pages, or add `--no-pause` to run every step at once. See
 [Check the survey first](../guides/page-extraction/#check-the-survey-first).
 
 ### Can I extract only some pages?
 
 Yes. Set `pages`, such as `--pages 1-5,8`. Pages are numbered from 1, as a PDF
-viewer shows them. The survey still reads the whole PDF. See
-[Choose the pages](../guides/page-extraction/#choose-the-pages).
+viewer shows them. The survey still reads the whole PDF, and page-break
+verification needs a page file for every page, so it waits until every page is
+extracted. See [Choose the pages](../guides/page-extraction/#choose-the-pages).
 
 ### Does pydelity read the text stored in the PDF?
 
@@ -82,6 +83,37 @@ example with Arabic letters out of order or broken ligatures, so the model's
 reading is kept and each difference goes on the review list. See
 [Text compared with the PDF's stored text](../guides/page-extraction/#text-compared-with-the-pdfs-stored-text).
 
+## About page-break verification
+
+### What does page-break verification give me?
+
+For each break between two pages that follow each other, a verdict on whether
+content carries on across it, such as a sentence, a list entry or a table, and
+how the two parts join: with a space, with no space or by removing a hyphen, and
+for a table, how many header rows the next page repeats. The verdict names the
+items by their IDs in the page files, and later steps use it to join the pages
+into one document. Each verdict goes into its own file in `page_breaks/`. See
+[Verify page breaks](../guides/page-breaks/).
+
+### Why did my run stop after page extraction?
+
+By default, a run in which page extraction writes new page files stops before
+page-break verification, so you can check the pages before paying for verdicts
+on them. Run the same command again to verify the page breaks, or add
+`--no-pause` to run every step at once. See
+[Check the page files first](../guides/page-breaks/#check-the-page-files-first).
+
+### Why were my page breaks not verified?
+
+Page-break verification runs only when every page of the PDF has a current page
+file. If you set `pages` and some other page has no page file from an earlier
+run, pydelity extracts the pages you selected, warns you which pages are missing
+and skips page-break verification. Run again without `pages`, or with pages that
+include the missing ones. A PDF with one page has no page breaks. See
+[Every page needs a page file](../guides/page-breaks/#every-page-needs-a-page-file).
+
+## Verifiers
+
 ### Can pydelity double-check the model's answers?
 
 Yes, if you turn on the verifiers with `--verify` (`verify: true` in a config
@@ -89,17 +121,17 @@ file, `verify=True` in Python). A verifier is a second request to the same model
 that reviews a step's answer against the PDF and may correct it. It looks for
 mistakes code can't find, such as a label that doesn't fit, a missed item or a
 wrong reading order. Verifiers are off by default because each one adds cost.
-The survey's verifier sends the whole PDF again, and page extraction's adds a
-request for every page. Without them, every difference from what pydelity
-measured goes on the review list. See
-[Review answers with a verifier](../guides/verifiers/).
+The survey's verifier sends the whole PDF again, page extraction's adds a
+request for every page, and page-break verification's a request for every page
+break. Without them, every difference from what pydelity measured goes on the
+review list. See [Review answers with a verifier](../guides/verifiers/).
 
 ## Models and your data
 
 ### Which models can I use?
 
 Anthropic and OpenAI models that read PDFs and images and support the `effort`
-setting. The default for both steps is `anthropic:claude-opus-5-5`. To use
+setting. The default for every step is `anthropic:claude-opus-5-5`. To use
 another model, give its ID with the provider in front, such as
 `openai:gpt-6.2-astra`. pydelity keeps no list of models, so any model ID your
 provider accepts works. See
@@ -112,18 +144,22 @@ it measured, and your `languages` and `advanced.survey.instructions` if you set
 them. For page extraction: an image of each page, pydelity's instructions, your
 `advanced.extraction.instructions` if you set them, and these hints: the
 survey's results for that page, the page's repeated lines with their stored
-text, and its fillable form fields with their values. A verifier, when it is on,
-also gets the step's answer to review, the checks it still fails and its
-differences from the hints. Only send a PDF that you're allowed to share with
-your provider. See
+text, and its fillable form fields with their values. For page-break
+verification: images of the two pages of each break, their items as page
+extraction recorded them, pydelity's instructions, the survey's notes on how
+content continues across pages, and your `advanced.page_breaks.instructions` if
+you set them. A verifier, when it is on, also gets the step's answer to review,
+the checks it still fails and its differences from the hints. Only send a PDF
+that you're allowed to share with your provider. See
 [What is sent to the provider](../guides/models-and-providers/#what-is-sent-to-the-provider).
 
 ### How long does the provider keep my PDF?
 
 pydelity uploads the PDF to your provider account's file storage for the survey.
 By default Anthropic keeps it for 90 days and OpenAI for 30 days. Set
-`advanced.uploads.expiry_hours` to keep it for less time. Page extraction sends
-page images inside each request and uploads nothing. See
+`advanced.uploads.expiry_hours` to keep it for less time. Page extraction and
+page-break verification send page images inside each request and upload nothing.
+See
 [How long the provider keeps your PDF](../guides/models-and-providers/#how-long-the-provider-keeps-your-pdf).
 
 ### Can I use pydelity without an API key?
@@ -142,10 +178,12 @@ It depends on the model and the PDF. Before spending anything, pydelity
 estimates a likely cost and a maximum for each step it will run. For a 6-page
 form with the default model, the survey was about $0.36, at most $2.90. Page
 extraction makes one request per page, so its cost grows with the number of
-pages you select. Turning on the verifiers adds a request to review the survey
-and each page, which about doubles the cost. On the command line pydelity then
-asks whether to go ahead. In Python, `pydelity.aestimate` shows the estimate
-without an API key. See [The estimate](../guides/costs/#the-estimate).
+pages you select. Page-break verification makes one request per page break, each
+with two page images. Turning on the verifiers adds a request to review the
+survey, each page and each page break, which about doubles the cost. On the
+command line pydelity then asks whether to go ahead. In Python,
+`pydelity.aestimate` shows the estimate without an API key. See
+[The estimate](../guides/costs/#the-estimate).
 
 ### Does running it again cost money again?
 
@@ -155,8 +193,10 @@ survey and page files and makes no model request. Changing the survey's model,
 `check_retries` or `max_output_tokens` runs the survey again at full cost. Other
 settings, such as `max_cost` or `advanced.survey.request_timeout_seconds`, keep
 the saved survey. A page is extracted again only when something it depends on
-changes. Turning a verifier on redoes the saved outputs that no verifier
-reviewed. See [What gets reused](../guides/reruns/#what-gets-reused).
+changes, and a page break is judged again only when one of its two page files or
+something else it depends on changes. Turning a verifier on redoes the saved
+outputs that no verifier reviewed. See
+[What gets reused](../guides/reruns/#what-gets-reused).
 
 ### How do I cap what a PDF can cost?
 
@@ -191,8 +231,9 @@ directly in a notebook cell. The sync versions, such as `pydelity.run`, raise
 ### A run stopped partway. Is my work lost?
 
 No. `run.json` records how the run ended and why, and anything already finished
-stays saved, including every page file written before the run stopped. Run the
-same command again to continue. pydelity redoes only what is missing. See
+stays saved, including every page file and verdict file written before the run
+stopped. Run the same command again to continue. pydelity redoes only what is
+missing. See
 [After a run that stopped or failed](../guides/reruns/#after-a-run-that-stopped-or-failed).
 
 ### Can I run pydelity on several PDFs at once?

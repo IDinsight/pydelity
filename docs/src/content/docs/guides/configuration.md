@@ -97,29 +97,38 @@ anything is sent.
 Settings under `advanced:` tune each step and how pydelity talks to the models.
 Most runs never need them.
 
-| Setting                                       | Default | What it changes                                                     |
-| --------------------------------------------- | ------- | ------------------------------------------------------------------- |
-| `advanced.extraction.check_retries`           | `2`     | How often a model may try again after failing the page checks       |
-| `advanced.extraction.concurrent_pages`        | `8`     | How many pages are extracted at the same time, from 1 to 32         |
-| `advanced.extraction.effort`                  | `high`  | How hard the models think: `low`, `medium` or `high`                |
-| `advanced.extraction.instructions`            | not set | What is unusual about the PDF, in your words, for page extraction   |
-| `advanced.extraction.max_output_tokens`       | `32000` | The longest answer a model may give for one page, thinking included |
-| `advanced.extraction.model`                   | not set | The model for page extraction only, in place of `model`             |
-| `advanced.extraction.request_timeout_seconds` | `600`   | How long to wait for one page request                               |
-| `advanced.extraction.verify`                  | not set | Turns page extraction's verifier on or off, in place of `verify`    |
-| `advanced.models`                             | none    | Your own prices for a model                                         |
-| `advanced.provider_retries`                   | `2`     | Retries after a temporary provider failure, such as a timeout       |
-| `advanced.survey.check_retries`               | `2`     | How often the model may try again after failing the survey checks   |
-| `advanced.survey.effort`                      | `high`  | How hard the model thinks: `low`, `medium` or `high`                |
-| `advanced.survey.instructions`                | not set | What is unusual about the PDF, in your words, for the survey        |
-| `advanced.survey.max_output_tokens`           | `32000` | The longest answer the model may give, thinking included            |
-| `advanced.survey.request_timeout_seconds`     | `900`   | How long to wait for one survey request                             |
-| `advanced.survey.verify`                      | not set | Turns the survey's verifier on or off, in place of `verify`         |
-| `advanced.uploads.expiry_hours`               | not set | How long the provider keeps the PDF uploaded for the survey         |
+| Setting                                        | Default | What it changes                                                          |
+| ---------------------------------------------- | ------- | ------------------------------------------------------------------------ |
+| `advanced.extraction.check_retries`            | `2`     | How often a model may try again after failing the page checks            |
+| `advanced.extraction.concurrent_pages`         | `8`     | How many pages are extracted at the same time, from 1 to 32              |
+| `advanced.extraction.effort`                   | `high`  | How hard the models think: `low`, `medium` or `high`                     |
+| `advanced.extraction.instructions`             | not set | What is unusual about the PDF, in your words, for page extraction        |
+| `advanced.extraction.max_output_tokens`        | `32000` | The longest answer a model may give for one page, thinking included      |
+| `advanced.extraction.model`                    | not set | The model for page extraction only, in place of `model`                  |
+| `advanced.extraction.request_timeout_seconds`  | `600`   | How long to wait for one page request                                    |
+| `advanced.extraction.verify`                   | not set | Turns page extraction's verifier on or off, in place of `verify`         |
+| `advanced.models`                              | none    | Your own prices for a model                                              |
+| `advanced.page_breaks.check_retries`           | `2`     | How often a model may try again after failing the page-break checks      |
+| `advanced.page_breaks.concurrent_breaks`       | `8`     | How many page breaks are judged at the same time, from 1 to 32           |
+| `advanced.page_breaks.effort`                  | `high`  | How hard the models think: `low`, `medium` or `high`                     |
+| `advanced.page_breaks.instructions`            | not set | What is unusual about the PDF's page breaks, in your words               |
+| `advanced.page_breaks.max_output_tokens`       | `32000` | The longest answer a model may give for one break, thinking included     |
+| `advanced.page_breaks.model`                   | not set | The model for page-break verification only, in place of `model`          |
+| `advanced.page_breaks.request_timeout_seconds` | `600`   | How long to wait for one page-break request                              |
+| `advanced.page_breaks.verify`                  | not set | Turns page-break verification's verifier on or off, in place of `verify` |
+| `advanced.provider_retries`                    | `2`     | Retries after a temporary provider failure, such as a timeout            |
+| `advanced.survey.check_retries`                | `2`     | How often the model may try again after failing the survey checks        |
+| `advanced.survey.effort`                       | `high`  | How hard the model thinks: `low`, `medium` or `high`                     |
+| `advanced.survey.instructions`                 | not set | What is unusual about the PDF, in your words, for the survey             |
+| `advanced.survey.max_output_tokens`            | `32000` | The longest answer the model may give, thinking included                 |
+| `advanced.survey.request_timeout_seconds`      | `900`   | How long to wait for one survey request                                  |
+| `advanced.survey.verify`                       | not set | Turns the survey's verifier on or off, in place of `verify`              |
+| `advanced.uploads.expiry_hours`                | not set | How long the provider keeps the PDF uploaded for the survey              |
 
 Lowering `effort` or `check_retries` makes a run cheaper and faster, and can
 make the answer less reliable. [Extract pages](../page-extraction/) covers page
-extraction's settings and instructions,
+extraction's settings and instructions, [Verify page breaks](../page-breaks/)
+covers page-break verification's,
 [Review answers with a verifier](../verifiers/) covers `verify` and each step's
 override, [Models and providers](../models-and-providers/) covers retries and
 uploads, and [Control costs](../costs/) covers prices.

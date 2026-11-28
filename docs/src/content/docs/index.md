@@ -1,8 +1,9 @@
 ---
 title: pydelity
 description:
-  Survey any PDF and extract each page's content with Anthropic or OpenAI
-  models, on the way from a PDF to faithful, structured JSON.
+  Survey any PDF, extract each page's content and verify its page breaks with
+  Anthropic or OpenAI models, on the way from a PDF to faithful, structured
+  JSON.
 ---
 
 pydelity turns PDFs into structured JSON with Anthropic or OpenAI models. It
@@ -14,10 +15,13 @@ works in steps:
 - **Page extraction** reads each page you select and lists everything on it in
   reading order: headings, paragraphs, lists, tables, figures, form fields and
   more, each with its position on the page.
+- **Page-break verification** looks at each pair of pages that follow each other
+  and decides whether content carries on across the break, such as a sentence, a
+  list or a table, and how the two parts join.
 
 Each step has an optional verifier, a second request to the same model that
 reviews the step's answer against the PDF and may correct it. Verifiers are off
-unless you turn them on, because each one adds cost. Both steps keep a list of
+unless you turn them on, because each one adds cost. Every step keeps a list of
 things for a person to review. Later releases add the steps that join the pages
 into one document.
 
@@ -56,6 +60,12 @@ into one document.
 
 6. Reload `report.html` to see each page with its items drawn on it.
 
+7. Run the same command a third time to verify the page breaks. pydelity reuses
+   the survey and the page files, shows what page-break verification will likely
+   cost and asks again.
+
+8. Reload `report.html` to see each page break's verdict beside its two pages.
+
 See [Install pydelity](start/install/) for other ways to install and the
 platforms PyMuPDF doesn't support, and [Your first run](start/first-survey/) for
 a walkthrough.
@@ -65,10 +75,11 @@ a walkthrough.
 - [Install pydelity](start/install/): install it on Windows, macOS or Linux and
   set an API key.
 - [Your first run](start/first-survey/): follow a PDF from the command line
-  through the survey and page extraction to the report.
+  through the survey, page extraction and page-break verification to the report.
 - Guides: keep [settings](guides/configuration/) in a file, use the
   [command line](guides/command-line/) or [Python](guides/python/),
-  [extract pages](guides/page-extraction/), turn on
+  [extract pages](guides/page-extraction/),
+  [verify page breaks](guides/page-breaks/), turn on
   [verifiers](guides/verifiers/), choose [models](guides/models-and-providers/),
   control [costs](guides/costs/), rerun and resume [runs](guides/reruns/), and
   read the [output files](guides/outputs/).

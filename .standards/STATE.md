@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `DOCUMENTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `REVIEWING_FINAL` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -17,7 +17,8 @@
 `.standards/docs/specs/build-step-3-page-break-verification-of-20261122T170208Z-00fe2896.md`
 `Development`:
 `.standards/docs/development/build-step-3-page-break-verification-of-20261122T170208Z-00fe2896.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
+`Final review needs two user actions (final-deliverable.md G-1, G-2). G-1, AC-042: commit and push the staged docs and records and open a pull request to main (a draft is enough; merge still waits for sign-off) so CI runs Wheel install on ubuntu-latest and windows-latest. G-2, AC-050 and AC-051: real Anthropic and OpenAI runs with the page-break verifier off and on, on PDFs covering two-column right-to-left, Chinese or Japanese, a tax or fillable form, a slide deck or image-heavy PDF, and CAPS, reviewed and accepted with every issue raised resolved. Report the pull request and the runs' outcome.`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
@@ -30,9 +31,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `REVIEWING_IMPLEMENTATION` `FailureType`: `NONE`
-`Reason`:
-`Implementation review complete with no material findings; AC-042 (Linux and Windows CI), AC-044, AC-046 to AC-049 and AC-050 to AC-051 wait on later work as the review report lists; documentation is due.`
+`Kind`: `FORWARD` `From`: `DOCUMENTING` `FailureType`: `NONE` `Reason`:
+`Documentation complete: README, a new Verify page breaks guide, the other guides and next_cycle_inputs.md updated for page-break verification, with docs build, link, lint and example checks passing; AC-042, AC-045 and AC-050 to AC-051 still wait on merge and the user's real runs; final review is due.`
 
 ## Recovery
 

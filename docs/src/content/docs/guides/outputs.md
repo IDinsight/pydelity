@@ -8,17 +8,18 @@ description:
 Every run writes to one output folder, `pydelity-output/<PDF name>/` unless you
 set `output_dir`.
 
-| File              | What it holds                                                    | Reference                                           |
-| ----------------- | ---------------------------------------------------------------- | --------------------------------------------------- |
-| `report.html`     | The results as a page to open in a browser                       |                                                     |
-| `report/`         | The report's page images and their list                          |                                                     |
-| `run.json`        | The latest run: settings, status, cost, warnings and review list | [run.json](../../reference/run-json/)               |
-| `pdf_facts.json`  | What pydelity measured in the PDF                                | [pdf_facts.json](../../reference/pdf-facts-json/)   |
-| `pdf_survey.json` | The survey's checked answer                                      | [pdf_survey.json](../../reference/pdf-survey-json/) |
-| `pages/`          | One page file per extracted page, such as `pages/0003.json`      | [Page file](../../reference/page-json/)             |
-| `figures/`        | An image of each figure, such as `figures/p0003-004.png`         | [Page file](../../reference/page-json/#itemsfigure) |
-| `cost.jsonl`      | One line per model request, from every run                       | [cost.jsonl](../../reference/cost-jsonl/)           |
-| `uploads.json`    | The PDF's uploads to providers                                   | [uploads.json](../../reference/uploads-json/)       |
+| File              | What it holds                                                         | Reference                                           |
+| ----------------- | --------------------------------------------------------------------- | --------------------------------------------------- |
+| `report.html`     | The results as a page to open in a browser                            |                                                     |
+| `report/`         | The report's page images and their list                               |                                                     |
+| `run.json`        | The latest run: settings, status, cost, warnings and review list      | [run.json](../../reference/run-json/)               |
+| `pdf_facts.json`  | What pydelity measured in the PDF                                     | [pdf_facts.json](../../reference/pdf-facts-json/)   |
+| `pdf_survey.json` | The survey's checked answer                                           | [pdf_survey.json](../../reference/pdf-survey-json/) |
+| `pages/`          | One page file per extracted page, such as `pages/0003.json`           | [Page file](../../reference/page-json/)             |
+| `figures/`        | An image of each figure, such as `figures/p0003-004.png`              | [Page file](../../reference/page-json/#itemsfigure) |
+| `page_breaks/`    | One verdict file per page break, such as `page_breaks/0003-0004.json` | [Verdict file](../../reference/page-break-json/)    |
+| `cost.jsonl`      | One line per model request, from every run                            | [cost.jsonl](../../reference/cost-jsonl/)           |
+| `uploads.json`    | The PDF's uploads to providers                                        | [uploads.json](../../reference/uploads-json/)       |
 
 Pages in the JSON files are numbered by `page_index`, which starts at 0, so the
 PDF's first page is page 0 and its page file is `pages/0000.json`. The `pages`
@@ -39,6 +40,7 @@ Open `report.html` in any browser. It shows:
   verifier ran
 - the measured facts
 - each page as an image
+- each page break's verdict, beside its two pages
 
 On a page that hasn't been extracted, the image shows the survey's regions and
 any form fields. On an extracted page, it shows every item as a box numbered in
@@ -50,6 +52,16 @@ in the review list to go to its box. The page's details also say what the
 verifier found, or that no verifier ran, and whether its text was compared with
 the PDF's stored text.
 
+Below the pages, the "Page breaks" section has one card per break, headed with
+its two page numbers, such as "Pages 4 and 5". It shows both pages with boxes on
+the items and containers the verdict names: where each piece ends and starts,
+the repeated items, the items that carry a continuation marker and the
+containers that continue. Beside them are whether content continues, each
+piece's join, text join or cell joins, repeated header rows, repeated items and
+markers, the continuing containers, the verdict's reason, and what the verifier
+found or that no verifier ran. A break where a page has no content items says
+that no request was made. Each review issue about a break links to its card.
+
 The report is a single page with no scripts, and it loads nothing from the
 internet. It shows images from the `report/` and `figures/` folders next to it,
 so keep them together if you move or share the report.
@@ -58,12 +70,15 @@ so keep them together if you move or share the report.
 
 `run.json` describes the latest run on the folder:
 
-- `status`: `completed`, `paused` (stopped after a new survey, to be checked),
-  `failed`, `stopped`, `interrupted`, or `running` while the run is going
+- `status`: `completed`, `paused` (stopped after a new survey, or after page
+  extraction wrote new page files, to be checked), `failed`, `stopped`,
+  `interrupted`, or `running` while the run is going
 - `error`: why the run failed or stopped, if it did
-- `steps`: what each step did, such as `completed`, `reused` or `skipped` (page
-  extraction after a pause), how many requests it made and, for page extraction,
-  how many pages were selected, extracted and reused
+- `steps`: what each step did, such as `completed`, `reused` or `skipped` (a
+  step after a pause, or page-break verification when a page has no current page
+  file), and how many requests it made. Page extraction says how many pages were
+  selected, extracted and reused, and page-break verification (`page_breaks`)
+  how many breaks the PDF has and how many were judged and reused.
 - `settings`: the settings the run used (never your API key)
 - `cost`: what the run and the whole folder have spent. See
   [Control costs](../costs/#what-a-run-spent).
@@ -79,6 +94,7 @@ Each warning has a `code`:
 | --------------------- | ------------------------------------------------------------------------- |
 | `damaged_output`      | A saved file couldn't be read, so its step or page ran again              |
 | `max_cost_exceeded`   | The run could go over `max_cost`                                          |
+| `missing_page_files`  | Some pages have no current page file, so no page break was judged         |
 | `other_pdf_in_folder` | The folder held results for another PDF, which this run replaced          |
 | `probe_unavailable`   | pydelity couldn't read the PDF's bookmarks, form fields or structure tags |
 | `unpriced_model`      | pydelity has no price for the model, so its costs aren't recorded         |
@@ -87,10 +103,12 @@ Each warning has a `code`:
 ## The review list
 
 The review list in `run.json` holds everything a person should check: the
-survey's issues first, then each selected page's issues in page order. Each
-issue names the `step` (`survey` or `extraction`) and the `check` that found it,
-the `page_index` it is on (or `null`), the `item_id` it is about (or `null`), a
-`message` and the values involved in `details`.
+survey's issues first, then each selected page's issues in page order, then each
+page break's issues in break order. Each issue names the `step` (`survey`,
+`extraction` or `page_breaks`) and the `check` that found it, the `page_index`
+it is on (or `null`), the `item_id` it is about (or `null`), a `message` and the
+values involved in `details`. For a page break, `page_index` is the page before
+the break, and the message names both pages, such as `pages 4 and 5: ...`.
 
 **Checks the survey's answer still fails.** pydelity checks every survey answer,
 for example that page ranges don't overlap and that every repeated line is
@@ -144,8 +162,20 @@ reviewed, they are listed only when it didn't pass the page and its correction
 wasn't used. As with the survey, either side can be wrong. See
 [How a page is checked](../page-extraction/#how-a-page-is-checked).
 
-**Problems a verifier found.** When the survey's or a page's verifier finds
-problems and its correction isn't kept, each problem goes on the list as a
+**Checks a page-break verdict still fails.** Each verdict goes through the
+[page-break checks](../../reference/page-break-checks/), with retries. Whatever
+the kept verdict still gets wrong goes on the list, usually naming an item on
+one of the two pages.
+
+**Places where a verdict and the survey disagree.** `start_markers` lists a
+piece whose start on the later page begins with one of the survey's markers of
+where new units of content start. It is listed on every break no verifier
+reviewed, and on a reviewed break only when the verifier didn't pass the verdict
+and its correction wasn't kept. Either side can be wrong. See
+[How a verdict is checked](../page-breaks/#how-a-verdict-is-checked).
+
+**Problems a verifier found.** When the survey's, a page's or a break's verifier
+finds problems and its correction isn't kept, each problem goes on the list as a
 `verifier` issue. See
 [Review answers with a verifier](../verifiers/#the-review-list-with-and-without-a-verifier).
 
@@ -184,6 +214,33 @@ and turned upright.
 
 Every page file a verifier reviewed keeps its verdict, so you can count how
 often the verifier passed pages, found problems and had its correction used.
+
+## Verdict files
+
+Each verdict file in `page_breaks/` holds one page break's verdict. It is named
+after the two page indexes, so `page_breaks/0003-0004.json` is the break between
+the fourth and fifth pages.
+
+- `earlier_page_index` and `later_page_index`: the break's two pages
+- `verdict`: the kept verdict, with `continues`, the continuing `pieces`, the
+  continuing `containers` and the `reason`.
+  [Verify page breaks](../page-breaks/#what-you-get) describes them.
+- `judgment`: `model` when a model judged the break, or `no_content` when a page
+  of the break has no content items, so nothing can continue and no request was
+  made
+- `checks`: each check's result on the kept verdict, failures included
+- `hints`: the kept verdict's differences from the survey's start markers,
+  whether or not the review list shows them
+- `issues`: the break's review issues, the same ones `run.json` lists
+- `verification`: `null` when no verifier reviewed the verdict. Otherwise the
+  verifier's verdict as it gave it (`passed`, the `problems` it found and any
+  `corrected` verdict), whether the correction was kept (`correction_applied`)
+  and, if it wasn't, the checks it failed
+- `inputs` and `fingerprint`: what the verdict was made from, which decides when
+  it is reused. See [Rerun and resume](../reruns/#what-gets-reused).
+
+Every verdict file a verifier reviewed keeps the verifier's verdict, so you can
+count how often it passed verdicts, found problems and had its correction kept.
 
 ## pdf_facts.json
 

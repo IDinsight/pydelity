@@ -24,7 +24,7 @@ pydelity document.pdf --language en --language ar
 # Extract only pages 1 to 5 and page 8.
 pydelity document.pdf --pages 1-5,8
 
-# Run the survey and page extraction without stopping in between.
+# Run every step without stopping in between.
 pydelity document.pdf --no-pause
 
 # Use an OpenAI model. It needs OPENAI_API_KEY.
@@ -45,29 +45,41 @@ from pydelity's defaults. Some settings, such as each step's instructions, have
 no option and come only from the config file. See
 [Settings and config files](../configuration/).
 
-## Two runs or one
+## Three runs or one
 
 By default, the first run on a PDF stops after the survey, so you can check it
-before paying for page extraction. The second run reuses the survey and extracts
-the pages. Add `--no-pause` (or `-np`) to do both in one run.
-[Extract pages](../page-extraction/#check-the-survey-first) explains why.
+before paying for page extraction. The second run reuses the survey, extracts
+the pages and stops again, so you can check them before paying for page-break
+verification. The third run reuses both and judges the page breaks. Add
+`--no-pause` (or `-np`) to do everything in one run.
+[Check the survey first](../page-extraction/#check-the-survey-first) and
+[Check the page files first](../page-breaks/#check-the-page-files-first) explain
+why.
 
 ## What it prints
 
 By default, pydelity prints only warnings, errors, the cost estimate and the
 summary at the end. Add `--verbose` (or `-v`) to also see each step as it
 happens: the settings in use, what was measured in the PDF, the text sent with
-the survey, the survey's verifier outcome, and each page's number of items and
-review issues, verifier outcome and cost. The outcome is `no verifier` when the
-verifier is off. See
-[Review answers with a verifier](../verifiers/#read-what-the-verifier-found).
+the survey, the survey's verifier outcome, each page's number of items and
+review issues, verifier outcome and cost, and each page break's verdict, review
+issues, verifier outcome and cost. The outcome is `no verifier` when the
+verifier is off. A page break's line looks like this:
+
+```text
+Break after page 1 (pages 1 and 2): nothing continues, 0 review issues, no verifier; ...
+```
+
+[Review answers with a verifier](../verifiers/#read-what-the-verifier-found)
+lists the verifier outcomes.
 
 The summary lists each step's outcome and cost, and the first review issues,
 each with the step, the page number from 1 and, when it is about one item, the
-item's ID:
+item's ID. A page break's issue names both pages in its message, such as
+`pages 4 and 5: ...`. The summary's first line looks like this:
 
 ```text
-Run completed: survey reused, extraction completed (2 pages selected: 2 extracted, 0 reused); ...
+Run completed: survey reused, extraction reused (2 pages selected: 0 extracted, 2 reused), page_breaks completed (1 break: 1 judged, 0 reused); ...
 ```
 
 Everything goes to standard error, the cost question included. To save it to a
@@ -123,15 +135,15 @@ different names or set `--output-dir` for each.
 
 ## Exit codes
 
-| Code  | Meaning                                                                                      | What to do                                                                          |
-| ----- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `0`   | The run completed, or paused after the survey. It may still have review issues.              | Read the review issues in the report; after a pause, run again to extract the pages |
-| `1`   | The run failed: the provider returned an error, or the survey or a page had no usable answer | Read the error; the [models guide](../models-and-providers/) covers provider errors |
-| `2`   | A setting is invalid, the API key is not set, or the PDF can't be opened                     | Fix what the error names and run again                                              |
-| `3`   | The run stopped: you answered no, or input is not a terminal and `--yes` was not given       | Run again, with `--yes` in a script                                                 |
-| `130` | You pressed Ctrl+C                                                                           | Run again to continue                                                               |
+| Code  | Meaning                                                                                                    | What to do                                                                               |
+| ----- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `0`   | The run completed, or paused after the survey or page extraction. It may still have review issues.         | Read the review issues in the report; after a pause, run again to go on to the next step |
+| `1`   | The run failed: the provider returned an error, or the survey, a page or a page break had no usable answer | Read the error; the [models guide](../models-and-providers/) covers provider errors      |
+| `2`   | A setting is invalid, the API key is not set, or the PDF can't be opened                                   | Fix what the error names and run again                                                   |
+| `3`   | The run stopped: you answered no, or input is not a terminal and `--yes` was not given                     | Run again, with `--yes` in a script                                                      |
+| `130` | You pressed Ctrl+C                                                                                         | Run again to continue                                                                    |
 
 Once the PDF is open, a run that stops or fails still writes `run.json` and
-`report.html`, and keeps whatever it finished, including every page file already
-written. Running the same command again picks up from there. See
-[Rerun and resume](../reruns/).
+`report.html`, and keeps whatever it finished, including every page file and
+verdict file already written. Running the same command again picks up from
+there. See [Rerun and resume](../reruns/).

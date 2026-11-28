@@ -14,17 +14,19 @@ and error.
 
 ## The functions
 
-| Function    | What it does                                                                              | Needs an API key | Calls a model |
-| ----------- | ----------------------------------------------------------------------------------------- | ---------------- | ------------- |
-| `ameasure`  | Measures the PDF and saves `pdf_facts.json`                                               | No               | No            |
-| `aestimate` | Estimates what a run would cost, and writes nothing                                       | No               | No            |
-| `asurvey`   | Runs the survey and saves `pdf_survey.json`, with no `run.json` or report                 | Yes              | Yes           |
-| `aextract`  | Runs the survey if needed, then extracts the selected pages, with no `run.json` or report | Yes              | Yes           |
-| `arun`      | Runs everything the command does and returns all of it                                    | Yes              | Yes           |
-| `load`      | Reads an existing output folder back as Python objects                                    | No               | No            |
+| Function         | What it does                                                                                              | Needs an API key | Calls a model |
+| ---------------- | --------------------------------------------------------------------------------------------------------- | ---------------- | ------------- |
+| `ameasure`       | Measures the PDF and saves `pdf_facts.json`                                                               | No               | No            |
+| `aestimate`      | Estimates what a run would cost, and writes nothing                                                       | No               | No            |
+| `asurvey`        | Runs the survey and saves `pdf_survey.json`, with no `run.json` or report                                 | Yes              | Yes           |
+| `aextract`       | Runs the survey if needed, then extracts the selected pages, with no `run.json` or report                 | Yes              | Yes           |
+| `averify_breaks` | Runs the survey and page extraction if needed, then judges every page break, with no `run.json` or report | Yes              | Yes           |
+| `arun`           | Runs everything the command does and returns all of it                                                    | Yes              | Yes           |
+| `load`           | Reads an existing output folder back as Python objects                                                    | No               | No            |
 
-`ameasure`, `aestimate`, `asurvey`, `aextract` and `arun` reuse saved results
-the same way the command does. See [Rerun and resume](../reruns/).
+`ameasure`, `aestimate`, `asurvey`, `aextract`, `averify_breaks` and `arun`
+reuse saved results the same way the command does. See
+[Rerun and resume](../reruns/).
 
 ## Async and sync
 
@@ -47,11 +49,11 @@ asyncio.run(main())
 ```
 
 Each async function also has a sync version, named without the `a`: `measure`,
-`estimate`, `survey`, `extract` and `run`. They take the same arguments and
-return the same results, for code that doesn't use `async`. They start their own
-event loop, so they raise `RuntimeError` where one is already running, as in
-Jupyter or inside an `async def` function. `load` has only a sync version,
-because it reads files only.
+`estimate`, `survey`, `extract`, `verify_breaks` and `run`. They take the same
+arguments and return the same results, for code that doesn't use `async`. They
+start their own event loop, so they raise `RuntimeError` where one is already
+running, as in Jupyter or inside an `async def` function. `load` has only a sync
+version, because it reads files only.
 
 ## Run pydelity
 
@@ -61,7 +63,7 @@ import pydelity
 result = await pydelity.arun("document.pdf", languages=["en"])
 
 # run.json: how the run went
-print(result.record.status)  # "paused" after a new survey, else "completed"
+print(result.record.status)  # "paused" after a step wrote new output
 print(result.record.cost.run_usd)
 
 # pdf_survey.json: the survey's checked answer
@@ -73,10 +75,12 @@ for issue in result.record.review:
     print(issue.step, issue.check, issue.page_index, issue.item_id, issue.message)
 ```
 
-`arun` behaves like the command: a run that makes a new survey stops before page
-extraction, with status `paused`, so you can check the survey first. It returns
-normally; nothing is raised. Call `arun` again to extract the pages, or pass
-`pause=False` to run every step in one call:
+`arun` behaves like the command. A run that makes a new survey stops before page
+extraction, with status `paused`, so you can check the survey first. A run in
+which page extraction writes new page files stops before page-break verification
+in the same way. A paused run returns normally, and nothing is raised. Call
+`arun` again to go on to the next step, or pass `pause=False` to run every step
+in one call:
 
 ```python
 import pydelity
@@ -84,12 +88,14 @@ import pydelity
 result = await pydelity.arun("document.pdf", pause=False, pages="1-5,8")
 ```
 
-`arun` returns a `RunResult` with six parts:
+`arun` returns a `RunResult` with seven parts:
 
 - `record`: the contents of `run.json`
 - `facts`: the contents of `pdf_facts.json`
 - `survey`: the contents of `pdf_survey.json`
 - `pages`: the page files of the pages the run selected, in page order
+- `breaks`: the verdict files of every page break, in break order, or an empty
+  list when the run didn't reach page-break verification or skipped it
 - `ledger`: the lines of `cost.jsonl`, one per model request
 - `output_dir`: the output folder
 
@@ -124,6 +130,37 @@ and figure images go to the output folder as usual. A list item's entries are in
 `item.entries`, a table's rows in `item.table.rows`, and a form field's value in
 `item.field`. The [page file reference](../../reference/page-json/) lists every
 field.
+
+## Verify page breaks
+
+`averify_breaks` runs page-break verification on its own. It reuses a saved
+survey and page files that still fit, or runs the survey and extracts the
+selected pages first, and never pauses. It returns every break's verdict file,
+in break order:
+
+```python
+import pydelity
+
+breaks = await pydelity.averify_breaks("document.pdf")
+for page_break in breaks:
+    verdict = page_break.verdict
+    # Page indexes start at 0, so add 1 for the page numbers a PDF viewer shows.
+    print(page_break.earlier_page_index + 1, page_break.later_page_index + 1)
+    print("  continues:", verdict.continues, "-", verdict.reason)
+    for piece in verdict.pieces:
+        # Where the piece ends and starts, and how the two parts join.
+        print("  ", piece.earlier_item, "->", piece.later_item, piece.join)
+        print("     text join:", piece.text_join)
+```
+
+Like `aextract`, `averify_breaks` writes no `run.json` and no report. The
+verdict files go to `page_breaks/` in the output folder as usual. Every page of
+the PDF needs a current page file. With `pages` set, the breaks are judged only
+when every other page has one from an earlier run. Otherwise `averify_breaks`
+issues a warning that names the pages without one and returns an empty list. It
+also returns an empty list for a PDF with one page. See
+[Verify page breaks](../page-breaks/), and the
+[verdict file reference](../../reference/page-break-json/) for every field.
 
 ## Pass settings
 
@@ -169,13 +206,17 @@ estimate = await pydelity.aestimate("document.pdf", pause=False)
 print(estimate.expected_usd, estimate.max_usd)  # likely and largest cost, in USD
 for step in estimate.steps:
     # step.verifier says whether the figures include the step's verifier.
-    print(step.name, step.verifier, step.pages, step.expected_usd, step.max_usd)
+    # step.pages counts pages for page extraction, step.breaks page breaks for
+    # page-break verification.
+    print(step.name, step.verifier, step.pages, step.breaks, step.expected_usd)
 ```
 
 The estimate covers the steps the run would do. Before a survey exists, a run
 with the pause on would stop after the survey, so its estimate covers only the
-survey. Pass `pause=False`, as above, to include page extraction. `expected_usd`
-and `max_usd` are `None` when pydelity has no price for the model.
+survey. Pass `pause=False`, as above, to include the later steps. Page-break
+verification is left out when a page would have no current page file, as can
+happen with `pages` set. `expected_usd` and `max_usd` are `None` when pydelity
+has no price for the model.
 
 ## Read an earlier run
 
@@ -191,13 +232,18 @@ for page in result.pages:
     # verification is None when no verifier reviewed the page.
     reviewed = page.verification is not None
     print(page.page_index, len(page.items), reviewed)
+for page_break in result.breaks:
+    print(page_break.earlier_page_index, page_break.verdict.continues)
 ```
 
-A part is `None`, or an empty list for `pages`, when its files are missing, so a
-folder that only `ameasure` wrote still loads. `pages` holds the page files made
-from the PDF in `pdf_facts.json`, including pages left from an earlier, wider
-`pages` selection. It leaves out page files of another PDF that ran in the
-folder, and it is empty when the folder has no `pdf_facts.json`.
+A part is `None`, or an empty list for `pages` and `breaks`, when its files are
+missing, so a folder that only `ameasure` wrote still loads. `pages` holds the
+page files made from the PDF in `pdf_facts.json`, including pages left from an
+earlier, wider `pages` selection. It leaves out page files of another PDF that
+ran in the folder, and it is empty when the folder has no `pdf_facts.json`.
+`breaks` holds the verdict files, in break order, made from the page files that
+`pages` holds. A verdict made from a page file that has since been replaced is
+left out.
 
 ## Run several PDFs at once
 
@@ -218,9 +264,10 @@ for result in results:
     print(result.output_dir, result.record.status)
 ```
 
-Each run extracts up to `advanced.extraction.concurrent_pages` pages at once, so
-two runs together send up to twice as many requests. Lower `concurrent_pages` if
-your provider account has low rate limits.
+Each run extracts up to `advanced.extraction.concurrent_pages` pages, and judges
+up to `advanced.page_breaks.concurrent_breaks` page breaks, at once, so two runs
+together send up to twice as many requests. Lower `concurrent_pages` and
+`concurrent_breaks` if your provider account has low rate limits.
 
 Don't start two runs on the same output folder at once. pydelity does not detect
 it, and the two runs can overwrite each other's files.
@@ -230,16 +277,17 @@ it, and the two runs can overwrite each other's files.
 Every error pydelity raises on purpose is a `pydelity.PydelityError`, so one
 `except` clause catches them all. Each kind also has its own class:
 
-| Error                 | When                                                                                               |
-| --------------------- | -------------------------------------------------------------------------------------------------- |
-| `ConfigError`         | A setting is invalid, such as a PDF path that doesn't exist, or the config file can't be read      |
-| `PdfError`            | The PDF is empty, password-protected or can't be opened                                            |
-| `MissingApiKeyError`  | The API key for a step's model provider is not set                                                 |
-| `BudgetExceededError` | The run could go over `max_cost` and `allow_over_max_cost` is not set                              |
-| `ProviderError`       | The provider rejected a request or kept failing after its retries                                  |
-| `SurveyError`         | The survey's model or its verifier refused, ran out of output tokens or never gave a usable answer |
-| `ExtractionError`     | A page's model or its verifier refused, ran out of output tokens or never gave a usable answer     |
-| `OutputError`         | `load` can't read the output folder, or a run finds a damaged line in `cost.jsonl` before its last |
+| Error                 | When                                                                                                 |
+| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| `ConfigError`         | A setting is invalid, such as a PDF path that doesn't exist, or the config file can't be read        |
+| `PdfError`            | The PDF is empty, password-protected or can't be opened                                              |
+| `MissingApiKeyError`  | The API key for a step's model provider is not set                                                   |
+| `BudgetExceededError` | The run could go over `max_cost` and `allow_over_max_cost` is not set                                |
+| `ProviderError`       | The provider rejected a request or kept failing after its retries                                    |
+| `SurveyError`         | The survey's model or its verifier refused, ran out of output tokens or never gave a usable answer   |
+| `ExtractionError`     | A page's model or its verifier refused, ran out of output tokens or never gave a usable answer       |
+| `PageBreakError`      | A page break's model or its verifier refused, ran out of output tokens or never gave a usable answer |
+| `OutputError`         | `load` can't read the output folder, or a run finds a damaged line in `cost.jsonl` before its last   |
 
 ```python
 import pydelity
@@ -253,9 +301,10 @@ except pydelity.PydelityError as error:
 ```
 
 `ProviderError` keeps the provider's own message in `provider_message`, and the
-HTTP status in `status_code`. An error from page extraction names the page. Page
-files written before the error stay saved, and the next run extracts only the
-pages still missing.
+HTTP status in `status_code`. An error from page extraction names the page, and
+one from page-break verification names the break. Page files and verdict files
+written before the error stay saved, and the next run makes only the ones still
+missing.
 
 ## Warnings
 

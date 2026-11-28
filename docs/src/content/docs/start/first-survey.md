@@ -2,12 +2,12 @@
 title: Your first run
 description:
   Run pydelity on a PDF from the command line, check the survey, extract the
-  pages and find the results.
+  pages, verify the page breaks and find the results.
 ---
 
-This page follows one PDF from the command line through the survey and page
-extraction. You need pydelity installed and your API key set, as in
-[Install pydelity](../install/).
+This page follows one PDF from the command line through the survey, page
+extraction and page-break verification. You need pydelity installed and your API
+key set, as in [Install pydelity](../install/).
 
 ## Run the survey
 
@@ -91,48 +91,79 @@ same form:
 It also shows what the folder has spent so far, then asks the same question.
 
 Each page takes one request to read it, and the maximum counts every retry. To
-extract only some pages, add `--pages`, such as `--pages 1-5,8`. To run the
-survey and page extraction in one go next time, add `--no-pause`.
+extract only some pages, add `--pages`, such as `--pages 1-5,8`. To run every
+step in one go next time, add `--no-pause`.
 [Extract pages](../../guides/page-extraction/) covers both.
 
-To have a verifier, a second request to the same model, review the survey and
-each page against the PDF, add `--verify`. It adds about as much again to each
-step's cost. See [Review answers with a verifier](../../guides/verifiers/).
+To have a verifier, a second request to the same model, review the survey, each
+page and each page break against the PDF, add `--verify`. It adds about as much
+again to each step's cost. See
+[Review answers with a verifier](../../guides/verifiers/).
 
-pydelity extracts up to 8 pages at the same time. When the run ends, it prints a
-summary: how the run ended, what each step did and cost, how many review issues
-it found with the first few listed, and the files it wrote.
+pydelity extracts up to 8 pages at the same time. When page extraction is done,
+the run stops again, before page-break verification:
+
+```text
+Paused after page extraction wrote new page files. Check pages/ and report.html, then run pydelity again to verify the page breaks, or pass --no-pause (pause=False in Python) to run every step at once.
+```
+
+Reload `report.html`. Each extracted page now shows its items as numbered boxes
+in reading order, beside a list of the items with their content. Page-break
+verification names these items in its verdicts, so check them before you go on.
+
+## Verify the page breaks
+
+Run the same command a third time:
+
+```sh
+pydelity document.pdf
+```
+
+pydelity reuses the survey and the page files, estimates page-break verification
+and asks again. Page-break verification looks at each pair of pages that follow
+each other and decides whether content, such as a sentence, a list or a table,
+carries on from one page to the next, and how the two parts join. It needs a
+page file for every page of the PDF, so if you extracted only some pages, it
+skips this step and says which pages are missing. See
+[Verify page breaks](../../guides/page-breaks/).
+
+When the run ends, it prints a summary: how the run ended, what each step did
+and cost, how many review issues it found with the first few listed, and the
+files it wrote.
 
 ## Find the results
 
 The output folder now holds:
 
-| File              | What it holds                                                    |
-| ----------------- | ---------------------------------------------------------------- |
-| `report.html`     | The results as a page to open in a browser                       |
-| `pages/`          | One page file per extracted page, such as `pages/0000.json`      |
-| `figures/`        | An image of each figure the pages hold                           |
-| `pdf_facts.json`  | What pydelity measured in the PDF before calling a model         |
-| `pdf_survey.json` | The survey's checked answer: page numbers, rotation, regions     |
-| `run.json`        | How the run went, its settings, cost, warnings and review issues |
-| `cost.jsonl`      | One line per model request, with its tokens and cost             |
-| `uploads.json`    | The PDF's upload to the provider, so later runs can reuse it     |
-| `report/pages/`   | The page images the report shows                                 |
+| File              | What it holds                                                         |
+| ----------------- | --------------------------------------------------------------------- |
+| `report.html`     | The results as a page to open in a browser                            |
+| `pages/`          | One page file per extracted page, such as `pages/0000.json`           |
+| `page_breaks/`    | One verdict file per page break, such as `page_breaks/0000-0001.json` |
+| `figures/`        | An image of each figure the pages hold                                |
+| `pdf_facts.json`  | What pydelity measured in the PDF before calling a model              |
+| `pdf_survey.json` | The survey's checked answer: page numbers, rotation, regions          |
+| `run.json`        | How the run went, its settings, cost, warnings and review issues      |
+| `cost.jsonl`      | One line per model request, with its tokens and cost                  |
+| `uploads.json`    | The PDF's upload to the provider, so later runs can reuse it          |
+| `report/pages/`   | The page images the report shows                                      |
 
-Reload `report.html`. Each extracted page now shows its items as numbered boxes
-in reading order, beside a list of the items with their content. Start with the
-review issues: each one links to the page, and to the item when it is about one.
-[Read the outputs](../../guides/outputs/) explains each file and what to check.
+Reload `report.html`. Below the pages, each page break now has a card with its
+two pages side by side, the items the verdict joins marked on them and the
+verdict beside them. Start with the review issues. Each one links to its page,
+item or page break. [Read the outputs](../../guides/outputs/) explains each file
+and what to check.
 
 ## Run it again
 
-Running the same command again reuses the survey and every page file and costs
-nothing, as long as the PDF and the settings that affect them are unchanged.
-[Rerun and resume](../../guides/reruns/) explains when pydelity redoes a step or
-a page.
+Running the same command again reuses the survey, every page file and every
+verdict and costs nothing, as long as the PDF and the settings that affect them
+are unchanged. [Rerun and resume](../../guides/reruns/) explains when pydelity
+redoes a step, a page or a page break.
 
 ## Next
 
 - [Extract pages](../../guides/page-extraction/)
+- [Verify page breaks](../../guides/page-breaks/)
 - [Use pydelity from Python](../../guides/python/)
 - [Keep settings in a file](../../guides/configuration/)

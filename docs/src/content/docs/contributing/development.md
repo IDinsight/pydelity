@@ -79,8 +79,8 @@ just test
   get.
 
 CI runs the tests on Python 3.13 and 3.14. It also builds the wheel and, on
-Linux, macOS and Windows, installs it in a fresh environment and runs the survey
-and page extraction against the stand-in server
+Linux, macOS and Windows, installs it in a fresh environment and runs the
+survey, page extraction and page-break verification against the stand-in server
 (`scripts/smoke_installed_wheel.py`).
 
 ## Dependencies
