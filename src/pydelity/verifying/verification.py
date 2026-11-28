@@ -9,10 +9,12 @@ warning and the break is judged again.
 When a page of a break has no item outside the page furniture, nothing can continue,
 so the verdict is written without a request. The other breaks to judge run several
 at a time, at most ``advanced.page_breaks.concurrent_breaks`` at once. The judge
-reads both pages and gives a verdict, and when page-break verification's verifier is
-on, a second request to the same model reviews it. When one break fails, the others
-are canceled and the first error ends the step. Verdict files already written stay
-valid.
+reads both pages and gives a verdict, which is written at once and always kept. When
+page-break verification's verifier is on, the same request is then sent for the
+verifier, which judges the break without seeing the judge's verdict, and the verdict
+file is written again with the verifier's verdict and how the two differ. When one
+break fails, the others are canceled and the first error ends the step. Verdict files
+already written stay valid.
 """
 
 # Standard Library
@@ -21,7 +23,7 @@ import hashlib
 import json
 
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from importlib.metadata import version
@@ -45,20 +47,12 @@ from pydelity.surveying.schemas import Facts, PdfSurvey
 from pydelity.utils.coroutines import warn
 from pydelity.utils.files import load_model, remove_stale_temp_files, write_model_atomic
 from pydelity.utils.fingerprints import fingerprint
-from pydelity.verifying.llm import (
-    BreakInput,
-    JudgeAnswer,
-    StepModel,
-    VerifierAnswer,
-    ask_judge,
-    ask_verifier,
-)
+from pydelity.verifying.llm import JUDGE, VERIFIER, BreakInput, StepModel, ask_model
 from pydelity.verifying.prompts import (
     PROMPT_VERSION,
     BreakPrompts,
     judge_break,
     judge_instructions,
-    verify_break,
 )
 from pydelity.verifying.schemas import (
     BreakContext,
@@ -68,27 +62,22 @@ from pydelity.verifying.schemas import (
     BreakSettings,
     BreakVerdict,
     BreakVerification,
-    BreakVerifierVerdict,
     Judgment,
 )
 from pydelity.verifying.validators import (
     check_results,
+    compare_verdicts,
     compare_with_hints,
     hint_results,
     review_issues,
     run_checks,
 )
 
-# A verdict with nothing in it, for measuring the verifier's own text without the
-# verdict it reviews, which the estimate counts as the judge's answer.
-_EMPTY_VERDICT = BreakVerdict(containers=[], continues=False, pieces=[], reason="")
-
-# The size of a break's judge and verifier requests before the survey has made the
-# hints their instructions hold, in characters, without the pages: the instructions
-# with the hints and, for the verifier, its review text, plus the answer format.
-# Rounded up from the largest measured on real surveys, 13,967 and 17,143.
-_JUDGE_ALLOWANCE_CHARS = 14_000
-_VERIFIER_ALLOWANCE_CHARS = 18_000
+# The size of a break's request before the survey has made the hints its
+# instructions hold, in characters, without the pages: the instructions with the
+# hints, plus the verdict format. Rounded up from the largest measured on real
+# surveys, 13,967.
+_INSTRUCTIONS_ALLOWANCE_CHARS = 14_000
 
 # The size of one page's details in a break's requests before its page file exists,
 # in characters, beyond twice its text-layer characters. Rounded up from real runs
@@ -104,19 +93,19 @@ BREAKS_FOLDER_NAME = "page_breaks"
 
 @dataclass(frozen=True)
 class _KeptVerdict:
-    """The verdict a verdict file keeps, after the verifier's review if one ran.
+    """The verdict a verdict file keeps, with the verifier's judgment if one ran.
 
     Attributes
     ----------
     attempts
-        How many verdicts were checked from the model that gave it, or 0 when no
-        model was asked.
+        How many verdicts the judge gave, or 0 when no model was asked.
     failures
         Each check's failures on it, in the order the checks run.
     verdict
-        The judge's verdict, or the verifier's correction when it replaced it.
+        The judge's verdict, or the verdict written without a request.
     verification
-        The verifier's review, for the verdict file; ``None`` when no verifier ran.
+        The verifier's second judgment, for the verdict file; ``None`` when no
+        verifier ran.
     """
 
     attempts: int
@@ -146,49 +135,6 @@ class _StepRun:
     model: StepModel
     output_folder: Path
     worker: PdfWorker
-
-
-async def _ask_models(planned: "PlannedBreak", *, run: _StepRun) -> _KeptVerdict:
-    """Ask the judge for a break's verdict, and the verifier to review it when on.
-
-    Parameters
-    ----------
-    planned
-        The break.
-    run
-        The step's shared state.
-
-    Returns
-    -------
-    _KeptVerdict
-        The verdict to keep, with its check failures and the verifier's review.
-    """
-
-    earlier, later = planned.earlier.page_file, planned.later.page_file
-    request = BreakInput(
-        context=planned.inputs.context,
-        earlier=earlier,
-        earlier_image=await run.worker.page_image(
-            page_index=earlier.page_index, rotation=earlier.rotation
-        ),
-        later=later,
-        later_image=await run.worker.page_image(
-            page_index=later.page_index, rotation=later.rotation
-        ),
-    )
-    judged = await ask_judge(model=run.model, request=request)
-    verified = None
-    if run.model.verify:
-        verified = await ask_verifier(
-            differences=compare_with_hints(
-                judged.verdict, earlier, later, request.context
-            ),
-            failures=judged.failures,
-            model=run.model,
-            request=request,
-            verdict=judged.verdict,
-        )
-    return _kept_verdict(judged=judged, verified=verified)
 
 
 def _break_context(*, config: Config, survey: PdfSurvey) -> BreakContext:
@@ -229,7 +175,7 @@ def _break_file(
         ``model`` when a model judged the break, ``no_content`` when no request was
         made.
     kept
-        The kept verdict, its check failures and the verifier's review.
+        The kept verdict, its check failures and the verifier's judgment.
 
     Returns
     -------
@@ -302,6 +248,36 @@ def _break_fingerprint(inputs: BreakInputs) -> str:
 
     return fingerprint(
         inputs.model_dump(mode="json") | {"schema_version": BREAK_SCHEMA_VERSION}
+    )
+
+
+async def _break_input(planned: "PlannedBreak", *, run: _StepRun) -> BreakInput:
+    """Render a break's two pages upright and gather what the models are given.
+
+    Parameters
+    ----------
+    planned
+        The break.
+    run
+        The step's shared state, for the PDF worker.
+
+    Returns
+    -------
+    BreakInput
+        The break's context, both page files and both upright images.
+    """
+
+    earlier, later = planned.earlier.page_file, planned.later.page_file
+    return BreakInput(
+        context=planned.inputs.context,
+        earlier=earlier,
+        earlier_image=await run.worker.page_image(
+            page_index=earlier.page_index, rotation=earlier.rotation
+        ),
+        later=later,
+        later_image=await run.worker.page_image(
+            page_index=later.page_index, rotation=later.rotation
+        ),
     )
 
 
@@ -429,7 +405,12 @@ def _damage(break_file: BreakFile) -> str | None:
 
 
 async def _judge_break(planned: "PlannedBreak", *, run: _StepRun) -> BreakFile:
-    """Ask the models about one break, then write and log its verdict file.
+    """Ask the models about one break, writing its verdict file after each, then log.
+
+    The judge's verdict is written first, with no verification, so it is saved even
+    when the verifier's request fails. With the verifier on, the same request is
+    then sent for the verifier, its verdict is compared with the judge's, and the
+    file is written again with the comparison and the review issues it adds.
 
     Parameters
     ----------
@@ -441,17 +422,40 @@ async def _judge_break(planned: "PlannedBreak", *, run: _StepRun) -> BreakFile:
     Returns
     -------
     BreakFile
-        The verdict file, as written.
+        The verdict file, as last written.
     """
 
-    kept = await _ask_models(planned, run=run)
+    request = await _break_input(planned, run=run)
+    judged = await ask_model(agent=JUDGE, model=run.model, request=request)
+    kept = _KeptVerdict(
+        attempts=judged.attempts,
+        failures=judged.failures,
+        verdict=judged.verdict,
+        verification=None,
+    )
     break_file = _break_file(planned, judgment="model", kept=kept)
-    _write_break(
+    _save_break(break_file, output_folder=run.output_folder)
+    if run.model.verify:
+        checked = await ask_model(agent=VERIFIER, model=run.model, request=request)
+        verification = BreakVerification(
+            attempts=checked.attempts,
+            checks=check_results(checked.failures, attempts=checked.attempts),
+            differences=compare_verdicts(
+                judged.verdict,
+                checked.verdict,
+                page_index=planned.earlier_page_index,
+            ),
+            verdict=checked.verdict,
+        )
+        break_file = _break_file(
+            planned, judgment="model", kept=replace(kept, verification=verification)
+        )
+        _save_break(break_file, output_folder=run.output_folder)
+    _log_break(
         break_file,
         outcome=f"{len(break_file.issues)} review issues, "
         f"{_verifier_outcome(break_file.verification)}; "
         f"{_cost_of_break(page_index=planned.earlier_page_index, run=run)}",
-        output_folder=run.output_folder,
     )
     return break_file
 
@@ -507,70 +511,26 @@ async def _judge_concurrently(
             raise first from first.__cause__
 
 
-def _kept_verdict(
-    *, judged: JudgeAnswer, verified: VerifierAnswer | None
-) -> _KeptVerdict:
-    """Apply the verifier's answer, keeping its correction when the checks allow.
-
-    A correction is kept when it passes every check, whatever its hint differences,
-    since the hints come from the survey, which can be wrong.
+def _log_break(break_file: BreakFile, *, outcome: str) -> None:
+    """Log a break's line once its verdict file is written.
 
     Parameters
     ----------
-    judged
-        The judge's kept verdict.
-    verified
-        The verifier's answer on it, or ``None`` when no verifier ran.
-
-    Returns
-    -------
-    _KeptVerdict
-        The correction, with its check failures, when the answer has one that is
-        kept, and otherwise the judge's verdict, with the verifier's review when one
-        ran.
+    break_file
+        The verdict file.
+    outcome
+        How the verdict was made, such as ``0 review issues, no verifier; $0.06 for
+        1 request``.
     """
 
-    if verified is None:
-        return _KeptVerdict(
-            attempts=judged.attempts,
-            failures=judged.failures,
-            verdict=judged.verdict,
-            verification=None,
-        )
-
-    corrected = verified.review.corrected
-    correction_failures = verified.correction_failures
-    if (
-        corrected is not None
-        and correction_failures is not None
-        and not any(correction_failures.values())
-    ):
-        return _KeptVerdict(
-            attempts=verified.attempts,
-            failures=correction_failures,
-            verdict=corrected,
-            verification=BreakVerification(
-                attempts=verified.attempts,
-                correction_applied=True,
-                correction_failures=[],
-                verdict=verified.review,
-            ),
-        )
-
-    rejected = []
-    if correction_failures is not None:
-        results = check_results(correction_failures, attempts=verified.attempts)
-        rejected = [result for result in results if not result.passed]
-    return _KeptVerdict(
-        attempts=judged.attempts,
-        failures=judged.failures,
-        verdict=judged.verdict,
-        verification=BreakVerification(
-            attempts=verified.attempts,
-            correction_applied=False,
-            correction_failures=rejected,
-            verdict=verified.review,
-        ),
+    pieces = len(break_file.verdict.pieces)
+    logger.info(
+        "{label}: {continuation}, {outcome}",
+        continuation=f"continues, {pieces} piece{'' if pieces == 1 else 's'}"
+        if break_file.verdict.continues
+        else "nothing continues",
+        label=_break_label(break_file.earlier_page_index),
+        outcome=outcome,
     )
 
 
@@ -612,10 +572,10 @@ def _no_content_break(
         verification=None,
     )
     break_file = _break_file(planned, judgment="no_content", kept=kept)
-    _write_break(
+    _save_break(break_file, output_folder=output_folder)
+    _log_break(
         break_file,
         outcome=f"no request, {_pages_phrase(empty).lower()} no content items",
-        output_folder=output_folder,
     )
     return break_file
 
@@ -695,10 +655,10 @@ def _reusable_break(
     """Return a break's saved verdict file when it can be reused.
 
     It can be reused when its fingerprint matches, ``overwrite`` is not set, and it
-    was made without a request, holds a verifier's review, or page-break
+    was made without a request, holds the verifier's judgment, or page-break
     verification's verifier is off. So a break judged without the verifier is
-    judged again once the verifier is turned on, while a break the verifier
-    reviewed is still reused after it is turned off.
+    judged again once the verifier is turned on, while a break the verifier judged
+    is still reused after it is turned off.
 
     Parameters
     ----------
@@ -710,7 +670,7 @@ def _reusable_break(
         The fingerprint of the break's current inputs.
     quiet
         Whether to leave out the log line for a verdict file passed over only
-        because no verifier reviewed it.
+        because no verifier judged the break.
 
     Returns
     -------
@@ -727,12 +687,29 @@ def _reusable_break(
     ):
         if not quiet:
             logger.info(
-                "{label}: no verifier reviewed its verdict, so the break is judged "
-                "again with the verifier",
+                "{label}: no verifier judged it, so the break is judged again with "
+                "the verifier",
                 label=_break_label(saved.earlier_page_index),
             )
         return None
     return saved
+
+
+def _save_break(break_file: BreakFile, *, output_folder: Path) -> None:
+    """Write a break's verdict file atomically.
+
+    Parameters
+    ----------
+    break_file
+        The verdict file.
+    output_folder
+        The output folder.
+    """
+
+    write_model_atomic(
+        model=break_file,
+        path=output_folder / _break_file_name(break_file.earlier_page_index),
+    )
 
 
 def _saved_break(
@@ -782,69 +759,37 @@ def _text_chars(prompts: BreakPrompts) -> int:
     Returns
     -------
     int
-        The length of the instructions, both page texts and the review text.
+        The length of the instructions and both page texts.
     """
 
     return (
         len(prompts.system_message)
         + len(prompts.earlier_text)
         + len(prompts.later_text)
-        + len(prompts.review_text or "")
     )
 
 
 def _verifier_outcome(verification: BreakVerification | None) -> str:
-    """Describe the verifier's review for the break's log line.
+    """Describe the verifier's judgment for the break's log line.
 
     Parameters
     ----------
     verification
-        The verifier's review, or ``None`` when no verifier ran.
+        The verifier's second judgment, or ``None`` when no verifier ran.
 
     Returns
     -------
     str
-        ``verifier passed``, ``verifier corrected the verdict``, such as
-        ``verifier found 2 problems``, or ``no verifier``.
+        ``verifier agrees`` when its verdict matches the kept verdict, such as
+        ``verifier differs in 2 places`` when it does not, or ``no verifier``.
     """
 
     if verification is None:
         return "no verifier"
-    if verification.verdict.passed:
-        return "verifier passed"
-    if verification.correction_applied:
-        return "verifier corrected the verdict"
-    count = len(verification.verdict.problems)
-    return f"verifier found {count} problem{'' if count == 1 else 's'}"
-
-
-def _write_break(break_file: BreakFile, *, outcome: str, output_folder: Path) -> None:
-    """Write a break's verdict file atomically and log the break's line.
-
-    Parameters
-    ----------
-    break_file
-        The verdict file.
-    outcome
-        How the verdict was made, for the log line, such as ``0 review issues, no
-        verifier; $0.06 for 2 requests``.
-    output_folder
-        The output folder.
-    """
-
-    page_index = break_file.earlier_page_index
-    write_model_atomic(
-        model=break_file, path=output_folder / _break_file_name(page_index)
-    )
-    pieces = len(break_file.verdict.pieces)
-    logger.info(
-        "{label}: {continuation}, {outcome}",
-        continuation=f"continues, {pieces} piece{'' if pieces == 1 else 's'}"
-        if break_file.verdict.continues
-        else "nothing continues",
-        label=_break_label(page_index),
-        outcome=outcome,
-    )
+    count = len(verification.differences)
+    if not count:
+        return "verifier agrees"
+    return f"verifier differs in {count} place{'' if count == 1 else 's'}"
 
 
 @dataclass(frozen=True)
@@ -991,8 +936,8 @@ def plan_breaks(
     """Decide which breaks to judge and which verdict files to reuse.
 
     A verdict file is reused when it is valid, its fingerprint matches the break's
-    inputs, ``overwrite`` is not set, and it was made without a request, holds a
-    verifier's review, or page-break verification's verifier is off. A damaged
+    inputs, ``overwrite`` is not set, and it was made without a request, holds the
+    verifier's judgment, or page-break verification's verifier is off. A damaged
     verdict file gives a warning, and the plan is logged.
 
     Parameters
@@ -1062,30 +1007,25 @@ def request_sizes(breaks: Sequence[PlannedBreak]) -> list[BreakRequestSize]:
     Returns
     -------
     list[BreakRequestSize]
-        The request sizes of each break the models would judge, in the order of
-        ``breaks``.
+        The request size of each break the models would judge, in the order of
+        ``breaks``. The judge and the verifier send the same request.
     """
 
     verdict_format = len(json.dumps(BreakVerdict.model_json_schema()))
-    review_format = len(json.dumps(BreakVerifierVerdict.model_json_schema()))
-    sizes = []
-    for planned in breaks:
-        if _pages_without_content(planned):
-            continue
-        context = planned.inputs.context
-        judged = judge_break(
-            context, earlier=planned.earlier.page_file, later=planned.later.page_file
-        )
-        verifier = verify_break(
-            context, differences={}, failures={}, judged=judged, verdict=_EMPTY_VERDICT
-        )
-        sizes.append(
-            BreakRequestSize(
-                judge_chars=_text_chars(judged) + verdict_format,
-                verifier_chars=_text_chars(verifier) + review_format,
+    return [
+        BreakRequestSize(
+            chars=_text_chars(
+                judge_break(
+                    planned.inputs.context,
+                    earlier=planned.earlier.page_file,
+                    later=planned.later.page_file,
+                )
             )
+            + verdict_format
         )
-    return sizes
+        for planned in breaks
+        if not _pages_without_content(planned)
+    ]
 
 
 def request_sizes_before_pages(
@@ -1095,7 +1035,7 @@ def request_sizes_before_pages(
     facts: Facts,
     survey: PdfSurvey | None,
 ) -> list[BreakRequestSize]:
-    """Size the requests of breaks whose page files do not exist yet.
+    """Size the request of breaks whose page files do not exist yet.
 
     The instructions are measured from the survey when it exists, and are otherwise
     an allowance with the user's instructions added. Each page adds an allowance
@@ -1115,42 +1055,28 @@ def request_sizes_before_pages(
     Returns
     -------
     list[BreakRequestSize]
-        Each break's request sizes, in the order of ``earlier_page_indexes``.
+        Each break's request size, in the order of ``earlier_page_indexes``.
     """
 
     if survey is None:
-        instructions = len(config.advanced.page_breaks.instructions or "")
-        judge = _JUDGE_ALLOWANCE_CHARS + instructions
-        verifier = _VERIFIER_ALLOWANCE_CHARS + instructions
+        instructions = _INSTRUCTIONS_ALLOWANCE_CHARS + len(
+            config.advanced.page_breaks.instructions or ""
+        )
     else:
         context = _break_context(config=config, survey=survey)
-        judge = len(judge_instructions(context)) + len(
+        instructions = len(judge_instructions(context)) + len(
             json.dumps(BreakVerdict.model_json_schema())
         )
-        # The verifier's instructions and review text, without page texts.
-        blank = BreakPrompts(
-            earlier_text="", later_text="", review_text=None, system_message=""
-        )
-        verifier = _text_chars(
-            verify_break(
-                context,
-                differences={},
-                failures={},
-                judged=blank,
-                verdict=_EMPTY_VERDICT,
+    return [
+        BreakRequestSize(
+            chars=instructions
+            + sum(
+                _PAGE_ALLOWANCE_CHARS + 2 * facts.pages[page_index].text.chars
+                for page_index in (index, index + 1)
             )
-        ) + len(json.dumps(BreakVerifierVerdict.model_json_schema()))
-
-    sizes = []
-    for index in earlier_page_indexes:
-        pages = sum(
-            _PAGE_ALLOWANCE_CHARS + 2 * facts.pages[page_index].text.chars
-            for page_index in (index, index + 1)
         )
-        sizes.append(
-            BreakRequestSize(judge_chars=judge + pages, verifier_chars=verifier + pages)
-        )
-    return sizes
+        for index in earlier_page_indexes
+    ]
 
 
 async def verify_breaks(

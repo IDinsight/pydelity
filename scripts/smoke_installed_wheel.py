@@ -96,7 +96,7 @@ if pydelity.load(output_dir) != result:
 # The survey answer the stand-in gives, written for the test PDF below.
 ANSWER_PATH = REPO_ROOT / "tests/fixtures/survey_answers/irs_form_1040a_1965_scan.json"
 
-# The judge and verifier answers the stand-in gives for the test PDF's page break.
+# The answers the stand-in gives for the test PDF's page break, in arrival order.
 BREAK_ANSWERS_PATH = (
     REPO_ROOT / "tests/fixtures/break_answers/irs_form_1040a_1965_scan.json"
 )

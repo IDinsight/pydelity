@@ -308,7 +308,8 @@ class PageBreaksConfig(BaseModel):
     """How long to wait for one model request before it counts as failed."""
 
     verify: bool | None = None
-    """Whether a verifier reviews each page break's verdict; ``verify`` if unset."""
+    """Whether a verifier judges each page break a second time, without seeing the
+    first verdict, so the two verdicts can be compared; ``verify`` if unset."""
 
 
 class SurveyConfig(BaseModel):
@@ -429,10 +430,13 @@ class Config(BaseModel):
     """The PDF to process."""
 
     verify: bool = False
-    """Whether a verifier reviews each step's answer.
+    """Whether a verifier checks each step's answer.
 
-    The verifier is a second request to the step's model, which checks the answer
-    against the PDF and may correct it. Each verifier request adds cost.
+    For the survey and page extraction, the verifier is a second request to the
+    step's model, which checks the answer against the PDF and may correct it. For
+    page-break verification, it judges each page break a second time without seeing
+    the first verdict, and each way the two verdicts differ is a review issue. Each
+    verifier request adds cost.
     """
 
     @property

@@ -101,9 +101,8 @@ The figures the cost estimate and the `max_cost` checks use.
   output token of its extraction, beyond `TYPICAL_PAGE_OUTPUT_TOKENS`, for the
   estimate. The answer repeats the text with an item's fields around it.
 - `TYPICAL_BREAK_OUTPUT_TOKENS` = `4000`: The output tokens of a typical
-  page-break verdict, thinking included, for the estimate.
-- `TYPICAL_BREAK_VERDICT_OUTPUT_TOKENS` = `3000`: The output tokens of a typical
-  review of a page-break verdict, thinking included, for the estimate.
+  page-break verdict, thinking included, for the estimate. The judge's and the
+  verifier's verdicts are alike.
 - `TYPICAL_OUTPUT_TOKENS` = `8000`: The output tokens of a typical survey
   answer, thinking included, for the estimate.
 - `TYPICAL_PAGE_OUTPUT_TOKENS` = `4000`: The output tokens of a typical page

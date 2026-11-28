@@ -13,8 +13,8 @@ a new unit of content starts. A piece whose start on the later page begins with 
 may join content that does not continue, unless it appends table rows or the verdict
 names a continuation marker in that start. The survey can be wrong, and the model's
 reading of the pages decides. A hint difference never sends a verdict back. The
-verdict file records it, and the review list shows it unless a verifier passed the
-verdict or its correction was kept.
+verdict file records it, and the review list shows it unless the verifier's own
+verdict for the break matches the kept verdict.
 
 The comparison of the kept verdict for a break with the verifier's gives one
 difference when only one of them says content continues, one for each piece only one
@@ -38,13 +38,18 @@ from typing import Literal
 # Package Library
 from pydelity.extracting.schemas import Item, PageFile, TableCell
 from pydelity.extracting.text_layer import comparison_form, trigrams
-from pydelity.review import BreakCheckName, BreakHintName, CheckFailure, ReviewIssue
+from pydelity.review import (
+    BreakCheckName,
+    BreakComparisonName,
+    BreakHintName,
+    CheckFailure,
+    ReviewIssue,
+)
 from pydelity.surveying.schemas import ItemKind, ItemRole
 from pydelity.verifying.schemas import (
     BreakCheckResult,
     BreakContext,
     BreakHintResult,
-    BreakProblem,
     BreakVerdict,
     BreakVerification,
     ContinuationMarker,
@@ -1010,10 +1015,10 @@ def _issue(
     failure: CheckFailure,
     *,
     ids: frozenset[str],
-    name: BreakCheckName | BreakHintName,
+    name: BreakCheckName | BreakComparisonName | BreakHintName,
     page_index: int,
 ) -> ReviewIssue:
-    """Turn a check failure or hint difference on the kept verdict into a review issue.
+    """Turn a check failure, hint difference or verdict difference into a review issue.
 
     Parameters
     ----------
@@ -1022,7 +1027,7 @@ def _issue(
     ids
         The IDs of the items and containers on both pages of the break.
     name
-        The check or hint that found it.
+        The check, hint or comparison that found it.
     page_index
         The page before the break.
 
@@ -2022,37 +2027,6 @@ def _value(value: object) -> str:
     return str(value)
 
 
-def _verifier_issue(
-    problem: BreakProblem, *, ids: frozenset[str], page_index: int
-) -> ReviewIssue:
-    """Turn a problem the verifier found into a review issue.
-
-    Parameters
-    ----------
-    problem
-        The problem.
-    ids
-        The IDs of the items and containers on both pages of the break.
-    page_index
-        The page before the break.
-
-    Returns
-    -------
-    ReviewIssue
-        A ``verifier`` issue naming both pages in its message and the problem's item
-        or container when one of the pages has it.
-    """
-
-    return ReviewIssue(
-        check="verifier",
-        details={"category": problem.category, "item": problem.item},
-        item_id=problem.item if problem.item in ids else None,
-        message=f"{_pages(page_index)}: verifier: {problem.description}",
-        page_index=page_index,
-        step="page_breaks",
-    )
-
-
 def check_continues(
     verdict: BreakVerdict, earlier: PageFile, later: PageFile
 ) -> list[CheckFailure]:
@@ -2641,43 +2615,37 @@ def review_issues(
     later
         The page file of the page after the break.
     verification
-        The verifier's review, or ``None`` when no verifier ran.
+        The verifier's second judgment, or ``None`` when no verifier ran.
 
     Returns
     -------
     list[ReviewIssue]
         The checks still failing on the kept verdict, then its hint differences,
-        then the verifier's problems when its correction was not kept. Hint
-        differences are left out when the verifier passed the verdict or its
-        correction was kept, since it judged the verdict against the page images.
-        Each issue is on the page before the break and names both pages in its
-        message.
+        then each way the verifier's verdict differs from it. Hint differences are
+        left out when the verifier's verdict matches the kept verdict, since two
+        judgments of the page images agree. The checks the verifier's verdict fails
+        are not listed. Each issue is on the page before the break and names both
+        pages in its message.
     """
 
     ids = _page_ids(earlier) | _page_ids(later)
-    page_index = earlier.page_index
-    accepted = verification is not None and (
-        verification.verdict.passed or verification.correction_applied
-    )
-    found: list[tuple[BreakCheckName | BreakHintName, CheckFailure]] = [
-        (result.name, failure) for result in checks for failure in result.failures
-    ]
-    if not accepted:
+    found: list[
+        tuple[BreakCheckName | BreakComparisonName | BreakHintName, CheckFailure]
+    ] = [(result.name, failure) for result in checks for failure in result.failures]
+    if verification is None or verification.differences:
         found += [
             (result.name, difference)
             for result in hints
             for difference in result.differences
         ]
-    issues = [
-        _issue(failure, ids=ids, name=name, page_index=page_index)
+    if verification is not None:
+        found += [
+            ("verdicts_differ", difference) for difference in verification.differences
+        ]
+    return [
+        _issue(failure, ids=ids, name=name, page_index=earlier.page_index)
         for name, failure in found
     ]
-    if verification is not None and not verification.correction_applied:
-        issues += [
-            _verifier_issue(problem, ids=ids, page_index=page_index)
-            for problem in verification.verdict.problems
-        ]
-    return issues
 
 
 def run_checks(

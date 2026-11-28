@@ -1,14 +1,14 @@
-"""Page-break verification's prompts: one for the judge, one for the verifier.
+"""Page-break verification's prompt, which the judge and the verifier both send.
 
-Each prompt's instructions (the system message) are the same for every break of a
-run, so providers can cache them: the task, the rules a verdict follows, the survey's
+The instructions (the system message) are the same for every break of a run, so
+providers can cache them: the task, the rules a verdict follows, the survey's
 continuation notes and start markers as hints the pages override and, last, the
 user's page-break verification instructions. The text sent before each page image
 says which page it is and lists the page's containers and items, as page extraction
 recorded them, as JSON, one per line, with boxes on the upright image's grid and
-numbered table rows and cells. The verifier's request adds the verdict to review,
-the checks it still fails and its differences from the hints. No message asks a
-model to change its verdict to match a hint.
+numbered table rows and cells. The verifier sends the judge's request again, so it
+judges the break without seeing the judge's verdict. No message asks a model to
+change its verdict to match a hint.
 
 No prompt names a language, a document type or a writing direction as a default.
 """
@@ -16,15 +16,14 @@ No prompt names a language, a document type or a writing direction as a default.
 # Standard Library
 import json
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 # Package Library
 from pydelity.extracting.rendering import GRID, points_box_to_grid
 from pydelity.extracting.schemas import Container, Entry, Item, PageFile, Table
-from pydelity.review import BreakCheckName, BreakHintName, CheckFailure
 from pydelity.surveying.schemas import ItemKind, ItemRole
-from pydelity.verifying.schemas import BreakContext, BreakVerdict
+from pydelity.verifying.schemas import BreakContext
 
 # How a page's column order, set on pages written in vertical columns, is given.
 _COLUMN_ORDERS = {
@@ -51,18 +50,7 @@ _DIRECTIONS = {
     "ttb": "The survey found the page written top to bottom, in vertical columns.",
 }
 
-# The verifier's review list.
-_REVIEW = """\
-Review the verdict against the page images for:
-1. Content that carries on across the break and is missing from the verdict.
-2. Pieces that do not carry on.
-3. Pieces that end or start in the wrong item or list entry.
-4. Wrong joins or text joins.
-5. A wrong count of repeated header rows.
-6. Repeated items or continuation markers that are missing or wrong.
-7. Continuing containers that are missing or wrong."""
-
-# The rules a verdict follows, which both models get.
+# The rules a verdict follows.
 _RULES = f"""\
 What you get. Each of the two pages comes as an upright image, after a text that \
 lists the page's containers and items as another model extracted them, in reading \
@@ -156,26 +144,8 @@ Nothing carrying on is a valid answer. Set continues to true when you list at le
 one piece, and to false with no pieces when nothing carries on. Decide from what the \
 pages show, and in reason quote the text that decides it."""
 
-# The verifier's verdict rules.
-_VERDICT = """\
-Give a verdict. When the verdict is right and nothing material is wrong, set passed \
-to true, with no problems and corrected null. Otherwise set passed to false and list \
-each problem: its category, the ID of the item or container on either page it is \
-about (null when it is about no single one, such as content missing from the \
-verdict), and a description that quotes the text concerned so that a person can find \
-it. Then give corrected: the whole verdict again with every problem fixed, following \
-the same rules. Start from the verdict, fix what is wrong and keep what is right. \
-List only problems that change what the verdict says about the break, not matters of \
-taste. Set corrected to null only when you cannot correct the verdict.
-
-The checks the verdict still fails and its differences from the hints are given \
-after the pages. The checks come from code that tests the verdict's consistency, and \
-a correction must pass them. The hint differences come from the survey, which can be \
-wrong. A difference is a problem only when the pages show that the verdict is wrong, \
-and a correction need not agree with the hints."""
-
-# The version of the prompts. Increase it whenever the text of either prompt or of
-# the page text changes, so a saved verdict file made with the older prompts is made
+# The version of the prompt. Increase it whenever the text of the instructions or of
+# the page text changes, so a saved verdict file made with the older prompt is made
 # again.
 PROMPT_VERSION = 1
 
@@ -342,24 +312,6 @@ def _json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def _listed(found: Iterable[Sequence[CheckFailure]]) -> str:
-    """List check failures or hint differences for the verifier's review text.
-
-    Parameters
-    ----------
-    found
-        Each check's failures, or each hint's differences.
-
-    Returns
-    -------
-    str
-        One line per failure or difference, or ``none``.
-    """
-
-    lines = [f"- {failure.message}" for failures in found for failure in failures]
-    return "\n".join(lines) if lines else "none"
-
-
 def _page_text(page: PageFile, *, side: str) -> str:
     """Write what is sent about one page of the break before its image.
 
@@ -466,24 +418,19 @@ class BreakPrompts:
         break.
     later_text
         The text sent before the later page's image.
-    review_text
-        For the verifier, the text sent after both images: the verdict to review,
-        the checks it still fails and its differences from the hints. ``None`` for
-        the judge.
     system_message
         The instructions, the same for every break of a run.
     """
 
     earlier_text: str
     later_text: str
-    review_text: str | None
     system_message: str
 
 
 def judge_break(
     context: BreakContext, *, earlier: PageFile, later: PageFile
 ) -> BreakPrompts:
-    """Write the judge's messages for one break.
+    """Write the messages of one break's request, which the judge and the verifier send.
 
     Parameters
     ----------
@@ -509,13 +456,12 @@ def judge_break(
             + _page_text(earlier, side="before")
         ),
         later_text=_page_text(later, side="after"),
-        review_text=None,
         system_message=judge_instructions(context),
     )
 
 
 def judge_instructions(context: BreakContext) -> str:
-    """Write the judge's instructions, the same for every break of a run.
+    """Write the request's instructions, the same for every break of a run.
 
     Parameters
     ----------
@@ -540,64 +486,3 @@ def judge_instructions(context: BreakContext) -> str:
         f"{_hints(context)}"
     )
     return _with_user_instructions(system_message, context.instructions)
-
-
-def verify_break(
-    context: BreakContext,
-    *,
-    differences: Mapping[BreakHintName, list[CheckFailure]],
-    failures: Mapping[BreakCheckName, list[CheckFailure]],
-    judged: BreakPrompts,
-    verdict: BreakVerdict,
-) -> BreakPrompts:
-    """Write the verifier's messages for one break's verdict.
-
-    Parameters
-    ----------
-    context
-        The break's context.
-    differences
-        The verdict's differences from the hints, from
-        `pydelity.verifying.validators.compare_with_hints`.
-    failures
-        The checks the verdict still fails, from
-        `pydelity.verifying.validators.run_checks`.
-    judged
-        The judge's prompts for the break, from `judge_break`. The verifier's
-        request repeats their page texts.
-    verdict
-        The judge's verdict to review.
-
-    Returns
-    -------
-    BreakPrompts
-        The instructions, the same for every break of a run, the judge's page texts,
-        and the review text with the verdict, the checks it still fails and its
-        differences from the hints.
-    """
-
-    system_message = (
-        "You review another model's verdict on one page break, the break between two "
-        "consecutive pages of a PDF, against images of both pages. You are not "
-        "judging the break from scratch. You are checking someone else's work and "
-        "correcting it where it is wrong.\n\n"
-        f"{_REVIEW}\n\n{_VERDICT}\n\n"
-        "The rules the verdict follows, which a correction follows too:\n\n"
-        f"{_RULES}\n\n{_hints(context)}"
-    )
-    review_text = "\n\n".join(
-        [
-            "The page-break verdict to review:\n"
-            + _json(verdict.model_dump(mode="json")),
-            "Checks it still fails, which a correction must pass:\n"
-            + _listed(failures.values()),
-            "Differences from the hints, which the pages override:\n"
-            + _listed(differences.values()),
-        ]
-    )
-    return BreakPrompts(
-        earlier_text=judged.earlier_text,
-        later_text=judged.later_text,
-        review_text=review_text,
-        system_message=_with_user_instructions(system_message, context.instructions),
-    )

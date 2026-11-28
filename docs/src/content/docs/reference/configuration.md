@@ -43,11 +43,14 @@ All the settings for a pydelity run.
 - `pause` (boolean; default `true`): Whether to stop after a step that wrote new
   output, so it can be checked before the next step is paid for.
 - `pdf` (path; required): The PDF to process.
-- `verify` (boolean; default `false`): Whether a verifier reviews each step's
+- `verify` (boolean; default `false`): Whether a verifier checks each step's
   answer.
 
-  The verifier is a second request to the step's model, which checks the answer
-  against the PDF and may correct it. Each verifier request adds cost.
+  For the survey and page extraction, the verifier is a second request to the
+  step's model, which checks the answer against the PDF and may correct it. For
+  page-break verification, it judges each page break a second time without
+  seeing the first verdict, and each way the two verdicts differ is a review
+  issue. Each verifier request adds cost.
 
 ## `advanced`
 
@@ -120,8 +123,9 @@ Settings for page-break verification.
   verification's default, if unset.
 - `request_timeout_seconds` (number; more than 0; default `600`): How long to
   wait for one model request before it counts as failed.
-- `verify` (boolean or null; default `null`): Whether a verifier reviews each
-  page break's verdict; `verify` if unset.
+- `verify` (boolean or null; default `null`): Whether a verifier judges each
+  page break a second time, without seeing the first verdict, so the two
+  verdicts can be compared; `verify` if unset.
 
 ## `advanced.survey`
 

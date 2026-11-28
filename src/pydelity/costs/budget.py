@@ -46,12 +46,8 @@ PROMPT_CHARS_PER_TOKEN = 4
 TEXT_CHARS_PER_OUTPUT_TOKEN = 2
 
 # The output tokens of a typical page-break verdict, thinking included, for the
-# estimate.
+# estimate. The judge's and the verifier's verdicts are alike.
 TYPICAL_BREAK_OUTPUT_TOKENS = 4_000
-
-# The output tokens of a typical review of a page-break verdict, thinking included,
-# for the estimate.
-TYPICAL_BREAK_VERDICT_OUTPUT_TOKENS = 3_000
 
 # The output tokens of a typical survey answer, thinking included, for the estimate.
 TYPICAL_OUTPUT_TOKENS = 8_000
@@ -196,20 +192,17 @@ def _unpriced_message(model: str) -> str:
 
 @dataclass(frozen=True)
 class BreakRequestSize:
-    """How large one break's requests are, for the page-break verification estimate.
+    """How large one break's request is, for the page-break verification estimate.
 
     Attributes
     ----------
-    judge_chars
-        The judge's instructions, both pages' details and the verdict format, in
-        characters, without the images.
-    verifier_chars
-        The verifier's instructions, both pages' details and the format of its
-        answer, in characters, without the images and the verdict it reviews.
+    chars
+        The request's instructions, both pages' details and the verdict format, in
+        characters, without the images. The judge and the verifier send the same
+        request.
     """
 
-    judge_chars: int
-    verifier_chars: int
+    chars: int
 
 
 @dataclass(frozen=True)
@@ -528,18 +521,17 @@ def estimate_page_breaks(
 
     Each break's input tokens are its request size divided by
     `PROMPT_CHARS_PER_TOKEN`, plus the provider's tokens per image for each of its
-    two page images. The expected cost is one judge request with
-    `TYPICAL_BREAK_OUTPUT_TOKENS` of output and, when page-break verification's
-    verifier is on, one verifier request, which reads that verdict and gives
-    `TYPICAL_BREAK_VERDICT_OUTPUT_TOKENS`. The maximum is the first request and every
-    check retry of each agent that runs, each with ``max_output_tokens`` of output
-    and the earlier answers added to its input. Both ignore prompt caching, so they
-    overestimate.
+    two page images. The expected cost is one judge request and, when page-break
+    verification's verifier is on, one verifier request, the same request sent
+    again, each with `TYPICAL_BREAK_OUTPUT_TOKENS` of output. The maximum is the
+    first request and every check retry of each agent that runs, each with
+    ``max_output_tokens`` of output and the earlier answers added to its input. Both
+    ignore prompt caching, so they overestimate.
 
     Parameters
     ----------
     breaks
-        The size of each break's requests, for the breaks the models would judge.
+        The size of each break's request, for the breaks the models would judge.
         A break with a page that has no content items needs no request and is not
         among them.
     config
@@ -558,50 +550,25 @@ def estimate_page_breaks(
     attempts = settings.check_retries + 1
     image_tokens = 2 * choice.profile.image_tokens
     verify = config.verify_page_breaks
-    verdict = min(longest, TYPICAL_BREAK_OUTPUT_TOKENS)
+    agents = 2 if verify else 1
 
     expected: list[Decimal | None] = []
     maximum: list[Decimal | None] = []
     for size in breaks:
-        judge_input = (
-            math.ceil(size.judge_chars / PROMPT_CHARS_PER_TOKEN) + image_tokens
-        )
-        expected.append(
+        input_tokens = math.ceil(size.chars / PROMPT_CHARS_PER_TOKEN) + image_tokens
+        # Each agent that runs sends the same request, with its own retries.
+        expected += agents * [
             _price(
                 config=config,
-                input_tokens=judge_input,
+                input_tokens=input_tokens,
                 model=model,
-                output_tokens=verdict,
+                output_tokens=min(longest, TYPICAL_BREAK_OUTPUT_TOKENS),
             )
-        )
-        maximum += [
-            _price(
-                config=config,
-                input_tokens=judge_input + attempt * longest,
-                model=model,
-                output_tokens=longest,
-            )
-            for attempt in range(attempts)
         ]
-        if not verify:
-            continue
-
-        verifier_input = (
-            math.ceil(size.verifier_chars / PROMPT_CHARS_PER_TOKEN) + image_tokens
-        )
-        expected.append(
+        maximum += agents * [
             _price(
                 config=config,
-                input_tokens=verifier_input + verdict,
-                model=model,
-                output_tokens=min(longest, TYPICAL_BREAK_VERDICT_OUTPUT_TOKENS),
-            )
-        )
-        # The verifier also reads the verdict, at most one longest answer.
-        maximum += [
-            _price(
-                config=config,
-                input_tokens=verifier_input + (attempt + 1) * longest,
+                input_tokens=input_tokens + attempt * longest,
                 model=model,
                 output_tokens=longest,
             )
@@ -610,7 +577,6 @@ def estimate_page_breaks(
 
     expected_usd, max_usd = _sum_or_none(expected), _sum_or_none(maximum)
     priced = expected_usd is not None and max_usd is not None
-    agents = 2 if verify else 1
     return StepEstimate(
         breaks=len(breaks),
         expected_usd=expected_usd if priced else None,

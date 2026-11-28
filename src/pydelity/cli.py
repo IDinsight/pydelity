@@ -269,7 +269,10 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
         typer.Option(
             "--verify",
             "-vf",
-            help="Have a verifier review each step's answer, at extra cost.",
+            help=(
+                "Have a verifier check each step's answer, at extra cost. Page breaks "
+                "are judged a second time and the two verdicts compared."
+            ),
             show_default=False,
         ),
     ] = None,
@@ -326,7 +329,7 @@ def _pydelity(  # noqa: PLR0913, PLR0917 - Typer makes each parameter an option
         Whether to run every step without stopping after a step that wrote new
         output.
     verify
-        Whether a verifier reviews each step's answer.
+        Whether a verifier checks each step's answer.
     yes
         Whether to go ahead without asking.
     verbose

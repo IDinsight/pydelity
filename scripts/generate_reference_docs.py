@@ -1118,7 +1118,7 @@ def model_file_page(  # noqa: PLR0913 - one argument per part of the page
 
 
 def page_break_checks_page() -> _Page:
-    """Describe page-break verification's checks, its hint and its verifier issue.
+    """Describe page-break verification's checks, its hint and its verdict comparison.
 
     Returns
     -------
@@ -1135,30 +1135,38 @@ def page_break_checks_page() -> _Page:
         for name, hint in break_checks.HINTS.items()
     ]
     comparison = _docstring_parts(text_layer.__doc__)[0].split("\n\n")[2]
+    fields = ", ".join(
+        f"``{field}``"
+        for field in typing.get_args(break_checks._VerdictField.__value__)
+    )
     body = "\n\n".join(
         [
             _prose(
-                "Each verdict, from the judge or in a verifier's correction, goes "
-                "through the checks and is compared with the hint. A check tests the "
-                "verdict against the page files of the break's two pages. While "
-                "retries remain (``advanced.page_breaks.check_retries``), a verdict "
-                "that fails a check is sent back to the model with every failure "
-                "listed. The last verdict is kept as it is, and each check it still "
-                "fails becomes a review issue. The hint compares the verdict with the "
+                "Each verdict, from the judge or the verifier, goes through the "
+                "checks. A check tests the verdict against the page files of the "
+                "break's two pages. While retries remain "
+                "(``advanced.page_breaks.check_retries``), a verdict that fails a "
+                "check is sent back to the model with every failure listed. The last "
+                "verdict is accepted as it is. Each check the judge's verdict still "
+                "fails becomes a review issue. The checks the verifier's verdict "
+                "still fails are saved in the verdict file's ``verification`` and are "
+                "not review issues. The hint compares the judge's verdict with the "
                 "survey's start markers, which can be wrong, so the model's reading "
                 "of the pages decides. A hint difference never sends a verdict back "
                 "and never stops a run."
             ),
             _prose(
-                "A verifier correction replaces the judge's verdict when it passes "
-                "every check, whatever its hint differences. The verdict file's "
-                "``checks`` holds each check's result on the kept verdict, and its "
-                "``hints`` the hint's differences. A hint difference becomes a review "
-                "issue unless the verifier passed the verdict or its correction was "
-                "kept. With the verifier off (``advanced.page_breaks.verify``, or "
-                "``verify``), every hint difference is a review issue. When a page of "
-                "a break has no content items, no request is made. The verdict says "
-                "nothing continues, and its ``checks`` record 0 attempts."
+                "The judge's verdict is always the one kept. The verdict file's "
+                "``checks`` holds each check's result on it, and its ``hints`` the "
+                "hint's differences. With the verifier on "
+                "(``advanced.page_breaks.verify``, or ``verify``), the judge's "
+                "request is sent again for the verifier, so it judges the break "
+                "without seeing the judge's verdict, and code compares the two "
+                "verdicts. A hint difference becomes a review issue unless the "
+                "verifier's verdict matches the judge's. With the verifier off, every "
+                "hint difference is a review issue. When a page of a break has no "
+                "content items, no request is made. The verdict says nothing "
+                "continues, and its ``checks`` record 0 attempts."
             ),
             _prose(
                 "Each review issue of a break has the page before the break as its "
@@ -1177,13 +1185,16 @@ def page_break_checks_page() -> _Page:
                 f"coefficient of at least {break_checks._MATCH_DICE} over those runs "
                 "of three characters."
             ),
-            "## Other review issues",
-            "### `verifier`",
+            "## Comparing the two verdicts",
+            _prose(_check_text(break_checks.compare_verdicts.__doc__)),
+            "### `verdicts_differ`",
             _prose(
-                "A problem page-break verification's verifier found in a verdict it "
-                "did not replace, because it gave no correction or its correction "
-                "failed a check. The issue gives the problem's category and names the "
-                "item the problem is about, when there is one."
+                "Each way the verifier's verdict differs from the judge's is a "
+                "review issue. Its ``details`` hold the ``field`` that differs, one "
+                f"of {fields}, each verdict's value as ``kept`` and ``verifier``, the "
+                "``item`` and ``entry`` where the piece ends on the page before the "
+                "break, null when no piece applies, and the ``cell`` of one cell's "
+                "join. The verdict file's ``verification`` keeps each difference."
             ),
         ]
     )
@@ -1191,7 +1202,8 @@ def page_break_checks_page() -> _Page:
         body=body,
         description=(
             "The checks every page-break verdict goes through, the hint it is "
-            "compared with, and the page-break verifier's review issues."
+            "compared with, and how the verifier's verdict is compared with the "
+            "judge's."
         ),
         name="page-break-checks",
         order=13,

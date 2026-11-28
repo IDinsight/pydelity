@@ -2,9 +2,11 @@
 
 A step's checks find problems in a model's answer, and its hints compare the answer
 with what pydelity measured or the survey found. Checks still failing on the kept
-answer, and hint differences that no verifier accepted, become review issues. Each
-step saves its own issues with its output, and ``run.json`` lists them all. The check
-and hint names are part of the ``run.json`` contract.
+answer, and hint differences that no verifier accepted, become review issues. So do
+the problems the survey's and page extraction's verifiers find when their
+corrections are not kept, and the ways page-break verification's two judgments of a
+break differ. Each step saves its own issues with its output, and ``run.json`` lists
+them all. The check and hint names are part of the ``run.json`` contract.
 """
 
 # Standard Library
@@ -91,7 +93,8 @@ type SurveyCheckName = Literal[
 # the order they run. A difference never sends the answer back.
 type SurveyHintName = Literal["rotation_differs", "page_number_differs"]
 
-# A problem a step's verifier found whose correction was not kept, in any step.
+# A problem the survey's or page extraction's verifier found whose correction was not
+# kept.
 type VerifierIssueName = Literal["verifier"]
 
 
@@ -148,9 +151,9 @@ class ReviewIssue(_Output):
     break. A ``no_matching_label`` issue gives the ``kind`` and ``role`` that no
     label fits, with the items' refs and IDs (``item_refs``, ``item_ids``). A
     ``verifier`` issue gives the problem's ``category``, with its ``item_ref`` on a
-    page and its ``item`` on a page break. A ``verdicts_differ`` issue gives the
-    difference's ``details``, with the ``field``, the ``kept`` and ``verifier``
-    values, and the ``item``, ``entry`` and ``cell`` where they apply."""
+    page. A ``verdicts_differ`` issue gives the difference's ``details``, with the
+    ``field``, the ``kept`` and ``verifier`` values, and the ``item``, ``entry`` and
+    ``cell`` where they apply."""
 
     item_id: str | None
     """The item the problem is about, or ``None`` when no single item applies."""

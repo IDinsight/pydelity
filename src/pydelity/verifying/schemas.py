@@ -1,16 +1,18 @@
 """Page-break verification's data: the verdicts and the verdict file.
 
-`BreakVerdict` is what the judge, page-break verification's model, answers for the
-break between two consecutive pages, and `BreakVerifierVerdict` what the verifier
-answers about that verdict. Like the other steps' answers, they use only strings,
-integers, booleans, enums, lists and objects, with no patterns or bounds, so they fit
-both providers' structured output. Every piece has the same fields, with the fields
-its join does not use set to null. `pydelity.verifying.validators` checks which
-fields go with which join, and what else code can decide about a verdict.
+`BreakVerdict` is what page-break verification's model answers for the break between
+two consecutive pages, as the judge and, when it is on, as the verifier, which judges
+the break a second time without seeing the judge's verdict. Like the other steps'
+answers, it uses only strings, integers, booleans, enums, lists and objects, with no
+patterns or bounds, so it fits both providers' structured output. Every piece has
+the same fields, with the fields its join does not use set to null.
+`pydelity.verifying.validators` checks which fields go with which join, and what else
+code can decide about a verdict.
 
 A verdict names items, list entries and containers by the IDs in the two pages' page
 files. The verdict file (``page_breaks/<NNNN>-<NNNN>.json``, `BreakFile`) keeps the
-verdict with its checks, hints, review issues and what it was made from.
+judge's verdict with its checks, hints, review issues and what it was made from, and
+the verifier's verdict with how it differs from the judge's.
 
 Output models accept fields they do not know, so a file written by a newer pydelity
 with the same major ``schema_version`` still loads.
@@ -18,28 +20,16 @@ with the same major ``schema_version`` still loads.
 
 # Standard Library
 from datetime import datetime
-from typing import Literal, Self
+from typing import Literal
 
 # Third Party Library
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict
 
 # Package Library
 from pydelity.extracting.schemas import RenderingSettings
 from pydelity.providers.profiles import Effort
 from pydelity.review import BreakCheckName, BreakHintName, CheckFailure, ReviewIssue
 from pydelity.surveying.schemas import StartMarker
-
-# What kind of problem the verifier found in a verdict.
-type BreakProblemCategory = Literal[
-    "continues",
-    "piece",
-    "join",
-    "header_rows",
-    "repeated_items",
-    "markers",
-    "containers",
-    "other",
-]
 
 # How a continuing piece joins the later page's content to the earlier page's.
 # ``continue_text`` joins a text item to a text item, or a code item to a code item.
@@ -74,20 +64,20 @@ class _Output(BaseModel):
 
 
 class BreakCheckResult(_Output):
-    """The result of one check on the break's kept verdict."""
+    """The result of one check on a verdict for the break."""
 
     attempts: int
     """How many verdicts were checked: 1 plus the retries used."""
 
     failures: list[CheckFailure]
-    """The problems the check found in the kept verdict. A review issue made from a
-    failure names its item by ID in ``item_id``."""
+    """The problems the check found in the verdict. A review issue made from a
+    failure on the kept verdict names its item by ID in ``item_id``."""
 
     name: BreakCheckName
     """The check."""
 
     passed: bool
-    """Whether the kept verdict passed: ``failures`` is empty."""
+    """Whether the verdict passed: ``failures`` is empty."""
 
 
 class BreakContext(_Output):
@@ -127,21 +117,6 @@ class BreakPage(_Output):
 
     page_index: int
     """The page (0-based)."""
-
-
-class BreakProblem(_Output):
-    """A problem the verifier found in a verdict."""
-
-    category: BreakProblemCategory
-    """What kind of problem it is."""
-
-    description: str
-    """What is wrong and where, so that a person can find it."""
-
-    item: str | None
-    """The ID of the item or container on either page the problem is about; null
-    when it is about no single one, such as content that continues but is missing
-    from the verdict."""
 
 
 class BreakSettings(_Output):
@@ -279,60 +254,22 @@ class BreakVerdict(_Output):
     """Why, in a sentence or two, quoting the text that decides it."""
 
 
-class BreakVerifierVerdict(_Output):
-    """The verifier's verdict on one break's verdict."""
-
-    corrected: BreakVerdict | None
-    """The whole verdict given again with the problems fixed; null when the verdict
-    passed or cannot be corrected."""
-
-    passed: bool
-    """Whether the verdict is right, with nothing to fix."""
-
-    problems: list[BreakProblem]
-    """The problems found; empty when the verdict passed."""
-
-    @model_validator(mode="after")
-    def _agree(self) -> Self:
-        """Check that ``passed`` agrees with the problems and the correction.
-
-        Returns
-        -------
-        Self
-            The verifier's verdict.
-
-        Raises
-        ------
-        ValueError
-            If a passed verdict lists problems or a correction, or a failed verdict
-            lists no problem.
-        """
-
-        if self.passed and (self.problems or self.corrected is not None):
-            raise ValueError(
-                "a verdict that passed has no problems and no corrected verdict"
-            )
-        if not self.passed and not self.problems:
-            raise ValueError("a verdict that did not pass names at least one problem")
-        return self
-
-
 class BreakVerification(_Output):
-    """The verifier's review of the break's verdict."""
+    """The verifier's second judgment of the break, compared with the kept verdict."""
 
     attempts: int
-    """How many verdicts the verifier gave: 1 plus the retries its correction used."""
+    """How many verdicts the verifier gave: 1 plus the retries used."""
 
-    correction_applied: bool
-    """Whether the verifier's corrected verdict replaced the judge's. A correction
-    replaces it when it passes every check, whatever its hint differences."""
+    checks: list[BreakCheckResult]
+    """The result of each check on the verifier's verdict, in the order the checks
+    run. Its failures are not review issues."""
 
-    correction_failures: list[BreakCheckResult]
-    """The checks a correction that was not applied still failed; empty when it was
-    applied or there was none."""
+    differences: list[CheckFailure]
+    """Each way the verifier's verdict differs from the kept verdict, each a
+    ``verdicts_differ`` review issue; empty when the two verdicts match."""
 
-    verdict: BreakVerifierVerdict
-    """The verdict as the verifier gave it."""
+    verdict: BreakVerdict
+    """The verifier's verdict, as accepted."""
 
 
 class BreakFile(_Output):
@@ -355,11 +292,11 @@ class BreakFile(_Output):
     """What the verdict depends on."""
 
     issues: list[ReviewIssue]
-    """The break's review issues: checks still failing on the kept verdict, hint
-    differences, and verifier problems that were not corrected. Hint differences are
-    listed unless the verifier passed the verdict or its correction was kept, so on a
-    break no verifier reviewed every one is listed. The ``hints`` list keeps them
-    either way."""
+    """The break's review issues, in this order: checks still failing on the kept
+    verdict, hint differences, and each way the verifier's verdict differs from the
+    kept verdict. Hint differences are listed unless the verifier's verdict matches
+    the kept verdict, so on a break no verifier judged every one is listed. The
+    ``hints`` list keeps them either way."""
 
     judged_at: datetime
     """When the verdict file was written (UTC)."""
@@ -379,8 +316,8 @@ class BreakFile(_Output):
     """The version of this file's schema, ``"MAJOR.MINOR"``."""
 
     verdict: BreakVerdict
-    """The kept verdict: the judge's, or the verifier's correction when it was
-    kept."""
+    """The kept verdict, always the judge's."""
 
     verification: BreakVerification | None
-    """The verifier's review; ``None`` when no verifier reviewed the verdict."""
+    """The verifier's second judgment of the break; ``None`` when no verifier judged
+    it."""

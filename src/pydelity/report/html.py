@@ -254,7 +254,7 @@ def _break_findings(break_file: BreakFile) -> list[tuple[str, str]]:
             ("Requests", "none, because a page of the break has no content items")
         )
     else:
-        findings.append(("Verifier", _verifier_text(break_file.verification)))
+        findings.append(("Verifier", _break_verifier_text(break_file.verification)))
     return findings
 
 
@@ -366,6 +366,36 @@ def _break_page(
         f'alt="{heading} as displayed" width="{image.width_px}" '
         f'height="{image.height_px}">{"".join(boxes)}</div>'
         f"<figcaption>{heading}</figcaption></figure>"
+    )
+
+
+def _break_verifier_text(verification: BreakVerification | None) -> str:
+    """Say how the verifier's verdict on a break compares with the kept verdict.
+
+    Parameters
+    ----------
+    verification
+        The verifier's second judgment of the break, or ``None`` when no verifier
+        ran.
+
+    Returns
+    -------
+    str
+        ``its verdict matches``, each difference's message after how many there
+        are, or ``no verifier ran``.
+    """
+
+    if verification is None:
+        return "no verifier ran"
+    count = len(verification.differences)
+    if not count:
+        return "its verdict matches"
+    messages = "; ".join(
+        difference.message.removeprefix("verdicts_differ: ")
+        for difference in verification.differences
+    )
+    return (
+        f"its verdict differs in {count} place{'' if count == 1 else 's'}: {messages}"
     )
 
 
@@ -1521,16 +1551,14 @@ def _table(*, caption: str | None, headers: list[str], rows: list[list[str]]) ->
     return f"<table>{title}<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
 
 
-def _verifier_text(
-    verification: BreakVerification | PageVerification | SurveyVerification | None,
-) -> str:
-    """Say what the verifier made of the survey, a page or a break's verdict.
+def _verifier_text(verification: PageVerification | SurveyVerification | None) -> str:
+    """Say what the verifier made of the survey or a page.
 
     Parameters
     ----------
     verification
-        The verifier's review of the survey, the page or the verdict, or ``None``
-        when no verifier ran.
+        The verifier's review of the survey or the page, or ``None`` when no
+        verifier ran.
 
     Returns
     -------

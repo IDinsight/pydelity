@@ -125,10 +125,9 @@ A problem a person should review.
   page or `{"item": "p0004-002"}` on a page break. A `no_matching_label` issue
   gives the `kind` and `role` that no label fits, with the items' refs and IDs
   (`item_refs`, `item_ids`). A `verifier` issue gives the problem's `category`,
-  with its `item_ref` on a page and its `item` on a page break. A
-  `verdicts_differ` issue gives the difference's `details`, with the `field`,
-  the `kept` and `verifier` values, and the `item`, `entry` and `cell` where
-  they apply.
+  with its `item_ref` on a page. A `verdicts_differ` issue gives the
+  difference's `details`, with the `field`, the `kept` and `verifier` values,
+  and the `item`, `entry` and `cell` where they apply.
 - `item_id` (string or null; required): The item the problem is about, or `None`
   when no single item applies.
 - `message` (string; required): What is wrong.

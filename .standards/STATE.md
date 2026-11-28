@@ -18,7 +18,7 @@
 `Development`:
 `.standards/docs/development/build-step-3-page-break-verification-of-20261122T170208Z-00fe2896.md`
 `PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
-`Continue with DEV-014 (the stand-in answers a break's requests in arrival order).`
+`Continue with DEV-016 (keep the judge's verdict when only the verifier's judgment is missing).`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`

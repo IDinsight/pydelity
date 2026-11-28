@@ -24,10 +24,11 @@ The contents of `page_breaks/<NNNN>-<NNNN>.json`: one break's verdict.
 - `inputs` (object ([`inputs`](#inputs)); required): What the verdict depends
   on.
 - `issues` (list of objects ([`issues[]`](#issues)); required): The break's
-  review issues: checks still failing on the kept verdict, hint differences, and
-  verifier problems that were not corrected. Hint differences are listed unless
-  the verifier passed the verdict or its correction was kept, so on a break no
-  verifier reviewed every one is listed. The `hints` list keeps them either way.
+  review issues, in this order: checks still failing on the kept verdict, hint
+  differences, and each way the verifier's verdict differs from the kept
+  verdict. Hint differences are listed unless the verifier's verdict matches the
+  kept verdict, so on a break no verifier judged every one is listed. The
+  `hints` list keeps them either way.
 - `judged_at` (date and time (ISO 8601); required): When the verdict file was
   written (UTC).
 - `judgment` (one of `model`, `no_content`; required): How the verdict was made:
@@ -39,24 +40,24 @@ The contents of `page_breaks/<NNNN>-<NNNN>.json`: one break's verdict.
   file.
 - `schema_version` (string; required): The version of this file's schema,
   `"MAJOR.MINOR"`.
-- `verdict` (object ([`verdict`](#verdict)); required): The kept verdict: the
-  judge's, or the verifier's correction when it was kept.
+- `verdict` (object ([`verdict`](#verdict)); required): The kept verdict, always
+  the judge's.
 - `verification` (object ([`verification`](#verification)) or null; required):
-  The verifier's review; `None` when no verifier reviewed the verdict.
+  The verifier's second judgment of the break; `None` when no verifier judged
+  it.
 
 ## `checks[]`
 
-The result of one check on the break's kept verdict.
+The result of one check on a verdict for the break.
 
 - `attempts` (integer; required): How many verdicts were checked: 1 plus the
   retries used.
 - `failures` (list of objects ([`checks[].failures[]`](#checksfailures));
-  required): The problems the check found in the kept verdict. A review issue
-  made from a failure names its item by ID in `item_id`.
+  required): The problems the check found in the verdict. A review issue made
+  from a failure on the kept verdict names its item by ID in `item_id`.
 - `name` (one of `ids`, `continues`, `duplicates`, `joins`, `furniture`,
   `header_rows`, `repeats`, `markers`; required): The check.
-- `passed` (boolean; required): Whether the kept verdict passed: `failures` is
-  empty.
+- `passed` (boolean; required): Whether the verdict passed: `failures` is empty.
 
 ## `hints[]`
 
@@ -106,10 +107,9 @@ A problem a person should review.
   page or `{"item": "p0004-002"}` on a page break. A `no_matching_label` issue
   gives the `kind` and `role` that no label fits, with the items' refs and IDs
   (`item_refs`, `item_ids`). A `verifier` issue gives the problem's `category`,
-  with its `item_ref` on a page and its `item` on a page break. A
-  `verdicts_differ` issue gives the difference's `details`, with the `field`,
-  the `kept` and `verifier` values, and the `item`, `entry` and `cell` where
-  they apply.
+  with its `item_ref` on a page. A `verdicts_differ` issue gives the
+  difference's `details`, with the `field`, the `kept` and `verifier` values,
+  and the `item`, `entry` and `cell` where they apply.
 - `item_id` (string or null; required): The item the problem is about, or `None`
   when no single item applies.
 - `message` (string; required): What is wrong.
@@ -137,18 +137,18 @@ A verdict on one break: whether content continues across it, and how.
 
 ## `verification`
 
-The verifier's review of the break's verdict.
+The verifier's second judgment of the break, compared with the kept verdict.
 
 - `attempts` (integer; required): How many verdicts the verifier gave: 1 plus
-  the retries its correction used.
-- `correction_applied` (boolean; required): Whether the verifier's corrected
-  verdict replaced the judge's. A correction replaces it when it passes every
-  check, whatever its hint differences.
-- `correction_failures` (list of objects ([`checks[]`](#checks)); required): The
-  checks a correction that was not applied still failed; empty when it was
-  applied or there was none.
-- `verdict` (object ([`verification.verdict`](#verificationverdict)); required):
-  The verdict as the verifier gave it.
+  the retries used.
+- `checks` (list of objects ([`checks[]`](#checks)); required): The result of
+  each check on the verifier's verdict, in the order the checks run. Its
+  failures are not review issues.
+- `differences` (list of objects ([`checks[].failures[]`](#checksfailures));
+  required): Each way the verifier's verdict differs from the kept verdict, each
+  a `verdicts_differ` review issue; empty when the two verdicts match.
+- `verdict` (object ([`verdict`](#verdict)); required): The verifier's verdict,
+  as accepted.
 
 ## `checks[].failures[]`
 
@@ -262,19 +262,6 @@ A piece of content that carries on from the earlier page to the later page.
   of text join: `space`, `no_space` or `dehyphenate`, or `newline` between code
   items. Null for every other join.
 
-## `verification.verdict`
-
-The verifier's verdict on one break's verdict.
-
-- `corrected` (object ([`verdict`](#verdict)) or null; required): The whole
-  verdict given again with the problems fixed; null when the verdict passed or
-  cannot be corrected.
-- `passed` (boolean; required): Whether the verdict is right, with nothing to
-  fix.
-- `problems` (list of objects
-  ([`verification.verdict.problems[]`](#verificationverdictproblems));
-  required): The problems found; empty when the verdict passed.
-
 ## `inputs.context.start_markers[]`
 
 Text that marks where a new unit of content starts.
@@ -293,16 +280,3 @@ Words or symbols on the continued unit that say it continues.
 - `row` (integer or null; required): When a table cell carries the marker, the
   row's position among the table's rows, from 0; null otherwise.
 - `text` (string; required): The marker, as printed.
-
-## `verification.verdict.problems[]`
-
-A problem the verifier found in a verdict.
-
-- `category` (one of `continues`, `piece`, `join`, `header_rows`,
-  `repeated_items`, `markers`, `containers`, `other`; required): What kind of
-  problem it is.
-- `description` (string; required): What is wrong and where, so that a person
-  can find it.
-- `item` (string or null; required): The ID of the item or container on either
-  page the problem is about; null when it is about no single one, such as
-  content that continues but is missing from the verdict.

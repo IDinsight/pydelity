@@ -1346,7 +1346,7 @@ deletions), SHA-256 starting `0e203a086200d51d`.
 
 ### DEV-014 — The stand-in answers a break's requests in arrival order
 
-`Status`: `PENDING` `Depends On`: `NONE` `Acceptance`: `AC-040, AC-042`
+`Status`: `DONE` `Depends On`: `NONE` `Acceptance`: `AC-040, AC-042`
 
 **Goal**
 
@@ -1382,9 +1382,86 @@ providers with a list of answers per break, two breaks interleaved and a check
 retry, and a break without an answer (HTTP 400);
 `python -m tests.fixtures.mock_providers --help`.
 
+Evidence, 2026-11-28, repo root, on `d4bd8ec` plus the uncommitted DEV-014
+changes (macOS arm64, Python 3.13.9, tools from `.venv/bin`). Assessed content:
+`git diff HEAD -- src scripts examples docs tests` (3 files, 56 insertions and
+86 deletions), SHA-256 starting `31d143a8c6430660`.
+
+- `ruff check scripts src tests`, `ruff format --check scripts src tests` (101
+  files) and `interrogate scripts src tests` (100%): passed.
+  `ty check scripts src tests/fixtures tests/conftest.py`: passed.
+  `ty check scripts src tests` gives 2 diagnostics, both in
+  `tests/pydelity/verifying/test_verification.py` (lines 651 and 684), which
+  count requests whose agent is `"judge"`, no longer an agent name.
+- `--doctest-modules src`: 40 passed, 1 skipped.
+- `.venv/bin/pytest --numprocesses auto -p no:cacheprovider`: 222 passed, 26
+  failed. Every failure is a test of the replaced stand-in contract, listed for
+  Tester:
+  - Tests that give a break's answers by agent
+    (`{"judge": ..., "verifier": ...}`), which the stand-in now sends as one
+    answer that is not a verdict, so the judge's answer fails and the run stops:
+    16 in `tests/pydelity/verifying/test_verification.py` (all its failures but
+    the three below), and
+    `test_a_break_card_shows_its_pieces_beside_both_pages_with_links_from_issues`
+    and `test_a_break_with_an_empty_page_and_markup_in_a_verdict_show_safely` in
+    `tests/pydelity/report/test_html.py`.
+  - Tests that read a break request's agent:
+    `test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment` in
+    `tests/pydelity/test_cli.py` (expects `(0, "judge")`), and
+    `test_a_refusal_or_used_up_output_tokens_stops_the_run_unretried` (2 cases)
+    and `test_an_unusable_judge_answer_stops_the_cli_with_exit_code_1` in
+    `test_verification.py`, which count `"judge"` requests.
+  - Tests that turn on page-break verification's verifier with the canned 1965
+    scan answers, whose one answer now also goes to the verifier's review
+    request:
+    `test_verify_adds_a_verifier_request_for_each_step_and_to_the_estimate` (2
+    cases) in `test_cli.py`,
+    `test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing` in
+    `tests/pydelity/costs/test_budget.py`, and
+    `test_a_page_no_verifier_reviewed_says_so_in_the_report` in `test_html.py`,
+    which also reads the canned file's `judge` key.
+- Scratchpad `dev014_check.py`, run as
+  `PYTHONPATH=src:. pytest -p tests.conftest` with the repo's fixtures and the
+  test module's helpers: 8 of 8 passed, for Anthropic and OpenAI models.
+  - Three pages, two breaks at once with a 0.1 s delay: the break requests
+    arrived as breaks 0, 1, 0. Break 0's first answer (continues with no piece)
+    was sent back with one retry and its second request got the joined verdict,
+    which passed every check with `continues` at 2 attempts. Break 1 got its one
+    answer. Every break request is recorded with `agent: None`, and the ledger
+    still says `judge`.
+  - With the current verifier on and answers `[verdict, passed review]`, the
+    judge's request got the verdict and the verifier's the review, and the
+    ledger says `judge` then `verifier`.
+  - A break with no answer got HTTP 400, and the run stopped with
+    `ProviderError`: "No answer for the break after page index 1 (mock
+    provider)".
+  - `read_break_answers` reads the canned file as one verdict for break 0, and
+    the canned answers run all three steps on the 1965 scan with the default
+    settings, sending one break request.
+- `python -m tests.fixtures.mock_providers --help`: `--break-answers` reads
+  "JSON file with page-break verification's answers, by the index of the page
+  before the break".
+
+**Implementation Notes**
+
+- `Agent` lost `judge`, and `_Target.agent` and `RecordedRequest.agent` are
+  `None` for a page-break request. `_BREAK_VERIFIER_TEXT` is gone, since no text
+  tells the two agents' break requests apart after DEV-015.
+- `_next_answer` is generic over its key, so pages keep `(index, agent)` keys
+  and breaks use the index alone. The page branch also checks that the request
+  has an agent, which every page request has, so the key's type holds.
+- `_read_answers_by_index` is gone. `read_page_answers` and `read_break_answers`
+  each read their own shape.
+- `scripts/smoke_installed_wheel.py` changed only in the comment on its break
+  answers file. With the default settings it sends one break request, which the
+  canned file's one answer still covers.
+- `tests/conftest.py`'s `canned_answers` docstring still calls `break_answers`
+  "the judge and verifier answers for each break". It is Tester's file and is
+  listed for Tester with the failing tests.
+
 ### DEV-015 — The verifier judges each break a second time
 
-`Status`: `PENDING` `Depends On`: `DEV-013, DEV-014` `Acceptance`:
+`Status`: `DONE` `Depends On`: `DEV-013, DEV-014` `Acceptance`:
 `AC-027, AC-028, AC-031, AC-032, AC-033, AC-038, AC-039, AC-047, AC-056, AC-057, AC-058, AC-059`
 
 **Goal**
@@ -1452,6 +1529,103 @@ saved but not listed, and a failed verifier request that raises `PageBreakError`
 naming `verifier` and leaves the judge's verdict file; the estimate against
 hand-computed figures; a report with the three verifier lines and escaped
 difference text; the reference-page generator and the Markdown formatter.
+
+Evidence, 2026-11-28, repo root, on `d4bd8ec` with DEV-014 staged and the
+DEV-015 changes unstaged (macOS arm64, Python 3.13.9, tools from `.venv/bin`).
+Assessed content: `git diff -- src scripts examples docs tests` (DEV-015 alone,
+21 files, 529 insertions and 999 deletions), SHA-256 starting
+`33c4c033c571e193`.
+
+- `ruff check scripts src tests`, `ruff format --check scripts src tests` (101
+  files) and `interrogate scripts src tests` (100%): passed.
+  `ty check scripts src`: passed. `ty check tests` gives 9 diagnostics, all on
+  names this step removed or the stand-in's old agent names:
+  `tests/pydelity/test_cli.py:619`,
+  `tests/pydelity/verifying/test_validators.py` lines 17, 22 and 581, and
+  `tests/pydelity/verifying/test_verification.py` lines 319, 320, 651, 684
+  and 837.
+- `--doctest-modules src`: 40 passed, 1 skipped.
+- `.venv/bin/pytest --numprocesses auto -p no:cacheprovider`: 214 passed, 25
+  failed, 1 collection error. Every one tests the replaced verifier or the
+  stand-in's old contract, listed for Tester:
+  - `tests/pydelity/verifying/test_validators.py` fails to collect: it imports
+    `verify_break` and `BreakVerifierVerdict`. In a scratch copy without those
+    imports, 7 of its tests pass and 2 fail, both on the replaced verifier:
+    `test_page_files_that_break_their_own_rules_go_through_every_check_and_prompt`
+    (calls `verify_break`) and
+    `test_a_piece_that_starts_with_a_start_marker_is_a_hint_difference_only`
+    (builds the old `BreakVerification`).
+  - The 19 failures in `test_verification.py`, the 3 in
+    `tests/pydelity/report/test_html.py` and the 3 in `test_cli.py` that DEV-014
+    lists, for the same reasons, and also reading `correction_applied`,
+    `correction_failures` or a `passed` verdict.
+  - `test_estimate_writes_nothing_and_a_reusable_survey_costs_nothing` in
+    `tests/pydelity/costs/test_budget.py`, which failed after DEV-014, passes:
+    the canned file's one verdict now answers the verifier too.
+- Scratchpad `dev015_check.py`, run as
+  `PYTHONPATH=src:. pytest -p tests.conftest` with the repo's fixtures and the
+  test module's helpers: 19 of 19 passed, for Anthropic and OpenAI models where
+  the provider matters.
+  - Verifier off, with the survey's start marker on page 2 and a joined verdict:
+    one break request, `verification: null`, a `start_markers` issue, ledger
+    `judge`, and the report's verifier line "no verifier ran".
+  - Verifier on: two break requests with equal JSON bodies (instructions, both
+    pages' texts and images, no history), ledger `judge` then `verifier`. An
+    equal verdict gives `differences: []` and `attempts: 1`, keeps the hint
+    difference in `hints`, lists no issue in the file or `run.json`, and the
+    report says "its verdict matches". A verifier verdict with `text_join`
+    `no_space` gives one difference on `text_join`.
+  - A verifier verdict that nothing continues: the judge's verdict is kept, the
+    issues are `start_markers` then `verdicts_differ` (field `continues`, kept
+    `true`, verifier `false`, item `p0000-001`, page index 0), `run.json` lists
+    the same, and the report says "its verdict differs in 1 place: ".
+  - With `check_retries: 1`, a verifier verdict that fails the continues check
+    is sent back once and the second is kept: `attempts: 2`, `continues` failed
+    at 2 attempts in `verification.checks`, the kept checks all passed, and the
+    only issue is `verdicts_differ`.
+  - A refused verifier request raises `PageBreakError` "Break after page 1
+    (pages 1 and 2), verifier: the model refused." and leaves the judge's
+    verdict file with `verification: null`.
+  - The 1965 scan's canned answers with the verifier on: two equal requests, the
+    verifier's verdict equals the kept one, no difference, ledger `judge` then
+    `verifier`.
+  - The break's log line ends "0 review issues, no verifier; $0.02 for 1
+    request", "0 review issues, verifier agrees; $0.05 for 2 requests" or "1
+    review issues, verifier differs in 1 place; …".
+  - `estimate_page_breaks` for requests of 10,001 and 20,000 characters on the
+    default model and settings equals the figures computed by hand from the
+    model's prices per million tokens: $0.266548 expected and $4.927644 at most
+    over 6 requests with the verifier off, and $0.533096 and $9.855288 over 12
+    with it on.
+  - The report's verifier line for two differences reading `in <piece> & more`
+    says "its verdict differs in 2 places: " and escapes both as
+    `in &lt;piece&gt; &amp; more`.
+- `scripts/generate_reference_docs.py` then the Markdown formatter, twice: the
+  same `docs` diff both times (SHA-256 starting `34c94312ae4e1bb7`, 8 pages).
+  `prek run markdownlint-cli2 --all-files`: passed.
+
+**Implementation Notes**
+
+- `create_break_agent` and `ask_model` serve both agents, which differ only in
+  the name passed for the ledger, log lines and errors. `BreakAnswer` replaces
+  the judge's and verifier's answer types.
+- The judge's verdict file is written before the verifier's request is sent, so
+  a failed verifier request leaves it with `verification: null`. Until DEV-016,
+  a rerun with the verifier on judges such a break again with both agents; the
+  log line says so.
+- One instructions allowance of 14,000 characters,
+  `_INSTRUCTIONS_ALLOWANCE_CHARS` (the judge's old one), sizes requests before
+  the page files exist. The verifier's allowance and
+  `TYPICAL_BREAK_VERDICT_OUTPUT_TOKENS` are gone.
+- `PROMPT_VERSION` stays 1, since the judge's prompts did not change. A verdict
+  file written with the old `verification` fails validation, so it gives a
+  `damaged_output` warning and its break is judged again.
+- The guides quote the old verifier: `guides/command-line.md` and
+  `guides/python.md` the old `--verify` help, and `guides/outputs.md` and
+  `guides/verifiers.md` the old page-break `verification` fields. They are
+  Documenter's and are listed for Documenter.
+- The break's log line says "1 review issues", as page extraction's does. The
+  wording predates this step and is left as it is in both steps.
 
 ### DEV-016 — Keep the judge's verdict when only the verifier's judgment is missing
 

@@ -61,7 +61,8 @@ advanced:
     model: null
     # How many seconds to wait for one model request before it counts as failed.
     request_timeout_seconds: 600
-    # Whether a verifier reviews each page break's verdict, at extra cost; verify if
+    # Whether a verifier judges each page break a second time, without seeing the
+    # first verdict, so the two verdicts can be compared, at extra cost; verify if
     # null.
     verify: null
   # How many times a request to the provider is retried after a temporary failure,
@@ -118,7 +119,10 @@ pause: true
 # The PDF to process. A PDF given on the command line wins over this one.
 pdf: document.pdf
 
-# Whether a verifier reviews each step's answer. The verifier is a second request to
-# the step's model, which checks the answer against the PDF and may correct it. Each
-# verifier request adds cost. Each step's verify setting under advanced overrides it.
+# Whether a verifier checks each step's answer. For the survey and page extraction,
+# the verifier is a second request to the step's model, which checks the answer
+# against the PDF and may correct it. For page-break verification, it judges each
+# page break a second time without seeing the first verdict, and each way the two
+# verdicts differ is a review issue. Each verifier request adds cost. Each step's
+# verify setting under advanced overrides it.
 verify: false
