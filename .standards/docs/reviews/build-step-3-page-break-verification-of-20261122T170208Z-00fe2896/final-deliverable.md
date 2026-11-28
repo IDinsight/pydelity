@@ -7,7 +7,7 @@ ReviewKind: FINAL_DELIVERABLE
 # Review Report
 
 `Cycle`: `build-step-3-page-break-verification-of-20261122T170208Z-00fe2896`
-`ReviewKind`: `FINAL_DELIVERABLE` `Status`: `BLOCKED` `User Style`: `tony`
+`ReviewKind`: `FINAL_DELIVERABLE` `Status`: `IN_PROGRESS` `User Style`: `tony`
 
 ## Assessed Inputs and Scope
 
@@ -38,6 +38,14 @@ ReviewKind: FINAL_DELIVERABLE
     and `artifacts/next_cycle_inputs.md` `f9f1cb0b9c34460d`.
   - The branch is pushed to `origin` at `acee8e2`. It has no pull request, and
     the staged documentation is not pushed.
+- Resumed 2026-11-28: the user committed the staged documentation and records as
+  `1a0cae1` (`docs: document page-break verification`), pushed it and opened
+  draft pull request 16 (`tz6/pipeline-step-3` into `main`), head `1a0cae1`.
+  - `1a0cae1` holds the documentation files at the hashes above (checked for
+    `page-breaks.md`, `python.md`, `faq.md`, `README.md`, `next_cycle_inputs.md`
+    and `astro.config.mjs`), plus this report and `STATE.md`. It changes nothing
+    under `src/`, `scripts/`, `tests/`, `examples/`, `pyproject.toml` or the
+    reference pages. So every conclusion above still applies.
 - Source read to check the docs: `pipeline/runner.py` (`_page_breaks`,
   `_current_page_files`, `_steps`, `_log_pause`, `_review`, `_page_ranges`,
   estimate titles), `verifying/schemas.py` in full, `verifying/prompts.py`
@@ -49,8 +57,8 @@ ReviewKind: FINAL_DELIVERABLE
 - Project references: `NONE` (`.standards/project-references/` does not exist).
 - Session: this conversation holds no authoring history for any record or file
   under review. The client gives no metadata on the models that wrote them.
-- Not assessed here: real model behavior, which is the user's under `AC-050` and
-  `AC-051`.
+- Real model behavior is the user's to accept under `AC-050` and `AC-051`. C12
+  reads the user's Anthropic runs as supporting evidence only.
 
 ## Contract and Evidence Assessment
 
@@ -68,7 +76,7 @@ the implementation review, and the suite still passes (C1).
 | AC-032 to AC-039 | As above. Docs: `costs.md`, `reruns.md`, `verifiers.md`, `command-line.md`. The reuse inputs in `reruns.md` match `BreakInputs`. C4 shows the estimate line, the verbose break line, both summary lines, and `overwrite` with `pages` judging no break, each as the docs quote them.                                                              | Supported                                                      |
 | AC-040           | Tester's scenario allocation, read by the implementation review. C1: 248 passed.                                                                                                                                                                                                                                                                  | Supported                                                      |
 | AC-041           | CI workflows unchanged from `main`. Tester read the ruleset. Python 3.14 run by Tester on unchanged code.                                                                                                                                                                                                                                         | Supported                                                      |
-| AC-042           | macOS: Tester's smoke run on the same wheel inputs. Linux and Windows: no CI run exists (C6).                                                                                                                                                                                                                                                     | Gap G-1                                                        |
+| AC-042           | CI on pull request 16, head `1a0cae1`: `Wheel install` passes on `macos-latest`, `ubuntu-latest` and `windows-latest` (C10). Each installs the built wheel and runs all three steps through the CLI and the Python API against the stand-in.                                                                                                      | Supported (G-1 closed)                                         |
 | AC-043           | C5: wheel and sdist rebuilt with the new README as the long description, `twine check --strict` passes. Tester's clean-install smoke run still applies, because only the README changed.                                                                                                                                                          | Supported                                                      |
 | AC-044           | `pyproject.toml` description and classifiers (Tester). README now names the three steps and an optional verifier for each.                                                                                                                                                                                                                        | Supported                                                      |
 | AC-045           | Release config and the `0.2.0` manifest unchanged from `main`, `version = "0.2.0"` in `pyproject.toml`. The scope limits in-cycle evidence to release readiness.                                                                                                                                                                                  | Supported for release readiness. The release PR follows merge. |
@@ -76,7 +84,7 @@ the implementation review, and the suite still passes (C1).
 | AC-047           | Reference pages unchanged since Tester's byte-identical regeneration at `68b675c`, and so are `src/` and `scripts/`. Documenter regenerated them again with no change.                                                                                                                                                                            | Supported                                                      |
 | AC-048           | C4 for every quoted CLI line. Documenter's runs of the Python examples. The README quick start reads as the CLI now behaves: three runs, `--pages`, `--no-pause`, `--verify`, `result.breaks`.                                                                                                                                                    | Supported                                                      |
 | AC-049           | `next_cycle_inputs.md` "Pushed to later steps": the completed step 3 entry is gone and four pushed entries are added. The "each later step" entries stay, and still apply.                                                                                                                                                                        | Supported. See L4 for a stale entry outside this AC.           |
-| AC-050, AC-051   | No real run of page-break verification exists: no `page_breaks/` folder anywhere under `pydelity-output/`.                                                                                                                                                                                                                                        | Gap G-2                                                        |
+| AC-050, AC-051   | Ten real Anthropic runs, verifier off and on, over all five required kinds of PDF (C12): all complete, every verdict read against its pages, issues R-1 to R-4 raised for the user. No OpenAI run, and no user acceptance yet.                                                                                                                    | Gap G-2                                                        |
 
 The implementation review's later dependencies are resolved as follows: AC-044,
 AC-046, AC-047, AC-048 and AC-049 by the documentation above. AC-042, AC-050 and
@@ -133,6 +141,55 @@ All commands ran from the repository root on 2026-11-28, macOS arm64, Python
   dates or numbered steps outside `artifacts/next_cycle_inputs.md`, no British
   spellings, and no compatibility wording.
 - **C9.** `node .standards/bin/check.mjs`: passed.
+- **C10.** `gh pr view 16` and `gh pr checks 16`, outside the sandbox for `gh`'s
+  TLS check: draft, open, `tz6/pipeline-step-3` into `main`, head `1a0cae1`. All
+  pass: `Lint and test`, `Lint and test (Python 3.13)`, `Test (Python 3.14)`,
+  `Wheel install` on `macos-latest`, `ubuntu-latest` and `windows-latest`,
+  `Build the docs` and `TruffleHog secret scan`. `Publish to GitHub Pages` is
+  skipped, as on every pull request. This repeats C1 and C2 in CI on the
+  committed content.
+- **C11.** A second offline `pydelity.aestimate` with the Anthropic default
+  model over the candidate folders for G-2. The `real-hints` folders reuse their
+  surveys and page files. The `real-0.2.0` folders reuse nothing, so the Chinese
+  PDF, which only `real-0.2.0` holds, needs a fresh folder. For slides, CAPS,
+  W-9 and Arabic from `real-hints` copies plus a fresh Chinese folder: about
+  $6.70 without the verifier and $13.15 with `--verify`.
+- **C12.** The user's ten Anthropic runs of 2026-11-28, read with scratch
+  scripts over `run.json`, `cost.jsonl`, `page_breaks/`, `pages/` and
+  `report.html` in `pydelity-output/real-0.3.0/anthropic/{default,verify}/`.
+  Local HEAD is `1a0cae1`, with only this report and `STATE.md` changed. The
+  package still reports 0.2.0 until the release. Every request went to
+  `claude-opus-5-5`.
+  - All ten runs `completed`, with no errors. Each mode has 29 breaks: slides
+    15, CAPS 7, W-9 5, Arabic 1, Chinese 1. Every break has a verdict file, and
+    each report shows every break beside its two pages.
+  - Cost: about $4.36 with the verifier off and $7.92 with it on, $12.28 in all,
+    under C11's estimates. This includes extracting the slides' 10 new pages and
+    the fresh Chinese folder.
+  - Retries: five verdicts needed a second judge attempt (off: CAPS 0006-0007,
+    W-9 0002-0003; on: CAPS 0000-0001, W-9 0000-0001 and 0002-0003). Every kept
+    verdict passes every check. The verifier needed two attempts once (CAPS
+    0000-0001).
+  - The verifier passed all 29 verdicts and corrected none.
+  - Review lists: empty with the verifier on. With it off, CAPS has 6
+    `start_markers` hint differences. The rest are extraction issues (slides 4
+    `text_dropped`, W-9 1 `text_added`, Arabic 13 `text_dropped` and 10
+    `text_added`), not page-break ones.
+  - Verdicts read against their two pages:
+    - Slides: in both runs, nothing continues at all 15 breaks. Right: each
+      slide stands alone.
+    - Arabic and Chinese: in both runs, nothing continues at the one break.
+      Right: a boxed mission statement ends the first page and a new part starts
+      the second. Neither PDF carries text across a break, so no right-to-left
+      or Chinese text join was exercised.
+    - W-9: with the verifier off, all 5 are right: a `continue_text` with a
+      space at 0000-0001, nothing at the others. With it on, 4 of 5 (R-1).
+    - CAPS: in both runs, all 7 breaks continue the one overview table, with the
+      repeated title as a repeated item and `(contd)` as a marker where printed.
+      Right. The differences are R-2 to R-4.
+    - The 6 CAPS hint differences are false alarms. The survey's start markers
+      are the strand labels (PHONICS, READING AND VIEWING, HANDWRITING,
+      WRITING), and here they start new rows of the same table.
 - Reused without rerunning: Tester's Python 3.14 run, clean-install smoke test
   on macOS and reference regeneration, and Documenter's runs of the Python
   examples. They still apply because the code, scripts and examples they ran are
@@ -144,9 +201,12 @@ No material findings.
 
 ## Questions, Limitations, and Later Dependencies
 
-Gaps that block this gate:
+Gap that blocks this gate: G-2. G-1 is closed.
 
-- **G-1, `AC-042`: no Linux or Windows wheel run.** The AC needs the built wheel
+- **G-1, `AC-042`: no Linux or Windows wheel run (closed 2026-11-28).**
+  Resolution: the user opened draft pull request 16, and CI's `Wheel install`
+  passes on all three systems on head `1a0cae1`, whose content matches what this
+  review assessed (C10). The original gap follows. The AC needs the built wheel
   to install with pip and run all three steps on Linux, macOS and Windows. macOS
   has Tester's run. CI's `Wheel install (ubuntu-latest)` and
   `Wheel install (windows-latest)` jobs would give the rest, but CI runs only on
@@ -159,8 +219,9 @@ Gaps that block this gate:
     on the pull request also rechecks C2.
   - Next check: read the check runs for that head and confirm it matches the
     content assessed here.
-- **G-2, `AC-050` and `AC-051`: no accepted real runs.** No page-break verdict
-  from a real model exists yet.
+- **G-2, `AC-050` and `AC-051`: no accepted real runs.** The user ran the
+  Anthropic half on 2026-11-28 (C12). The user has not yet accepted those runs,
+  and there are no OpenAI runs.
   - `AC-050`: the user runs all three steps with default settings, with real
     Anthropic and OpenAI models, on PDFs covering at least one two-column
     right-to-left document, one Chinese or Japanese document, one tax or
@@ -179,8 +240,80 @@ Gaps that block this gate:
     on, and the user's acceptance or issues. If the user shares the folders,
     inspect verdicts, review lists and reports as supporting evidence, and
     recheck that the inputs above are unchanged.
+  - The user's plan (2026-11-28): run Anthropic models only, with and without
+    the verifier, and not OpenAI "for this exercise". Reviewer gave the commands
+    (C11): slides, CAPS, W-9 and Arabic in copies of the `real-hints` Anthropic
+    folders, and the Chinese PDF in a fresh folder, with `-y -np`, and `-vf` for
+    the verified runs. `AC-050` and `AC-051` name both providers, so Anthropic
+    runs alone leave them open. Closing them needs OpenAI runs too, or a scope
+    change the user asks Scoper for. Reviewer cannot waive either AC.
+  - The runs (2026-11-28): all ten complete, and 53 of 58 verdicts read right
+    against their pages with nothing to raise (C12). Reviewer raises four
+    issues, covering the other five verdicts, for the user's acceptance review.
+    Each needs the user to accept it or send it to its owner:
+    - **R-1, W-9 0002-0003, verifier on.** The judge says exempt payee code 1
+      (text item `p0002-039`, ending "section 401(f)(2).") carries on in the
+      first entry of the next page's list ("2— The United States …"), as
+      `continue_entry` with a space. Code 1 ends complete, and code 2 is a
+      separate code, so assembly that follows this verdict would make the two
+      codes one entry. No text would be lost. The verifier passed it. With the
+      verifier off, the judge said nothing continues. That is the best answer
+      the page files allow: step 2 extracted code 1 as a text item, and
+      `new_entry` needs a list on the earlier page. If the user wants a fix, it
+      goes to Developer, for example a prompt rule that `continue_entry` from a
+      text item needs the text itself to be cut.
+    - **R-2, CAPS 0000-0001, verifier on.** The later page repeats the grade
+      header, but the verdict counts 0 repeated header rows. The cause is step
+      2: the 0.2.0 extraction of the first page, copied into this folder, puts
+      "LISTENING AND SPEAKING" in the header row and gives the body row 4 cells.
+      The `header_rows` check rightly rejected a count of 1 against that page
+      file, so the judge retried and gave 0. Assembly would print the grade
+      header again mid-table. The verifier-off folder's first page is extracted
+      right, and its verdict counts 1.
+    - **R-3, CAPS 0001-0002, both runs.** Both merge the split PHONICS row, but
+      they join its label cell differently: `null` with the verifier off,
+      `space` with it on. Both cells have text ("PHONICS" and "PHONICS
+      (contd)"), and the field's rule gives `null` only when a cell has no text.
+      No join value says the later label only repeats the earlier one. After the
+      `(contd)` marker is removed, `space` gives "PHONICS PHONICS". No text is
+      lost. Step 4 (assembly) needs a rule for this, which would belong in
+      `next_cycle_inputs.md` "Pushed to later steps".
+    - **R-4, CAPS 0004-0005.** With the verifier off, the judge merges the
+      "READING AND VIEWING (contd)" row into the split row before it. With it
+      on, the judge appends it as a new row. Both keep all text. The `(contd)`
+      label favors merging, as both runs did for "PHONICS (contd)".
+  - None of R-1 to R-4 is a Reviewer finding. The code does what the scope and
+    design say, and each issue is a model's reading or a step 2 page file. The
+    acceptance call is the user's.
+  - The user's call (2026-11-28): rework step 3 now with four changes Reviewer
+    proposed from these runs, routed as `USER_REWORK` to Scoper, because the
+    scope's ACs define the verdict format, the hint and the verifier (`AC-025`
+    to `AC-030`):
+    1. Let `new_entry` start from a text item that is the first entry of a list
+       carrying on at the next page (R-1), and add a cell join value meaning the
+       later cell only repeats the earlier cell's text (R-3).
+    2. A prompt rule: `continue_text` and `continue_entry` need the text itself
+       to be cut off, and a complete entry followed by a new number is a new
+       entry (R-1).
+    3. The `start_markers` hint skips `append_rows` pieces, which clears 4 of
+       the 6 CAPS false alarms. Skipping a piece whose own continuation marker
+       is in that text would clear the other 2. That second rule is optional and
+       for Scoper to settle with the user.
+    4. Replace the verifier's review of the judge's verdict with a second,
+       independent judgment. Code compares the two, keeps the first when they
+       match and lists a review issue naming the difference when they do not. In
+       C12 the two runs' judges disagreed at exactly the R-1 to R-4 breaks and
+       nowhere else, while the verifier caught none.
+  - R-2 has no step 3 fix: the fault is in a step 2 page file. R-4 is a judgment
+    call that change 4 would flag.
+  - The OpenAI half is still open. The rework request asks Scoper to settle with
+    the user whether `AC-050` and `AC-051` still need OpenAI runs.
+  - Next check, after the rework returns here: reconcile every input against the
+    changed scope and design, and read the user's new real runs as C12 read
+    these.
 
-`Active Work.BlockedOn` holds the user action for G-1 and G-2.
+`Active Work.BlockedOn` is `NONE`: the user answered, and the open OpenAI
+question is in the rework request for Scoper.
 
 Limitations (not findings). None makes delivered output wrong, loses money,
 fails a run or breaks a function the acceptance review relies on, so under the
@@ -211,22 +344,25 @@ scope's major-issues-only bar they do not block this gate:
   changed doc read against the code. The suite, docs build, link check,
   formatting, lint and package check rerun. The quoted CLI output checked
   against a stand-in run.
-- The gate does not pass. No material finding is open, but G-1 and G-2 leave
-  `AC-042`, `AC-050` and `AC-051` without evidence, and final review cannot pass
-  with an open dependency.
-- Status `BLOCKED`. `WorkflowState` stays `REVIEWING_FINAL`. Recovery is
-  inactive.
-- Next: when the user reports back, close G-1 from the pull request's check runs
-  and G-2 from the user's acceptance, recheck the input hashes above, then mark
-  this report `COMPLETE` and hand off to Synchronizer.
+- The gate does not pass. No material finding is open. G-1 is closed by CI on
+  pull request 16. G-2 stays open: the Anthropic runs are read (C12), but the
+  user has not accepted them, and the OpenAI half has no runs and no scope
+  change. Final review cannot pass with an open dependency.
+- Status `IN_PROGRESS`. The user's rework moves the cycle to `SCOPING`, with a
+  recovery frame that resumes at `REVIEWING_FINAL`.
+- Next, on resume: reconcile every input above against the reworked scope,
+  design, code, tests and docs, since the rework changes the verdict format, the
+  hint, the verifier and AC wording. Rerun C1 to C3, C5 and C9, recheck the CI
+  on pull request 16's new head, and read the new real runs. Then mark this
+  report `COMPLETE` and hand off to Synchronizer only when `AC-050` and `AC-051`
+  have accepted runs for the providers the scope then names.
 
-Plain-language summary: the work can't move to the last step yet, but nothing
-needs fixing. The docs match what the code does, and the tests, docs build, link
-check and package check all pass. Two things are missing, and both are yours.
-First, the wheel hasn't been tried on Linux and Windows. CI does that, but only
-on a pull request to `main`, so the docs need committing and a pull request
-opening (a draft is fine, and it still merges only after sign-off). Second, no
-real model has judged a page break yet. The scope needs you to run real
-Anthropic and OpenAI models with the verifier off and on and accept the results.
-Four small wording slips in the docs are written down above and don't block
-anything.
+Plain-language summary: the work goes back to scoping for a rework you asked
+for, and this review picks up again afterwards. The code did what the scope
+said. The docs match it, and the tests, docs build, link check and package check
+all pass, in CI too. The ten Anthropic runs all finished, for about $12, and 53
+of the 58 page-break verdicts look right. The misses showed where step 3 can do
+better, so you chose four changes: give the model the answers it was missing,
+tighten one prompt rule, quiet a noisy hint, and swap the verifier for a second
+independent judgment. The OpenAI question goes to Scoper with them. Four small
+wording slips in the docs are written down above and don't block anything.
