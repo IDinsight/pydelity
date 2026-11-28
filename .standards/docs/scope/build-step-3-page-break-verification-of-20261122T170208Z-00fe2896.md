@@ -28,10 +28,12 @@ extracts what it was asked to and stops short of judging breaks.
 The step follows the rules the survey and page extraction follow: the model's
 own reading decides, code's measurements and the survey's findings are hints,
 checks of the verdict's own consistency may send it back, an opt-in verifier
-reviews every verdict or none, and what stays unresolved goes on the review
-list. The cycle extends the run features to the new step: settings, the CLI and
-Python API, the pause between steps, the cost estimate and spend control,
-resume, the review list and HTML report, tests, docs and the release.
+covers every break or none, and what stays unresolved goes on the review list.
+Here the verifier is a second judgment that does not see the first, and where
+the two disagree goes on the review list. The cycle extends the run features to
+the new step: settings, the CLI and Python API, the pause between steps, the
+cost estimate and spend control, resume, the review list and HTML report, tests,
+docs and the release.
 
 ## Constraints
 
@@ -54,7 +56,7 @@ resume, the review list and HTML report, tests, docs and the release.
   hints that the model's own reading overrides. No message asks the model to
   match a hint, and a difference from a hint never sends an answer back and
   never fails a break, the step or a run. It goes on the review list unless the
-  step's verifier passed the verdict or its correction was kept, and the verdict
+  step's verifier ran and its judgment matched the kept verdict, and the verdict
   file keeps it either way. Checks test the verdict's consistency with itself,
   the two page files and the survey's profile, and its hard limits. They may
   send a verdict back within the step's check retries, and a final verdict still
@@ -65,7 +67,8 @@ resume, the review list and HTML report, tests, docs and the release.
 - Each check sits where it can be enforced: Pydantic classes for shape, the
   step's `validators.py` for what code can decide, and the step's verifier for
   what code cannot judge. A verifier is a second request to the step's own model
-  with this step's instructions only, and it reviews every break or none.
+  with this step's instructions only. Here it judges every break a second time,
+  without seeing the first judgment, or judges none, and code compares the two.
 - The step's code sits in `src/pydelity/verifying/`, with `agents.py`, `llm.py`,
   `prompts.py`, `validators.py` and `schemas.py` beside the step's own module.
   Outputs, logs and estimates name the step with a noun. Every other new name of
@@ -102,9 +105,10 @@ resume, the review list and HTML report, tests, docs and the release.
 - Test PDFs are real public documents the user approves, under 500 KB each. A
   copy with some pages' rotation attribute changed counts when
   `tests/fixtures/pdfs/SOURCES.md` says how it was made.
-- Acceptance rests on the user's review of real runs with Anthropic and OpenAI
-  models. There is no parity target with KGForEdGlobal, and cost is reported
-  with no pass/fail target.
+- Acceptance rests on the user's review of real runs with Anthropic models (the
+  user's choice on 2026-11-28). Mocked tests alone show that every request works
+  with OpenAI models. There is no parity target with KGForEdGlobal, and cost is
+  reported with no pass/fail target.
 - Reviews raise only major issues, as for 0.2.0 (confirmed by the user for this
   cycle on 2026-11-22). On input the release targets, a finding must make the
   delivered output wrong, lose money, fail a run, or break a function the
@@ -145,6 +149,9 @@ resume, the review list and HTML report, tests, docs and the release.
 - A verifier that reviews only some breaks, a sample, or only failed or
   low-confidence breaks (the brief's option D as written), and a separate model,
   effort or other model setting for the verifier.
+- A verifier that reviews or corrects the first judgment's verdict, and a third
+  request that chooses between two judgments that differ.
+- Real model runs with OpenAI models for this cycle's acceptance.
 - Changing what the survey and page extraction produce, beyond the run flow
   changes this step needs. The page extraction items under "Pushed to later
   steps" and "Observations left for later" in `artifacts/next_cycle_inputs.md`
@@ -234,11 +241,23 @@ language rules and builds no duplicate titles or split rows (brief E9).
   a newline and is never dehyphenated. A list continues its last entry or starts
   a new entry. A table appends rows, or merges the split row at the bottom of
   the earlier page with the first row of the later page.
+- `AC-052`: When a list carries on across the break and its first entry on the
+  earlier page is a text item, as when page extraction read that entry as text,
+  the verdict can start a new entry on the later page from that text item.
 - `AC-014`: Wherever text continues across the break, whether in a text item, in
   a list entry that continues, or in the cells of a split table row, the verdict
   says how the two pieces of text join (space, no space or removing a line-end
   hyphen, and a newline for code), so that assembly can join them in any script
   without language rules.
+- `AC-053`: When a cell in the later part of a split row only repeats the text
+  of the cell above it, such as a row label printed again as "PHONICS (contd)",
+  the verdict says that the later cell repeats it in place of a text join, so
+  that assembly keeps the text once.
+- `AC-054`: Page-break verification's instructions to its model say that text or
+  a list entry continues only when the break cuts off a sentence, paragraph or
+  entry, so that the text itself is unfinished. A paragraph that breaks between
+  two sentences, with no new paragraph starting the later page, is unfinished. A
+  complete entry followed by an entry with a new number is a new entry.
 - `AC-015`: For a table that continues, the verdict gives the number of header
   rows at the top of the later page's table that repeat the earlier table's
   header, `0` when none do.
@@ -275,8 +294,9 @@ language rules and builds no duplicate titles or split rows (brief E9).
 ### 3. Check every verdict
 
 **Intent:** Catch verdicts that contradict themselves, the pages or the profile,
-treat the survey's continuation findings as hints, and leave a person only what
-neither code nor the optional verifier resolves.
+treat the survey's continuation findings as hints, flag the breaks where the
+optional verifier's independent second judgment disagrees with the first, and
+leave a person only what code and two agreeing judgments do not settle.
 
 **Done when:**
 
@@ -289,16 +309,18 @@ neither code nor the optional verifier resolves.
   the review list, and the run goes on.
 - `AC-024`: Code compares the header rows a verdict counts as repeated with the
   earlier table's header rows. A count whose rows do not repeat that header is a
-  check failure or a hint difference, handled as `AC-023` or `AC-026` says.
-- `AC-025`: The survey's continuation notes and start markers reach the model as
-  hints that its own reading of the pages overrides. A verdict that joins a
-  later-page item beginning with one of the survey's start markers to the
-  earlier page is a hint difference.
-- `AC-026`: A hint difference never sends a verdict or a verifier's correction
-  back to the model and never fails a break, the step or a run. It goes on the
-  review list unless the step's verifier passed the verdict or its correction
-  was kept, and the verdict file keeps it either way. No message, retry messages
-  included, asks the model to change its verdict to match a hint.
+  check failure or a hint difference, handled as `AC-023` or `AC-056` says.
+- `AC-055`: The survey's continuation notes and start markers reach the model as
+  hints that its own reading of the pages overrides. A piece whose start on the
+  later page begins with one of the survey's start markers is a hint difference,
+  unless the piece appends table rows or the verdict names a continuation marker
+  in that start. These exceptions rest only on the verdict's own join and
+  continuation markers, and they name no document, label or language.
+- `AC-056`: A hint difference never sends a verdict back to the model and never
+  fails a break, the step or a run. It goes on the review list unless the step's
+  verifier ran and its judgment matched the kept verdict, and the verdict file
+  keeps it either way. No message, retry messages included, asks the model to
+  change its verdict to match a hint.
 - `AC-027`: With default settings, page-break verification sends no verifier
   request, the cost ledger has no page-break verifier lines, and each verdict
   file says that no verifier ran.
@@ -308,16 +330,20 @@ neither code nor the optional verifier resolves.
   or `null` to follow `verify`), with no CLI option, overrides it for this step
   only, and `Config` has a `verify_<step>` property for it, as it has for the
   survey and page extraction.
-- `AC-029`: With the verifier on, a second request to page-break verification's
-  own model reviews every verdict and passes it or lists the problems it finds,
-  with a full corrected verdict when it can give one. A correction that fails a
-  check is sent back within the check retries, and a correction is kept when it
-  passes every check, whatever its hint differences. When the verdict passes, it
-  is kept. When a correction is kept, the problems are saved with the verifier's
-  verdict only. Otherwise the verdict is kept and each problem goes on the
-  review list.
-- `AC-030`: Each verdict file saves the verifier's verdict when one ran, so that
-  how often the verifier finds and fixes problems can be measured.
+- `AC-057`: With the verifier on, a second request to page-break verification's
+  own model judges every break again, the way the first judgment does and
+  without seeing the first judgment. Its answer is checked, and sent back within
+  the check retries, as the first judgment's is.
+- `AC-058`: Code compares a break's two judgments on whether anything continues
+  and, for each piece, the items and entries where it ends and starts, its join,
+  its text join, its cell joins and its repeated header rows. Repeated items,
+  continuation markers and containers are not compared. The first judgment is
+  the kept verdict. When the two match, the comparison adds nothing to the
+  review list. When they differ, a review issue names each difference, and no
+  third request chooses between them.
+- `AC-059`: When the verifier ran, the verdict file saves the second judgment
+  and the differences between the two judgments, so that how often they differ
+  can be measured.
 - `AC-031`: Review issues from page-break verification name the step, the
   break's two pages and, where one applies, the item. They are listed in
   `run.json` and in the CLI summary at the end of the run.
@@ -352,10 +378,11 @@ person can check verdicts in.
   again re-judges only the breaks on either side of it. `overwrite` re-judges
   every break. A change that affects only page-break verification reruns neither
   the survey nor page extraction.
-- `AC-036`: Turning page-break verification's verifier on re-judges the breaks
-  whose verdicts no verifier reviewed. A change to another step's verifier
-  setting re-judges a break only when that step's new output changes what the
-  break's verdict is made from.
+- `AC-060`: Turning page-break verification's verifier on makes a second
+  judgment for each break whose verdict file has none, and keeps that break's
+  first judgment without a new request when nothing it is made from changed. A
+  change to another step's verifier setting re-judges a break only when that
+  step's new output changes what the break's verdict is made from.
 - `AC-037`: An interrupted run (an error, a timeout or Ctrl+C) leaves no
   half-written verdict file, and a damaged verdict file is made again on the
   next run.
@@ -451,19 +478,41 @@ mocked tests cannot show.
 
 **Done when:**
 
-- `AC-050`: The user runs the survey, page extraction and page-break
+- `AC-061`: The user runs the survey, page extraction and page-break
   verification with default settings, so that no verifier runs, with real
-  Anthropic and OpenAI models on PDFs of their choice covering at least one
-  two-column right-to-left document, one Chinese or Japanese document, one tax
-  or fillable form, one slide deck or image-heavy PDF, and CAPS, reviews the
-  verdicts, review lists and HTML reports, and accepts them, with every issue
-  they raise resolved.
-- `AC-051`: The user runs page-break verification with its verifier on, with
-  real Anthropic and OpenAI models on PDFs of their choice, reviews the
-  verifier's verdicts, the kept verdicts, review lists and HTML reports, and
-  accepts them, with every issue they raise resolved.
+  Anthropic models on PDFs of their choice covering at least one two-column
+  right-to-left document, one Chinese or Japanese document, one tax or fillable
+  form, one slide deck or image-heavy PDF, and CAPS, reviews the verdicts,
+  review lists and HTML reports, and accepts them, with every issue they raise
+  resolved.
+- `AC-062`: The user runs page-break verification with its verifier on, with
+  real Anthropic models on PDFs of their choice, reviews the kept verdicts, the
+  differences between the two judgments, the review lists and the HTML reports,
+  and accepts them, with every issue they raise resolved.
 
 **Depends on:** 1, 2, 3, 4.
+
+## Retired Acceptance Identifiers
+
+The user's rework of 2026-11-28, after ten real Anthropic runs, replaced these
+conditions. The verifier no longer reviews the first verdict. It judges each
+break a second time without seeing the first, and code compares the two.
+
+- `AC-025`: Replaced by `AC-055`, which keeps the hints and narrows the
+  start-marker hint difference.
+- `AC-026`: Replaced by `AC-056`. A hint difference now stays off the review
+  list when the verifier ran and its judgment matched, since no verifier passes
+  or corrects a verdict any more.
+- `AC-029`: Replaced by `AC-057` (the second judgment) and `AC-058` (the
+  comparison).
+- `AC-030`: Replaced by `AC-059`, which saves the second judgment and the
+  differences.
+- `AC-036`: Replaced by `AC-060`, which adds a second judgment without judging
+  the break a first time again.
+- `AC-050`: Replaced by `AC-061`. The user chose real runs with Anthropic models
+  only.
+- `AC-051`: Replaced by `AC-062`, with Anthropic models only and the two
+  judgments' differences in place of the verifier's verdicts.
 
 ## Assumptions
 
@@ -482,17 +531,22 @@ mocked tests cannot show.
   fields or formulas can continue; and which comparisons are checks and which
   are hints, `AC-024` included.
 - The step is named "verification" and has its own opt-in "verifier", and the
-  brief's "verifier" and "validator" mean the step's main request and its
-  reviewing request. Architect proposes names that keep these apart.
+  brief's "verifier" and "validator" mean the step's main request and its second
+  request. Architect proposes names that keep these apart.
+- Architect decides how the two judgments' pieces are paired for the comparison,
+  how a second judgment that still fails a check after its retries is compared
+  and listed, and the verdict's value for a cell that only repeats the cell
+  above it.
 - The user chose on 2026-11-22 that verdicts cover only the whole PDF, so trying
   page-break verification on part of a long PDF needs a cut copy of the PDF, as
   the CAPS test fixture is. A real run of a whole long PDF pays for page
   extraction of every page first.
 - With the pauses on, a new PDF takes three runs (survey, page extraction,
   page-break verification) unless the user turns pauses off.
-- No measurement of page-break verification's cost in pydelity exists.
-  KGForEdGlobal's design judged 99 CAPS breaks for $15.25 on Opus 5 with a
-  reviewing request on every break (brief E7).
+- The user's ten Anthropic runs before the rework cost about $4.36 with the
+  verifier off and $7.92 with it on, for 29 breaks over five PDFs, page
+  extraction of new pages included. KGForEdGlobal's design judged 99 CAPS breaks
+  for $15.25 on Opus 5 with a reviewing request on every break (brief E7).
 - Page-break verification's `PROMPT_VERSION` starts at 1 and is not raised
   before 0.3.0. Real runs after a prompt change use new output folders or
   `--overwrite`.

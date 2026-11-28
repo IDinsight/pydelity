@@ -1,7 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `SCOPING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
-`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -30,9 +30,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `USER_REWORK` `From`: `REVIEWING_FINAL` `FailureType`: `SCOPING`
-`Reason`:
-`The user asked to rework page-break verification after the real Anthropic runs: verdict format additions, a prompt rule, a narrower start-marker hint, and a second independent judgment in place of the verifier's review.`
+`Kind`: `FORWARD` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
+`Scope reworked: new AC-052 to AC-062 replace AC-025, AC-026, AC-029, AC-030, AC-036, AC-050 and AC-051, so design, plan, verification, implementation review and docs rerun.`
 
 ## Recovery
 
@@ -42,7 +41,7 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 `From`: `REVIEWING_FINAL` `Owner`: `SCOPING` `FailureType`: `SCOPING` `Reason`:
 `The user asked to rework page-break verification after the real Anthropic runs: verdict format additions, a prompt rule, a narrower start-marker hint, and a second independent judgment in place of the verifier's review.`
-`ResumeAt`: `REVIEWING_FINAL` `RerunThrough`: `NONE`
+`ResumeAt`: `REVIEWING_FINAL` `RerunThrough`: `DOCUMENTING`
 
 ## Outstanding Obligations
 
