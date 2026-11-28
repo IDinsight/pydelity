@@ -752,6 +752,14 @@ class MockProviders:
         How long to wait before answering each model request, so a test can act while
         a request is in flight.
 
+    Attributes
+    ----------
+    delay_seconds
+        How long to wait before answering each model request. A test may change it
+        between runs.
+    verbose
+        Whether to print each request line to stderr.
+
     Raises
     ------
     ValueError
@@ -791,7 +799,6 @@ class MockProviders:
             for agent, given in by_agent.items()
         }
         self._page_answers_sent: Counter[tuple[int, str]] = Counter()
-        self._delay_seconds = delay_seconds
         self._faults: list[_Fault] = []
         self._files: dict[Provider, set[str]] = {"anthropic": set(), "openai": set()}
         self._lock = threading.Lock()
@@ -803,6 +810,7 @@ class MockProviders:
         self._survey_verdicts_sent = 0
         self._thread: threading.Thread | None = None
         self._usage = (input_tokens, output_tokens)
+        self.delay_seconds = delay_seconds
         self.verbose = verbose
 
     def __enter__(self) -> Self:
@@ -881,8 +889,8 @@ class MockProviders:
             with self._lock:
                 self._in_flight += 1
                 self._max_in_flight = max(self._max_in_flight, self._in_flight)
-            if self._delay_seconds:
-                time.sleep(self._delay_seconds)
+            if self.delay_seconds:
+                time.sleep(self.delay_seconds)
         parsed = (
             _parse_upload(body=body, content_type=content_type)
             if route == "upload"

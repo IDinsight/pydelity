@@ -156,7 +156,8 @@ def canned_answers() -> Callable[[str], dict[str, object]]:
         Takes the PDF's file name in ``tests/fixtures/pdfs`` and returns
         `MockProviders`' ``answers`` (the survey's answer), ``page_answers`` (the
         extraction and verifier answers for each page) and ``break_answers`` (the
-        judge and verifier answers for each break), as keyword arguments.
+        answer for each break, which the judge and the verifier both get), as
+        keyword arguments.
     """
 
     def answers(name: str) -> dict[str, object]:

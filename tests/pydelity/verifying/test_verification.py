@@ -59,16 +59,13 @@ _LABELS = [
     },
 ]
 
-# A judge's verdict that nothing continues.
+# A verdict that nothing continues.
 _NOTHING_CONTINUES = {
     "containers": [],
     "continues": False,
     "pieces": [],
     "reason": "Each page ends with a whole line.",
 }
-
-# The verdict of a verifier that finds nothing wrong.
-_PASSED = {"corrected": None, "passed": True, "problems": []}
 
 # What PydanticAI puts around a retry message in the request that follows it.
 _RETRY_FEEDBACK = re.compile(
@@ -78,6 +75,52 @@ _RETRY_FEEDBACK = re.compile(
 # The survey's start marker in tests of hints: each page after the first starts
 # with it.
 _START_MARKER = {"description": "Starts a new part.", "text": "Part"}
+
+
+def _break_agents(*, start: int = 0) -> list[tuple[str, int | None]]:
+    """List the agent and break of each page-break line in the cost ledger.
+
+    The judge's and the verifier's requests are the same, so the stand-in cannot
+    tell them apart. The ledger in ``out`` says which agent sent each request.
+
+    Parameters
+    ----------
+    start
+        How many of the ledger's lines to skip, such as the count before a run.
+
+    Returns
+    -------
+    list[tuple[str, int | None]]
+        Each page-break request's agent and the page before its break, in the order
+        the ledger has them.
+    """
+
+    return [
+        (entry.agent, entry.page_index)
+        for entry in pydelity.load("out").ledger[start:]
+        if entry.step == "page_breaks"
+    ]
+
+
+def _break_requests(mock: MockProviders, *, start: int = 0) -> list[RecordedRequest]:
+    """List the page-break requests the stand-in got, in the order they arrived.
+
+    Parameters
+    ----------
+    mock
+        The stand-in server.
+    start
+        How many of its requests to skip, such as the count before a run.
+
+    Returns
+    -------
+    list[RecordedRequest]
+        Each request that names a break.
+    """
+
+    return [
+        request for request in mock.requests[start:] if request.break_index is not None
+    ]
 
 
 def _image_sizes(request: RecordedRequest) -> list[tuple[int, int]]:
@@ -179,7 +222,7 @@ def _page_answer(*texts: str) -> dict[str, object]:
 
 
 def _sent(mock: MockProviders, *, start: int = 0) -> list[tuple[str, int]]:
-    """List the agent and page or break of each model request after the survey's.
+    """List the sender and page or break of each model request after the survey's.
 
     Parameters
     ----------
@@ -191,12 +234,14 @@ def _sent(mock: MockProviders, *, start: int = 0) -> list[tuple[str, int]]:
     Returns
     -------
     list[tuple[str, int]]
-        Each page or break request's agent and page index or break's earlier page
-        index, sorted, so the order concurrent requests arrive in does not matter.
+        Each page request's agent and page index, and ``break`` with the break's
+        earlier page index for each page-break request, sorted, so the order
+        concurrent requests arrive in does not matter. A page-break request does not
+        say which agent sent it, and `_break_agents` reads that from the ledger.
     """
 
     return sorted(
-        (request.agent or "", request.page_index or request.break_index or 0)
+        (request.agent or "break", request.page_index or request.break_index or 0)
         for request in mock.requests[start:]
         if request.route == "model"
         and (request.page_index is not None or request.break_index is not None)
@@ -207,7 +252,7 @@ def _start(
     mock_providers: Callable[..., MockProviders],
     survey_answer: Callable[..., dict[str, object]],
     *,
-    break_answers: dict[int, dict[str, object]],
+    break_answers: dict[int, object],
     pages: Sequence[Sequence[str]],
     **options: object,
 ) -> MockProviders:
@@ -220,7 +265,9 @@ def _start(
     survey_answer
         The fixture that writes a survey answer.
     break_answers
-        The judge's and verifier's answers by the break's earlier page.
+        The answers by the break's earlier page: one answer, or a list whose next
+        item each of the break's requests gets, the judge's first, the last one
+        repeating.
     pages
         Each page's lines, in page order.
     **options
@@ -267,60 +314,6 @@ def _text(page_count: int) -> list[list[str]]:
     ]
 
 
-def test_a_correction_that_fails_a_check_is_sent_back_then_rejected(
-    blank_pdf: Callable[..., Path],
-    mock_providers: Callable[..., MockProviders],
-    survey_answer: Callable[..., dict[str, object]],
-) -> None:
-    """A correction naming an item the page does not have is never kept.
-
-    With one retry, the verifier gives that correction twice. The second verifier
-    request carries the retry message, the judge's verdict is kept, the verdict
-    file records the checks the correction failed, and the verifier's problems
-    are review issues.
-    """
-
-    pdf = blank_pdf(2)
-    correction = _joined(0, later_item="p0001-009")
-    review = {
-        "corrected": correction,
-        "passed": False,
-        "problems": [
-            {
-                "category": "piece",
-                "description": "The piece starts lower on page 2.",
-                "item": "p0001-001",
-            }
-        ],
-    }
-    mock = _start(
-        mock_providers,
-        survey_answer,
-        break_answers={0: {"judge": _joined(0), "verifier": [review, review]}},
-        pages=_text(2),
-    )
-
-    result = pydelity.run(
-        pdf,
-        advanced={"page_breaks": {"check_retries": 1, "verify": True}},
-        output_dir="out",
-        pause=False,
-    )
-
-    verifier = [request for request in mock.requests if request.agent == "verifier"]
-    assert len(verifier) == 2
-    (retry,) = _RETRY_FEEDBACK.findall(json.dumps(verifier[1].body, ensure_ascii=False))
-    assert "Your corrected verdict does not pass every check." in retry
-    assert "p0001-009, which is not an item on the later page" in retry
-    (break_file,) = result.breaks
-    assert break_file.verdict.model_dump(mode="json") == _joined(0)
-    verification = break_file.verification
-    assert verification is not None
-    assert (verification.attempts, verification.correction_applied) == (2, False)
-    assert [result.name for result in verification.correction_failures] == ["ids"]
-    assert [issue.check for issue in break_file.issues] == ["verifier"]
-
-
 def test_a_damaged_verdict_file_warns_and_its_break_is_judged_again(
     blank_pdf: Callable[..., Path],
     mock_providers: Callable[..., MockProviders],
@@ -332,7 +325,7 @@ def test_a_damaged_verdict_file_warns_and_its_break_is_judged_again(
     mock = _start(
         mock_providers,
         survey_answer,
-        break_answers={0: {"judge": _NOTHING_CONTINUES}},
+        break_answers={0: _NOTHING_CONTINUES},
         pages=_text(2),
     )
     pydelity.run(pdf, output_dir="out", pause=False)
@@ -345,7 +338,7 @@ def test_a_damaged_verdict_file_warns_and_its_break_is_judged_again(
     ):
         result = pydelity.run(pdf, output_dir="out", pause=False)
 
-    assert _sent(mock, start=before) == [("judge", 0)]
+    assert _sent(mock, start=before) == [("break", 0)]
     assert result.record is not None
     (warning,) = result.record.warnings
     assert (warning.code, warning.step) == ("damaged_output", "page_breaks")
@@ -371,7 +364,7 @@ def test_a_failed_check_is_sent_back_then_the_last_verdict_is_kept_for_review(
     mock = _start(
         mock_providers,
         survey_answer,
-        break_answers={0: {"judge": [wrong, wrong]}},
+        break_answers={0: [wrong, wrong]},
         pages=_text(2),
     )
 
@@ -382,8 +375,9 @@ def test_a_failed_check_is_sent_back_then_the_last_verdict_is_kept_for_review(
         pause=False,
     )
 
-    judge = [request for request in mock.requests if request.agent == "judge"]
+    judge = _break_requests(mock)
     assert len(judge) == 2
+    assert _break_agents() == [("judge", 0), ("judge", 0)]
     (retry,) = _RETRY_FEEDBACK.findall(json.dumps(judge[1].body, ensure_ascii=False))
     assert "continues: continues is true, but pieces is empty" in retry
     (break_file,) = result.breaks
@@ -419,11 +413,13 @@ def test_a_failed_request_stops_the_run_and_the_next_run_judges_only_the_rest(
     _start(
         mock_providers,
         survey_answer,
-        break_answers={0: {"judge": _NOTHING_CONTINUES}},
+        break_answers={0: _NOTHING_CONTINUES},
         pages=_text(3),
     )
 
-    with pytest.raises(ProviderError, match="No judge answer for the break after"):
+    with pytest.raises(
+        ProviderError, match=r"No answer for the break after page index 1"
+    ):
         pydelity.run(
             pdf, advanced={"page_breaks": settings}, output_dir="out", pause=False
         )
@@ -437,14 +433,14 @@ def test_a_failed_request_stops_the_run_and_the_next_run_judges_only_the_rest(
     retry = _start(
         mock_providers,
         survey_answer,
-        break_answers={1: {"judge": _NOTHING_CONTINUES}},
+        break_answers={1: _NOTHING_CONTINUES},
         pages=_text(3),
     )
     result = pydelity.run(
         pdf, advanced={"page_breaks": settings}, output_dir="out", pause=False
     )
 
-    assert _sent(retry) == [("judge", 1)]
+    assert _sent(retry) == [("break", 1)]
     assert [break_file.earlier_page_index for break_file in result.breaks] == [0, 1]
     assert result.record is not None
     assert result.record.steps[2].breaks == BreakCounts(judged=1, reused=1, total=2)
@@ -467,7 +463,7 @@ def test_a_narrowed_pages_judges_every_break_once_the_other_pages_are_current(
     mock = _start(
         mock_providers,
         survey_answer,
-        break_answers={0: {"judge": _NOTHING_CONTINUES}},
+        break_answers={0: _NOTHING_CONTINUES},
         pages=_text(2),
     )
 
@@ -483,7 +479,7 @@ def test_a_narrowed_pages_judges_every_break_once_the_other_pages_are_current(
         "page_breaks",
     ]
     assert (estimate.steps[2].breaks, estimate.steps[2].reused) == (1, False)
-    assert _sent(mock) == [("extractor", 0), ("extractor", 1), ("judge", 0)]
+    assert _sent(mock) == [("break", 0), ("extractor", 0), ("extractor", 1)]
     assert second.record is not None
     assert [step.status for step in second.record.steps] == [
         "reused",
@@ -530,7 +526,7 @@ def test_a_page_break_request_first_shows_the_estimate_and_a_no_stops_it_unsent(
     mock = _start(
         mock_providers,
         survey_answer,
-        break_answers={0: {"judge": _NOTHING_CONTINUES}},
+        break_answers={0: _NOTHING_CONTINUES},
         pages=_text(3),
     )
     pydelity.extract(pdf, output_dir="out")
@@ -552,6 +548,7 @@ def test_a_page_break_request_first_shows_the_estimate_and_a_no_stops_it_unsent(
 
 def test_a_page_with_no_content_items_and_turning_on_the_step_s_verifier(
     blank_pdf: Callable[..., Path],
+    log_messages: list[tuple[str, str]],
     mock_providers: Callable[..., MockProviders],
     survey_answer: Callable[..., dict[str, object]],
 ) -> None:
@@ -559,33 +556,59 @@ def test_a_page_with_no_content_items_and_turning_on_the_step_s_verifier(
 
     The third page has no items, so its break gets a verdict that nothing
     continues with no request. Turning on page-break verification's verifier then
-    judges the first break again, with the verifier, and reuses the second.
+    sends the verifier's request alone for the first break, and the estimate
+    prices that request alone. The judge's verdict, checks and start-marker hint
+    difference are kept, the file gains the verifier's judgment, and the second
+    break is reused. A run after that sends no request.
     """
 
     pdf = blank_pdf(3)
     mock = _start(
         mock_providers,
         survey_answer,
-        break_answers={0: {"judge": _joined(0), "verifier": _PASSED}},
+        break_answers={0: _joined(0)},
         pages=[*_text(2), []],
+        survey={"start_markers": [_START_MARKER]},
     )
+    verify = {"page_breaks": {"verify": True}}
 
     first = pydelity.run(pdf, output_dir="out", pause=False)
     before = len(mock.requests)
-    second = pydelity.run(
-        pdf,
-        advanced={"page_breaks": {"verify": True}},
-        output_dir="out",
-        pause=False,
-    )
+    estimate = pydelity.estimate(pdf, advanced=verify, output_dir="out", pause=False)
+    second = pydelity.run(pdf, advanced=verify, output_dir="out", pause=False)
+    after = len(mock.requests)
+    third = pydelity.run(pdf, advanced=verify, output_dir="out", pause=False)
 
-    assert _sent(mock, start=0)[:5] == [
-        ("extractor", 0),
-        ("extractor", 1),
-        ("extractor", 2),
-        ("judge", 0),
-        ("judge", 0),
-    ]
+    assert _break_agents() == [("judge", 0), ("verifier", 0)]
+    assert [request.break_index for request in mock.requests[before:]] == [0]
+    assert len(mock.requests) == after
+    step = estimate.steps[2]
+    assert (step.name, step.breaks, step.verifier, step.requests_max) == (
+        "page_breaks",
+        1,
+        True,
+        3,
+    )
+    kept, verified = first.breaks[0], second.breaks[0]
+    assert kept.verification is None
+    assert [issue.check for issue in kept.issues] == ["start_markers"]
+    assert verified.model_dump(
+        include={"checks", "fingerprint", "hints", "inputs", "judgment", "verdict"}
+    ) == kept.model_dump(
+        include={"checks", "fingerprint", "hints", "inputs", "judgment", "verdict"}
+    )
+    assert verified.judged_at > kept.judged_at
+    assert verified.verification is not None
+    assert verified.verification.differences == []
+    assert verified.verification.verdict == kept.verdict
+    assert verified.issues == []
+    assert (
+        "INFO",
+        "Break after page 1 (pages 1 and 2): no verifier judged it, so the verifier "
+        "judges it now and the judge's verdict is kept",
+    ) in log_messages
+    assert third.record is not None
+    assert third.record.steps[2].status == "reused"
     no_content = first.breaks[1]
     assert (no_content.judgment, no_content.verification) == ("no_content", None)
     assert no_content.verdict.model_dump() == {
@@ -598,9 +621,6 @@ def test_a_page_with_no_content_items_and_turning_on_the_step_s_verifier(
     assert {(check.attempts, check.passed) for check in no_content.checks} == {
         (0, True)
     }
-    assert first.breaks[0].verification is None
-    assert _sent(mock, start=before) == [("judge", 0), ("verifier", 0)]
-    assert second.breaks[0].verification is not None
     assert second.breaks[1] == no_content
     assert second.record is not None
     assert second.record.steps[2].breaks == BreakCounts(judged=1, reused=1, total=2)
@@ -638,7 +658,7 @@ def test_a_refusal_or_used_up_output_tokens_stops_the_run_unretried(  # noqa: PL
     mock = _start(
         mock_providers,
         survey_answer,
-        break_answers={0: {"judge": answer}},
+        break_answers={0: answer},
         pages=_text(2),
     )
 
@@ -648,10 +668,112 @@ def test_a_refusal_or_used_up_output_tokens_stops_the_run_unretried(  # noqa: PL
     assert str(raised.value).startswith(
         f"Break after page 1 (pages 1 and 2), {message}"
     )
-    assert [request.agent for request in mock.requests].count("judge") == 1
+    assert len(_break_requests(mock)) == 1
     record = pydelity.load("out").record
     assert record is not None
     assert record.status == "failed"
+
+
+def test_a_refused_verifier_request_keeps_the_judge_s_verdict_for_the_next_run(
+    blank_pdf: Callable[..., Path],
+    mock_providers: Callable[..., MockProviders],
+    survey_answer: Callable[..., dict[str, object]],
+) -> None:
+    """A failed verifier request stops the run after the judge's verdict is saved.
+
+    The verifier's request is refused, so the run fails with `PageBreakError`
+    naming the verifier, and the verdict file keeps the judge's verdict with no
+    verification. The next run with the verifier on sends the verifier's request
+    alone and keeps the judge's verdict and checks.
+    """
+
+    pdf = blank_pdf(2)
+    mock = _start(
+        mock_providers,
+        survey_answer,
+        break_answers={0: [_joined(0), REFUSAL, _joined(0)]},
+        pages=_text(2),
+    )
+    verify = {"page_breaks": {"verify": True}}
+
+    with pytest.raises(
+        PageBreakError,
+        match=r"^Break after page 1 \(pages 1 and 2\), verifier: the model refused\.",
+    ):
+        pydelity.run(pdf, advanced=verify, output_dir="out", pause=False)
+
+    loaded = pydelity.load("out")
+    assert loaded.record is not None
+    assert (loaded.record.status, loaded.record.steps[2].status) == (
+        "failed",
+        "failed",
+    )
+    (saved,) = loaded.breaks
+    assert saved.verdict.model_dump(mode="json") == _joined(0)
+    assert saved.verification is None
+    before, ledger = len(mock.requests), len(loaded.ledger)
+
+    result = pydelity.run(pdf, advanced=verify, output_dir="out", pause=False)
+
+    assert len(_break_requests(mock, start=before)) == 1
+    assert _break_agents(start=ledger) == [("verifier", 0)]
+    (break_file,) = result.breaks
+    assert (break_file.verdict, break_file.checks) == (saved.verdict, saved.checks)
+    assert break_file.verification is not None
+    assert break_file.verification.differences == []
+
+
+def test_a_verifier_verdict_that_fails_a_check_is_sent_back_then_compared_as_it_is(
+    blank_pdf: Callable[..., Path],
+    mock_providers: Callable[..., MockProviders],
+    survey_answer: Callable[..., dict[str, object]],
+) -> None:
+    """The verifier's verdict is sent back for a failed check, as the judge's is.
+
+    With one retry, the verifier twice starts the piece in an item the later page
+    does not have. Its first request carries no retry message and its second one
+    does. The judge's verdict is kept. The verifier's last verdict is saved with
+    its failed check and compared as it is, and only the difference is a review
+    issue.
+    """
+
+    pdf = blank_pdf(2)
+    wrong = _joined(0, later_item="p0001-009")
+    mock = _start(
+        mock_providers,
+        survey_answer,
+        break_answers={0: [_joined(0), wrong, wrong]},
+        pages=_text(2),
+    )
+
+    result = pydelity.run(
+        pdf,
+        advanced={"page_breaks": {"check_retries": 1, "verify": True}},
+        output_dir="out",
+        pause=False,
+    )
+
+    _, first, second = _break_requests(mock)
+    assert _break_agents() == [("judge", 0), ("verifier", 0), ("verifier", 0)]
+    assert _RETRY_FEEDBACK.findall(json.dumps(first.body, ensure_ascii=False)) == []
+    (retry,) = _RETRY_FEEDBACK.findall(json.dumps(second.body, ensure_ascii=False))
+    assert "p0001-009, which is not an item on the later page" in retry
+    (break_file,) = result.breaks
+    assert break_file.verdict.model_dump(mode="json") == _joined(0)
+    assert all(check.passed for check in break_file.checks)
+    verification = break_file.verification
+    assert verification is not None
+    assert verification.attempts == 2
+    assert verification.verdict.model_dump(mode="json") == wrong
+    assert [
+        (check.name, check.attempts)
+        for check in verification.checks
+        if not check.passed
+    ] == [("ids", 2)]
+    assert [difference.details["field"] for difference in verification.differences] == [
+        "start"
+    ]
+    assert [issue.check for issue in break_file.issues] == ["verdicts_differ"]
 
 
 def test_an_unusable_judge_answer_stops_the_cli_with_exit_code_1(
@@ -670,7 +792,7 @@ def test_an_unusable_judge_answer_stops_the_cli_with_exit_code_1(
     mock = _start(
         mock_providers,
         survey_answer,
-        break_answers={0: {"judge": "I cannot tell from these pages."}},
+        break_answers={0: "I cannot tell from these pages."},
         pages=_text(2),
     )
 
@@ -681,7 +803,7 @@ def test_an_unusable_judge_answer_stops_the_cli_with_exit_code_1(
         "Break after page 1 (pages 1 and 2), judge: the model gave no usable answer"
         in result.stderr
     )
-    assert [request.agent for request in mock.requests].count("judge") == 3
+    assert len(_break_requests(mock)) == 3
     assert not Path("out/page_breaks/0000-0001.json").exists()
     record = pydelity.load("out").record
     assert record is not None
@@ -696,17 +818,18 @@ def test_break_requests_sent_at_once_are_held_to_max_cost_together(
     """Page-break requests in flight count toward ``max_cost`` together.
 
     Output is priced so that one request's highest cost fits what is left of
-    ``max_cost`` and two do not. Three breaks at once stop with the warning, which
-    counts the request in flight and the next, before the second is sent. One
-    break at a time completes with no warning.
+    ``max_cost`` and two do not. The stand-in holds each break request for a
+    second, so the first is still in flight when the next is checked. Three breaks
+    at once stop with the warning, which counts the request in flight and the
+    next, before the second is sent. One break at a time completes with no
+    warning.
     """
 
     pdf = blank_pdf(4)
     mock = _start(
         mock_providers,
         survey_answer,
-        break_answers={index: {"judge": _NOTHING_CONTINUES} for index in range(3)},
-        delay_seconds=0.3,
+        break_answers=dict.fromkeys(range(3), _NOTHING_CONTINUES),
         pages=_text(4),
     )
     pydelity.extract(pdf, output_dir="out")
@@ -721,6 +844,7 @@ def test_break_requests_sent_at_once_are_held_to_max_cost_together(
         }
     }
     before = len(mock.requests)
+    mock.delay_seconds = 1.0
 
     with (
         pytest.raises(BudgetExceededError),
@@ -733,6 +857,7 @@ def test_break_requests_sent_at_once_are_held_to_max_cost_together(
             output_dir="out",
         )
     held = len(_sent(mock, start=before))
+    mock.delay_seconds = 0
     with warnings.catch_warnings():
         warnings.simplefilter("error", PydelityWarning)
         verdicts = pydelity.verify_breaks(
@@ -743,112 +868,20 @@ def test_break_requests_sent_at_once_are_held_to_max_cost_together(
         )
 
     # Each request's highest cost is its 32,000 output tokens at $1,000 per
-    # million: $32. The warning counts the request in flight and the next one.
+    # million: $32. The warning counts the request in flight and the next one on
+    # top of what is already spent.
     (warning,) = issued
-    projected = re.search(r"makes \$([0-9.,]+)", str(warning.message))
-    assert projected is not None
-    assert abs(Decimal(projected[1].replace(",", "")) - spent - 64) < Decimal("0.01")
+    found = re.search(
+        r"\$([0-9.,]+) already spent .* makes \$([0-9.,]+)", str(warning.message)
+    )
+    assert found is not None
+    already, projected = (
+        Decimal(found[group].rstrip(",").replace(",", "")) for group in (1, 2)
+    )
+    assert abs(already - spent) < Decimal("0.01")
+    assert abs(projected - already - 64) < Decimal("0.01")
     assert held <= 1
     assert [verdict.earlier_page_index for verdict in verdicts] == [0, 1, 2]
-
-
-@pytest.mark.parametrize(
-    ("judge", "verifier", "kept", "applied", "issue_checks"),
-    [
-        (_joined(0), _PASSED, _joined(0), False, []),
-        (
-            _NOTHING_CONTINUES,
-            {
-                "corrected": _joined(0),
-                "passed": False,
-                "problems": [
-                    {
-                        "category": "continues",
-                        "description": 'The sentence "The notice starts here and" '
-                        "carries on.",
-                        "item": None,
-                    }
-                ],
-            },
-            _joined(0),
-            True,
-            [],
-        ),
-        (
-            _joined(0),
-            {
-                "corrected": None,
-                "passed": False,
-                "problems": [
-                    {
-                        "category": "join",
-                        "description": "The text join may be no_space.",
-                        "item": "p0001-001",
-                    }
-                ],
-            },
-            _joined(0),
-            False,
-            ["start_markers", "verifier"],
-        ),
-    ],
-    ids=["passed", "correction-kept", "problems-listed"],
-)
-def test_each_verifier_outcome_decides_the_kept_verdict_and_the_review_issues(  # noqa: PLR0913, PLR0917 - fixtures and parameters
-    applied: bool,
-    blank_pdf: Callable[..., Path],
-    issue_checks: list[str],
-    judge: dict[str, object],
-    kept: dict[str, object],
-    mock_providers: Callable[..., MockProviders],
-    survey_answer: Callable[..., dict[str, object]],
-    verifier: dict[str, object],
-) -> None:
-    """The verifier passes the verdict, has its correction kept, or lists problems.
-
-    The second page starts with the survey's start marker, so a verdict joining it
-    differs from the hint. The judge is asked once, since a hint difference is
-    never sent back. The verdict file keeps the hint difference and the verifier's
-    verdict as given. Its review issues hold the difference and the verifier's
-    problems only when the verifier neither passed the verdict nor had its
-    correction kept, and ``run.json`` lists the same issues.
-    """
-
-    pdf = blank_pdf(2)
-    mock = _start(
-        mock_providers,
-        survey_answer,
-        break_answers={0: {"judge": judge, "verifier": verifier}},
-        pages=_text(2),
-        survey={"start_markers": [_START_MARKER]},
-    )
-
-    result = pydelity.run(
-        pdf,
-        advanced={"page_breaks": {"verify": True}},
-        output_dir="out",
-        pause=False,
-    )
-
-    assert _sent(mock)[-2:] == [("judge", 0), ("verifier", 0)]
-    (break_file,) = result.breaks
-    assert break_file.verdict.model_dump(mode="json") == kept
-    assert break_file.verification is not None
-    assert break_file.verification.correction_applied is applied
-    assert break_file.verification.verdict.model_dump(mode="json") == verifier
-    (hint,) = break_file.hints
-    assert [difference.details for difference in hint.differences] == [
-        {"entry": None, "item": "p0001-001", "marker": "Part"}
-    ]
-    assert [issue.check for issue in break_file.issues] == issue_checks
-    if "verifier" in issue_checks:
-        issue = break_file.issues[-1]
-        assert issue.item_id == "p0001-001"
-        assert (
-            issue.message == "pages 1 and 2: verifier: The text join may be no_space."
-        )
-    assert result.record is not None
-    assert result.record.review == break_file.issues
 
 
 def test_extracting_one_page_again_judges_only_the_two_breaks_beside_it(
@@ -865,7 +898,7 @@ def test_extracting_one_page_again_judges_only_the_two_breaks_beside_it(
     mock = _start(
         mock_providers,
         survey_answer,
-        break_answers={index: {"judge": _joined(index)} for index in range(3)},
+        break_answers={index: _joined(index) for index in range(3)},
         pages=_text(4),
     )
     first = pydelity.run(pdf, output_dir="out", pause=False)
@@ -874,7 +907,7 @@ def test_extracting_one_page_again_judges_only_the_two_breaks_beside_it(
 
     second = pydelity.run(pdf, output_dir="out", pause=False)
 
-    assert _sent(mock, start=before) == [("extractor", 1), ("judge", 0), ("judge", 1)]
+    assert _sent(mock, start=before) == [("break", 0), ("break", 1), ("extractor", 1)]
     assert second.record is not None
     assert second.record.steps[2].breaks == BreakCounts(judged=2, reused=1, total=3)
     assert second.breaks[2] == first.breaks[2]
@@ -892,7 +925,7 @@ def test_load_leaves_out_a_verdict_whose_page_file_changed(
     _start(
         mock_providers,
         survey_answer,
-        break_answers={0: {"judge": _NOTHING_CONTINUES}},
+        break_answers={0: _NOTHING_CONTINUES},
         pages=_text(2),
     )
     pydelity.run(pdf, output_dir="out", pause=False)
@@ -923,7 +956,7 @@ def test_rotated_pages_are_sent_upright_with_boxes_on_the_upright_grid(
     mock = _start(
         mock_providers,
         survey_answer,
-        break_answers={0: {"judge": _NOTHING_CONTINUES}},
+        break_answers={0: _NOTHING_CONTINUES},
         pages=_text(2),
         survey={
             "rotation": [
@@ -936,7 +969,7 @@ def test_rotated_pages_are_sent_upright_with_boxes_on_the_upright_grid(
     result = pydelity.run(pdf, output_dir="out", pause=False)
 
     assert [page.rotation for page in result.pages] == [90, 270]
-    (judge,) = [request for request in mock.requests if request.agent == "judge"]
+    (judge,) = _break_requests(mock)
     (earlier, later) = _image_sizes(judge)
     assert earlier[0] > earlier[1]
     assert later[0] < later[1]
@@ -968,7 +1001,7 @@ def test_run_pauses_after_the_survey_and_page_extraction_then_judges(
     _start(
         mock_providers,
         survey_answer,
-        break_answers={0: {"judge": _NOTHING_CONTINUES}},
+        break_answers={0: _NOTHING_CONTINUES},
         pages=_text(2),
     )
 
@@ -1008,7 +1041,7 @@ def test_the_api_judges_what_is_missing_without_pausing_and_reuses_it(
     mock = _start(
         mock_providers,
         survey_answer,
-        break_answers={index: {"judge": _NOTHING_CONTINUES} for index in range(2)},
+        break_answers=dict.fromkeys(range(2), _NOTHING_CONTINUES),
         pages=_text(3),
     )
 
@@ -1017,12 +1050,13 @@ def test_the_api_judges_what_is_missing_without_pausing_and_reuses_it(
     second = pydelity.verify_breaks(pdf, output_dir="out")
 
     assert _sent(mock) == [
+        ("break", 0),
+        ("break", 1),
         ("extractor", 0),
         ("extractor", 1),
         ("extractor", 2),
-        ("judge", 0),
-        ("judge", 1),
     ]
+    assert sorted(_break_agents()) == [("judge", 0), ("judge", 1)]
     assert [verdict.earlier_page_index for verdict in first] == [0, 1]
     assert not Path("out/run.json").exists()
     assert not Path("out/report.html").exists()
@@ -1041,7 +1075,7 @@ def test_the_api_with_a_narrowed_pages_returns_no_verdict_and_warns(
     mock = _start(
         mock_providers,
         survey_answer,
-        break_answers={0: {"judge": _NOTHING_CONTINUES}},
+        break_answers={0: _NOTHING_CONTINUES},
         pages=_text(2),
     )
 
@@ -1076,10 +1110,7 @@ def test_the_step_s_instructions_reach_only_its_requests_and_rerun_only_it(
     mock = _start(
         mock_providers,
         survey_answer,
-        break_answers={
-            index: {"judge": _NOTHING_CONTINUES, "verifier": _PASSED}
-            for index in range(2)
-        },
+        break_answers=dict.fromkeys(range(2), _NOTHING_CONTINUES),
         pages=_text(3),
         survey={
             "continuation_notes": ["Sentences often carry on to the next page."],
@@ -1094,6 +1125,7 @@ def test_the_step_s_instructions_reach_only_its_requests_and_rerun_only_it(
     model = "openai:gpt-6.2-astra"
     pydelity.run(pdf, advanced=advanced, model=model, output_dir="out", pause=False)
     before = len(mock.requests)
+    ledger = len(pydelity.load("out").ledger)
     advanced["page_breaks"]["instructions"] = "Footnotes carry on."
 
     result = pydelity.run(
@@ -1107,6 +1139,12 @@ def test_the_step_s_instructions_reach_only_its_requests_and_rerun_only_it(
         "completed",
     ]
     assert _sent(mock, start=before) == [
+        ("break", 0),
+        ("break", 0),
+        ("break", 1),
+        ("break", 1),
+    ]
+    assert sorted(_break_agents(start=ledger)) == [
         ("judge", 0),
         ("judge", 1),
         ("verifier", 0),
@@ -1127,3 +1165,93 @@ def test_the_step_s_instructions_reach_only_its_requests_and_rerun_only_it(
             assert instructions.endswith("\nFootnotes carry on.")
         else:
             assert "The user's instructions" not in instructions
+
+
+@pytest.mark.parametrize(
+    ("verifier", "fields", "issue_checks", "report_line"),
+    [
+        (_joined(0), [], [], "its verdict matches"),
+        (
+            _joined(0, text_join="no_space"),
+            ["text_join"],
+            ["start_markers", "verdicts_differ"],
+            "its verdict differs in 1 place: in piece 1 (p0000-001 to p0001-001), "
+            "the text join is space in the kept verdict and no_space in the "
+            "verifier&#x27;s",
+        ),
+    ],
+    ids=["agrees", "differs"],
+)
+def test_the_verifier_judges_the_break_again_unseen_and_lists_each_difference(  # noqa: PLR0913, PLR0917 - fixtures and parameters
+    blank_pdf: Callable[..., Path],
+    fields: list[str],
+    issue_checks: list[str],
+    mock_providers: Callable[..., MockProviders],
+    report_line: str,
+    survey_answer: Callable[..., dict[str, object]],
+    verifier: dict[str, object],
+) -> None:
+    """The verifier sends the judge's request again, and code compares the verdicts.
+
+    The second page starts with the survey's start marker, so the judge's verdict
+    differs from the hint. The verifier's request equals the judge's, so it never
+    sees the judge's verdict. When the verifier's verdict matches, nothing is
+    listed, not even the hint difference, and the report says so. When its text
+    join differs, the hint difference and the difference are review issues, and no
+    third request is made. The verdict file keeps the hint difference and the
+    verifier's verdict either way, and ``run.json`` lists the same issues.
+    """
+
+    pdf = blank_pdf(2)
+    mock = _start(
+        mock_providers,
+        survey_answer,
+        break_answers={0: [_joined(0), verifier]},
+        pages=_text(2),
+        survey={"start_markers": [_START_MARKER]},
+    )
+
+    result = pydelity.run(
+        pdf,
+        advanced={"page_breaks": {"verify": True}},
+        output_dir="out",
+        pause=False,
+    )
+
+    judge, again = _break_requests(mock)
+    assert again.body == judge.body
+    assert _break_agents() == [("judge", 0), ("verifier", 0)]
+    (break_file,) = result.breaks
+    assert break_file.verdict.model_dump(mode="json") == _joined(0)
+    verification = break_file.verification
+    assert verification is not None
+    assert verification.attempts == 1
+    assert all(check.passed for check in verification.checks)
+    assert verification.verdict.model_dump(mode="json") == verifier
+    assert [
+        difference.details["field"] for difference in verification.differences
+    ] == fields
+    (hint,) = break_file.hints
+    assert [difference.details for difference in hint.differences] == [
+        {"entry": None, "item": "p0001-001", "marker": "Part"}
+    ]
+    assert [issue.check for issue in break_file.issues] == issue_checks
+    if fields:
+        issue = break_file.issues[-1]
+        assert (issue.item_id, issue.page_index) == ("p0000-001", 0)
+        assert issue.message == (
+            "pages 1 and 2: verdicts_differ: in piece 1 (p0000-001 to p0001-001), "
+            "the text join is space in the kept verdict and no_space in the "
+            "verifier's"
+        )
+        assert issue.details == {
+            "entry": None,
+            "field": "text_join",
+            "item": "p0000-001",
+            "kept": "space",
+            "verifier": "no_space",
+        }
+    assert result.record is not None
+    assert result.record.review == break_file.issues
+    report = Path("out/report.html").read_text(encoding="utf-8")
+    assert f"<dt>Verifier</dt><dd>{report_line}</dd>" in report

@@ -151,10 +151,12 @@ def test_a_pdf_alone_runs_the_survey_with_keys_from_the_environment(
 
     assert judged.exit_code == ExitCode.COMPLETED, judged.output
     assert [
-        (request.break_index, request.agent)
-        for request in mock.requests
-        if request.route == "model"
-    ][-1] == (0, "judge")
+        request.break_index for request in mock.requests if request.route == "model"
+    ][-1] == 0
+    assert [
+        (line.step, line.page_index, line.agent)
+        for line in pydelity.load(folder).ledger
+    ][-1] == ("page_breaks", 0, "judge")
     assert _sent(mock) == ["upload"] + ["model"] * 4
     record = _record(str(folder))
     assert record.status == "completed"
@@ -572,8 +574,9 @@ def test_verify_adds_a_verifier_request_for_each_step_and_to_the_estimate(  # no
 
     The survey, each page and the break each get a verifier request after their
     own, the estimate before spending names page extraction's and page-break
-    verification's verifiers and counts their requests, and the ledger, the survey,
-    the page files and the verdict file hold the verifiers' reviews.
+    verification's verifiers and counts their requests, and the ledger names each
+    agent. The survey and the page files hold the verifiers' reviews, and the
+    verdict file holds the verifier's second judgment, which matches the first.
     """
 
     mock = mock_providers(**canned_answers(_SCAN), survey_verdicts=[survey_verdict()])
@@ -594,7 +597,7 @@ def test_verify_adds_a_verifier_request_for_each_step_and_to_the_estimate(  # no
         (1, None, "extractor"),
         (1, None, "verifier"),
     ]
-    assert agents[6:] == [(None, 0, "judge"), (None, 0, "verifier")]
+    assert agents[6:] == [(None, 0, None), (None, 0, None)]
     assert "Extraction with its verifier cost estimate: about $" in result.stderr
     assert "(2 pages, up to 12 requests to anthropic:claude-opus-5-5)" in result.stderr
     assert (
@@ -616,7 +619,7 @@ def test_verify_adds_a_verifier_request_for_each_step_and_to_the_estimate(  # no
     assert all(page.verification is not None for page in loaded.pages)
     (verdict,) = loaded.breaks
     assert verdict.verification is not None
-    assert verdict.verification.verdict.passed is True
+    assert verdict.verification.differences == []
 
 
 def test_verify_counts_the_survey_s_verifier_in_the_estimate_and_the_question(

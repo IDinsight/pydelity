@@ -396,9 +396,10 @@ def test_a_break_card_shows_its_pieces_beside_both_pages_with_links_from_issues(
     """A break's card draws what its verdict names and lists every verdict field.
 
     A table carries on with its header repeated, below a repeated title marked
-    "(continued)", in a box that carries on. The verifier lists a problem with the
-    table's start, which is flagged on its box, listed on the card, and linked to
-    the card from the review section.
+    "(continued)", in a box that carries on. The verifier's verdict counts no
+    repeated header row. That difference is flagged on the table's end, given in
+    the card's verifier line, listed on the card, and linked to the card from the
+    review section.
     """
 
     piece = {
@@ -421,20 +422,14 @@ def test_a_break_card_shows_its_pieces_beside_both_pages_with_links_from_issues(
         "pieces": [piece],
         "reason": "Table 4 carries on.",
     }
-    review = {
-        "corrected": None,
-        "passed": False,
-        "problems": [
-            {
-                "category": "piece",
-                "description": "The table may start a new list of names.",
-                "item": "p0001-002",
-            }
-        ],
-    }
+    second = verdict | {"pieces": [piece | {"repeated_header_rows": 0}]}
+    difference = (
+        "in piece 1 (p0000-002 to p0001-002), the number of repeated header rows is "
+        "1 in the kept verdict and 0 in the verifier's"
+    )
     mock_providers(
         answers=[survey_answer(labels=_BREAK_LABELS)],
-        break_answers={0: {"judge": verdict, "verifier": review}},
+        break_answers={0: [verdict, second]},
         page_answers={
             0: {
                 "extractor": _break_answers_page(
@@ -461,11 +456,11 @@ def test_a_break_card_shows_its_pieces_beside_both_pages_with_links_from_issues(
     card = html[html.index('<article class="break" id="break-0000">') :]
     card = card[: card.index("</article>")]
     assert "<h3>Pages 1 and 2</h3>" in card
-    for label in ("end 1", "container 1", "repeat 1, marker 1", "start 1 !"):
+    for label in ("end 1 !", "container 1", "repeat 1, marker 1", "start 1"):
         assert f'<span class="box-label">{label}</span>' in card
     for term, value in (
         ("Content continues", "yes"),
-        ("Verifier", "found 1 problem, listed for review"),
+        ("Verifier", html_text.escape(f"its verdict differs in 1 place: {difference}")),
         ("Join", "append_rows"),
         ("Ends in", "p0000-002"),
         ("Starts in", "p0001-002"),
@@ -475,7 +470,7 @@ def test_a_break_card_shows_its_pieces_beside_both_pages_with_links_from_issues(
     ):
         assert f"<dt>{term}</dt><dd>{value}</dd>" in card
     assert "container 1: p0000-c01 on page 1 carries on as p0001-c01 on page 2" in card
-    assert "pages 1 and 2: verifier: The table may start a new list of names." in card
+    assert html_text.escape(f"pages 1 and 2: verdicts_differ: {difference}") in card
     assert "#break-0000" in parsed.links
 
 
@@ -494,14 +489,7 @@ def test_a_break_with_an_empty_page_and_markup_in_a_verdict_show_safely(
     mock_providers(
         answers=[survey_answer(labels=_BREAK_LABELS)],
         break_answers={
-            0: {
-                "judge": {
-                    "containers": [],
-                    "continues": False,
-                    "pieces": [],
-                    "reason": reason,
-                }
-            }
+            0: {"containers": [], "continues": False, "pieces": [], "reason": reason}
         },
         page_answers={
             0: {
@@ -647,10 +635,7 @@ def test_a_page_no_verifier_reviewed_says_so_in_the_report(
     assert isinstance(break_answers, dict)
     mock_providers(
         answers=answers["answers"],
-        break_answers={
-            index: {"judge": by_agent["judge"]}
-            for index, by_agent in break_answers.items()
-        },
+        break_answers=break_answers,
         page_answers={
             index: {"extractor": by_agent["extractor"]}
             for index, by_agent in page_answers.items()

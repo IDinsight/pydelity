@@ -1,7 +1,8 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `TESTING` `CycleMode`: `STANDARD` `PendingCycleMode`: `UNSET`
-`PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `REVIEWING_IMPLEMENTATION` `CycleMode`: `STANDARD`
+`PendingCycleMode`: `UNSET` `PendingCycleRequest`: `UNSET`
+`PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -30,8 +31,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `DEVELOPING` `FailureType`: `NONE` `Reason`:
-`Developer rerun complete for the rework: DEV-012 to DEV-016 done, including the verifier's second judgment and keeping the judge's verdict when only the verifier's is missing; full Tester verification next.`
+`Kind`: `FORWARD` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
+`Full reverification of the rework complete: 261 tests pass on Python 3.13 and 3.14, the flaky max_cost test is corrected, and later-role dependencies are recorded; implementation review next.`
 
 ## Recovery
 
