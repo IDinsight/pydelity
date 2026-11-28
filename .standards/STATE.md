@@ -1,8 +1,7 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `REVIEWING_IMPLEMENTATION` `CycleMode`: `STANDARD`
-`PendingCycleMode`: `UNSET` `PendingCycleRequest`: `UNSET`
-`PendingCycleBlockedOn`: `NONE`
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
 
@@ -31,8 +30,9 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `TESTING` `FailureType`: `NONE` `Reason`:
-`Full reverification of the rework complete: 261 tests pass on Python 3.13 and 3.14, the flaky max_cost test is corrected, and later-role dependencies are recorded; implementation review next.`
+`Kind`: `USER_REWORK` `From`: `DOCUMENTING` `FailureType`: `IMPLEMENTATION`
+`Reason`:
+`The user asked Developer to fix limitation L6 of the implementation review: compare_verdicts misses an end or start that differs only in its item when both pieces name the same entry.`
 
 ## Recovery
 
@@ -43,6 +43,13 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 `From`: `REVIEWING_FINAL` `Owner`: `SCOPING` `FailureType`: `SCOPING` `Reason`:
 `The user asked to rework page-break verification after the real Anthropic runs: verdict format additions, a prompt rule, a narrower start-marker hint, and a second independent judgment in place of the verifier's review.`
 `ResumeAt`: `REVIEWING_FINAL` `RerunThrough`: `DOCUMENTING`
+
+### Frame 2
+
+`From`: `DOCUMENTING` `Owner`: `DEVELOPING` `FailureType`: `IMPLEMENTATION`
+`Reason`:
+`The user asked Developer to fix limitation L6 of the implementation review (.standards/docs/reviews/build-step-3-page-break-verification-of-20261122T170208Z-00fe2896/implementation.md): compare_verdicts must give an end or start difference when paired pieces' items differ, even when their entries are the same.`
+`ResumeAt`: `DOCUMENTING` `RerunThrough`: `NONE`
 
 ## Outstanding Obligations
 
