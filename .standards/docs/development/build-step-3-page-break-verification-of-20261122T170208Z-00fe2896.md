@@ -1240,7 +1240,7 @@ deletions), SHA-256 starting `08631ca3615b7d34`.
 
 ### DEV-013 — Comparing two verdicts for the same break
 
-`Status`: `PENDING` `Depends On`: `DEV-012` `Acceptance`: `AC-058`
+`Status`: `DONE` `Depends On`: `DEV-012` `Acceptance`: `AC-058`
 
 **Goal**
 
@@ -1278,6 +1278,71 @@ verdicts for each rule above, including pieces in a different order, a pair
 found by start only, two pieces with the same end, a cell-join list of another
 length, and verdicts that differ only in repeated items, markers, containers or
 reason (no difference).
+
+Evidence, 2026-11-28, repo root, on `50229ba` plus the uncommitted DEV-013
+changes (macOS arm64, Python 3.13.9, tools from `.venv/bin`). Assessed content:
+`git diff HEAD -- src scripts examples docs` (6 files, 564 insertions and 33
+deletions), SHA-256 starting `0e203a086200d51d`.
+
+- `ruff check scripts src tests`, `ruff format --check scripts src tests` (101
+  files) and `ty check scripts src tests`: all passed.
+  `interrogate scripts src tests`: 100%.
+- `.venv/bin/pytest --numprocesses auto -p no:cacheprovider`: 248 passed in 20
+  of 23 runs. In the other 3,
+  `test_break_requests_sent_at_once_are_held_to_max_cost_together` failed (in
+  one of them with one other test), and it passed when its file ran alone. It
+  times requests in flight with a 0.3 s stand-in delay, nothing in this step is
+  on its path, and 5 runs on a clean copy of `50229ba` all passed, so it looks
+  like a timing failure under load. It tests contracts DEV-015 replaces; noted
+  for Tester.
+- `--doctest-modules src`: 40 passed, 1 skipped (the new `_all_of`, `_point` and
+  `_value` examples among them).
+- Scratchpad `dev013_check.py` (`PYTHONPATH=src`, verdicts built in code): 29 of
+  29 checks passed.
+  - Same verdicts, verdicts that both say nothing continues, and pieces in
+    another order give no difference.
+  - Only one verdict continuing gives one `continues` difference, with
+    `kept`/`verifier` true or false, the first continuing piece's item, the
+    earlier page in `page_index`, and a message naming every continuing piece
+    ("the kept verdict says content continues, in piece 1 (p0003-009 to
+    p0004-001) and piece 2 (...), and the verifier's says nothing continues"). A
+    continuing verdict with no pieces says it names no piece and points at no
+    item.
+  - Pairs found by end give a `start` difference, and a pair found by start only
+    gives an `end` difference. An entry counts in the end, with the entry IDs as
+    values and in `entry`.
+  - Two kept pieces with the same end pair the first and leave the second as a
+    `piece` difference with its ends as `kept` and null as `verifier`. Two such
+    pieces in another order pair by end, then by start. Unpaired pieces come
+    first, the kept verdict's before the verifier's, then the pairs'
+    differences.
+  - Different joins give only a `join` difference. Same joins give `text_join`,
+    `repeated_header_rows` and one `cell_joins` difference per differing cell,
+    with `cell` first in `details`. A cell-join list of another length, or null
+    against a list, gives one difference for the whole list, with no `cell`.
+  - Different repeated items, markers, containers and reason give no difference.
+- `scripts/generate_reference_docs.py`, then the Markdown formatter (outside the
+  sandbox): `page-break-json.md`, `page-json.md`, `pdf-survey-json.md` and
+  `run-json.md` changed, each with `verdicts_differ` in the issue names and the
+  new `details` text. A second run of both changed nothing.
+  `markdownlint-cli2 --all-files`: passed.
+
+**Implementation Notes**
+
+- `compare_verdicts` takes the break's earlier page as a keyword, `page_index`,
+  since a verdict does not hold it.
+- A piece's end and start are given as one ID, the entry's when the piece names
+  one, else the item's, in both the messages and the `kept` and `verifier`
+  values. An unpaired piece's value is its ends, such as
+  `p0003-009 to p0004-005`.
+- `item` and `entry` are always in `details`, null when no piece applies; `cell`
+  is there only for one cell's join.
+- Pieces in messages are named by their position in their own verdict, as the
+  checks name them, so a verifier-only piece reads "the verifier's piece 2
+  (...)".
+- `_piece_name` now names pieces for the checks too, so both use one form.
+- `IssueName`'s `verifier` comment still covers page breaks; DEV-015 limits it
+  to the survey and page extraction when the page-break verifier issue goes.
 
 ### DEV-014 — The stand-in answers a break's requests in arrival order
 

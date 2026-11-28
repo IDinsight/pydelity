@@ -16,6 +16,11 @@ reading of the pages decides. A hint difference never sends a verdict back. The
 verdict file records it, and the review list shows it unless a verifier passed the
 verdict or its correction was kept.
 
+The comparison of the kept verdict for a break with the verifier's gives one
+difference when only one of them says content continues, one for each piece only one
+of them gives, and one for each compared field that differs in a piece both give.
+Repeated items, markers, containers and the reason are not compared.
+
 Text is compared in `comparison_form` and as runs of three characters, so the checks
 hold in any script and assume no writing direction. Each check returns every failure
 it finds, so one retry message can name every failure and the verdict file can
@@ -27,6 +32,8 @@ about in ``details``, and the page it is on in ``page_index``.
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from operator import attrgetter
+from typing import Literal
 
 # Package Library
 from pydelity.extracting.schemas import Item, PageFile, TableCell
@@ -103,6 +110,18 @@ _TABLE_JOINS: tuple[Join, ...] = ("append_rows", "merge_split_row")
 # A check on one piece for one join, after the checks every join gets.
 type _JoinRule = Callable[[_Piece], list[CheckFailure]]
 
+# The fields of two verdicts that a difference between them can be about.
+type _VerdictField = Literal[
+    "cell_joins",
+    "continues",
+    "end",
+    "join",
+    "piece",
+    "repeated_header_rows",
+    "start",
+    "text_join",
+]
+
 # A check on a verdict, given the page files of the pages before and after the break.
 type Check = Callable[[BreakVerdict, PageFile, PageFile], list[CheckFailure]]
 
@@ -110,6 +129,32 @@ type Check = Callable[[BreakVerdict, PageFile, PageFile], list[CheckFailure]]
 type Hint = Callable[
     [BreakVerdict, PageFile, PageFile, BreakContext], list[CheckFailure]
 ]
+
+
+@dataclass(frozen=True, kw_only=True)
+class _Compared:
+    """One compared field of two paired pieces, with each verdict's value.
+
+    Attributes
+    ----------
+    cell
+        The cell's position in the merged row, from 0, for one cell's join, else
+        ``None``.
+    field
+        The field.
+    kept
+        The kept verdict's value.
+    label
+        How messages name the field, such as ``the text join``.
+    verifier
+        The verifier's value.
+    """
+
+    cell: int | None = None
+    field: _VerdictField
+    kept: object
+    label: str
+    verifier: object
 
 
 @dataclass(frozen=True)
@@ -146,6 +191,30 @@ class _Piece:
     name: str
     piece: ContinuingPiece
     start: Item | None
+
+
+def _all_of(values: Sequence[str]) -> str:
+    """List values for a message, all of them together.
+
+    Parameters
+    ----------
+    values
+        The values, at least one.
+
+    Returns
+    -------
+    str
+        The values separated by commas, with ``and`` before the last.
+
+    Examples
+    --------
+    >>> _all_of(["piece 1", "piece 2", "piece 3"])
+    'piece 1, piece 2 and piece 3'
+    """
+
+    if len(values) == 1:
+        return values[0]
+    return ", ".join(values[:-1]) + " and " + values[-1]
 
 
 def _alternatives(values: Sequence[str]) -> str:
@@ -264,6 +333,48 @@ def _cell_join_problems(
             )
         )
     return failures
+
+
+def _cell_join_values(
+    kept: list[TextJoin | None] | None, verifier: list[TextJoin | None] | None
+) -> list[_Compared]:
+    """Pair the cell joins of two paired pieces for comparison.
+
+    Parameters
+    ----------
+    kept
+        The kept verdict's piece's ``cell_joins``.
+    verifier
+        The verifier's piece's ``cell_joins``.
+
+    Returns
+    -------
+    list[_Compared]
+        One value per cell when both lists have the same length, else one for the
+        whole list.
+    """
+
+    if kept is None or verifier is None or len(kept) != len(verifier):
+        return [
+            _Compared(
+                field="cell_joins",
+                kept=kept,
+                label="the cell_joins list",
+                verifier=verifier,
+            )
+        ]
+    return [
+        _Compared(
+            cell=cell,
+            field="cell_joins",
+            kept=kept_join,
+            label=f"the join of cell {cell}",
+            verifier=verifier_join,
+        )
+        for cell, (kept_join, verifier_join) in enumerate(
+            zip(kept, verifier, strict=True)
+        )
+    ]
 
 
 def _container_id_problems(
@@ -404,6 +515,50 @@ def _continue_text_problems(piece: _Piece) -> list[CheckFailure]:
     return failures
 
 
+def _continues_difference(
+    kept: BreakVerdict, verifier: BreakVerdict, *, page_index: int
+) -> CheckFailure:
+    """Describe two verdicts of which only one says content continues.
+
+    Parameters
+    ----------
+    kept
+        The kept verdict.
+    verifier
+        The verifier's verdict.
+    page_index
+        The page before the break.
+
+    Returns
+    -------
+    CheckFailure
+        The difference, naming the pieces of the verdict that continues and pointing
+        at the first of them.
+    """
+
+    if kept.continues:
+        continuing, owner, other = kept, "kept verdict", "verifier's"
+    else:
+        continuing, owner, other = verifier, "verifier's verdict", "kept verdict"
+    names = [
+        _piece_name(position, piece)
+        for position, piece in enumerate(continuing.pieces, start=1)
+    ]
+    pieces = f", in {_all_of(names)}, and" if names else " but names no piece, and"
+    return _difference(
+        _Compared(
+            field="continues",
+            kept=kept.continues,
+            label="whether content continues",
+            verifier=verifier.continues,
+        ),
+        f"the {owner} says content continues{pieces} the {other} says nothing "
+        "continues",
+        page_index=page_index,
+        where=continuing.pieces[0] if continuing.pieces else None,
+    )
+
+
 def _dice(first: str, second: str) -> float:
     """Measure how alike two texts are by their runs of three characters.
 
@@ -427,6 +582,48 @@ def _dice(first: str, second: str) -> float:
     if total == 0:
         return 0.0
     return 2 * (first_runs & second_runs).total() / total
+
+
+def _difference(
+    value: _Compared,
+    message: str,
+    *,
+    page_index: int,
+    where: ContinuingPiece | None,
+) -> CheckFailure:
+    """Make a difference between two verdicts, with a message naming the comparison.
+
+    Parameters
+    ----------
+    value
+        The field that differs, with each verdict's value.
+    message
+        What differs.
+    page_index
+        The page before the break.
+    where
+        The piece whose end on the earlier page the difference points at, or
+        ``None`` when it points at no piece.
+
+    Returns
+    -------
+    CheckFailure
+        The difference.
+    """
+
+    details: dict[str, object] = {} if value.cell is None else {"cell": value.cell}
+    details |= {
+        "entry": None if where is None else where.earlier_entry,
+        "field": value.field,
+        "item": None if where is None else where.earlier_item,
+        "kept": value.kept,
+        "verifier": value.verifier,
+    }
+    return CheckFailure(
+        details=details,
+        message=f"verdicts_differ: {message}",
+        page_index=page_index,
+    )
 
 
 def _duplicates(
@@ -1190,6 +1387,189 @@ def _pages(page_index: int) -> str:
     return f"pages {page_index + 1} and {page_index + 2}"
 
 
+def _pair_differences(
+    kept: ContinuingPiece, verifier: ContinuingPiece, *, name: str, page_index: int
+) -> list[CheckFailure]:
+    """Compare two paired pieces field by field.
+
+    The end, the start and the join are compared first. When the joins are the
+    same, the text join, the cell joins and the number of repeated header rows are
+    compared too. When they differ, the other fields follow from the join and are
+    not compared.
+
+    Parameters
+    ----------
+    kept
+        The kept verdict's piece.
+    verifier
+        The verifier's piece.
+    name
+        How messages name the kept verdict's piece.
+    page_index
+        The page before the break.
+
+    Returns
+    -------
+    list[CheckFailure]
+        A difference for each compared field that differs, and for each cell whose
+        join differs.
+    """
+
+    compared = [
+        _Compared(
+            field="end",
+            kept=_point(kept.earlier_item, kept.earlier_entry),
+            label="the end",
+            verifier=_point(verifier.earlier_item, verifier.earlier_entry),
+        ),
+        _Compared(
+            field="start",
+            kept=_point(kept.later_item, kept.later_entry),
+            label="the start",
+            verifier=_point(verifier.later_item, verifier.later_entry),
+        ),
+        _Compared(
+            field="join", kept=kept.join, label="the join", verifier=verifier.join
+        ),
+    ]
+    if kept.join == verifier.join:
+        compared.append(
+            _Compared(
+                field="text_join",
+                kept=kept.text_join,
+                label="the text join",
+                verifier=verifier.text_join,
+            )
+        )
+        compared += _cell_join_values(kept.cell_joins, verifier.cell_joins)
+        compared.append(
+            _Compared(
+                field="repeated_header_rows",
+                kept=kept.repeated_header_rows,
+                label="the number of repeated header rows",
+                verifier=verifier.repeated_header_rows,
+            )
+        )
+    return [
+        _difference(
+            value,
+            f"in {name}, {value.label} is {_value(value.kept)} in the kept verdict "
+            f"and {_value(value.verifier)} in the verifier's",
+            page_index=page_index,
+            where=kept,
+        )
+        for value in compared
+        if value.kept != value.verifier
+    ]
+
+
+def _pair_pieces(
+    kept: Sequence[ContinuingPiece], verifier: Sequence[ContinuingPiece]
+) -> dict[int, int]:
+    """Pair the pieces of two verdicts that are about the same content.
+
+    Each kept piece is paired with the first unpaired verifier piece with the same
+    end, the earlier item and entry. Then each kept piece still unpaired is paired
+    with the first unpaired verifier piece with the same start, the later item and
+    entry.
+
+    Parameters
+    ----------
+    kept
+        The kept verdict's pieces.
+    verifier
+        The verifier's pieces.
+
+    Returns
+    -------
+    dict[int, int]
+        The position of each paired verifier piece by the position of its kept
+        piece, both from 0, in the kept verdict's order.
+    """
+
+    pairs: dict[int, int] = {}
+    for same in (
+        attrgetter("earlier_item", "earlier_entry"),
+        attrgetter("later_item", "later_entry"),
+    ):
+        for position, piece in enumerate(kept):
+            if position in pairs:
+                continue
+            match = next(
+                (
+                    other_position
+                    for other_position, other in enumerate(verifier)
+                    if other_position not in pairs.values()
+                    and same(other) == same(piece)
+                ),
+                None,
+            )
+            if match is not None:
+                pairs[position] = match
+    return dict(sorted(pairs.items()))
+
+
+def _piece_difference(
+    piece: ContinuingPiece, *, kept: bool, page_index: int, position: int
+) -> CheckFailure:
+    """Describe a piece that only one of two verdicts gives.
+
+    Parameters
+    ----------
+    piece
+        The piece.
+    kept
+        Whether the piece is the kept verdict's, rather than the verifier's.
+    page_index
+        The page before the break.
+    position
+        The piece's position in its verdict, from 1.
+
+    Returns
+    -------
+    CheckFailure
+        The difference, with the piece's ends as its verdict's value and ``None`` as
+        the other's.
+    """
+
+    ends = (
+        f"{_point(piece.earlier_item, piece.earlier_entry)} to "
+        f"{_point(piece.later_item, piece.later_entry)}"
+    )
+    owner, other = ("kept verdict", "verifier's") if kept else ("verifier", "kept")
+    return _difference(
+        _Compared(
+            field="piece",
+            kept=ends if kept else None,
+            label="the piece",
+            verifier=None if kept else ends,
+        ),
+        f"the {owner}'s {_piece_name(position, piece)}, joined with {piece.join}, "
+        f"matches no piece of the {other} verdict",
+        page_index=page_index,
+        where=piece,
+    )
+
+
+def _piece_name(position: int, piece: ContinuingPiece) -> str:
+    """Name a piece for a message by its position and the items it joins.
+
+    Parameters
+    ----------
+    position
+        The piece's position in its verdict, from 1.
+    piece
+        The piece.
+
+    Returns
+    -------
+    str
+        Such as ``piece 2 (p0003-007 to p0004-001)``.
+    """
+
+    return f"piece {position} ({piece.earlier_item} to {piece.later_item})"
+
+
 def _pieces(
     verdict: BreakVerdict, *, earlier: PageFile, later: PageFile
 ) -> list[_Piece]:
@@ -1219,12 +1599,39 @@ def _pieces(
             end=earlier_items.get(piece.earlier_item),
             later=later,
             later_items=later_items,
-            name=f"piece {position} ({piece.earlier_item} to {piece.later_item})",
+            name=_piece_name(position, piece),
             piece=piece,
             start=later_items.get(piece.later_item),
         )
         for position, piece in enumerate(verdict.pieces, start=1)
     ]
+
+
+def _point(item: str, entry: str | None) -> str:
+    """Name where a piece ends or starts, for a difference between two verdicts.
+
+    Parameters
+    ----------
+    item
+        The item's ID.
+    entry
+        The list entry's ID, or ``None`` when the piece names no entry.
+
+    Returns
+    -------
+    str
+        The entry's ID when the piece names one, else the item's. An entry's ID
+        starts with its item's.
+
+    Examples
+    --------
+    >>> _point("p0004-002", "p0004-002.3")
+    'p0004-002.3'
+    >>> _point("p0004-002", None)
+    'p0004-002'
+    """
+
+    return item if entry is None else entry
 
 
 def _printed_forms(page: PageFile) -> list[str]:
@@ -1583,6 +1990,36 @@ def _table_rows(item: Item | None) -> list[list[TableCell]] | None:
     if item is None or item.table is None:
         return None
     return item.table.rows
+
+
+def _value(value: object) -> str:
+    """Write a verdict's value for a message, with ``null`` for a missing value.
+
+    Parameters
+    ----------
+    value
+        The value.
+
+    Returns
+    -------
+    str
+        The value as text, with a list's values in brackets.
+
+    Examples
+    --------
+    >>> _value(None)
+    'null'
+    >>> _value(["space", None, "repeat"])
+    '[space, null, repeat]'
+    >>> _value(1)
+    '1'
+    """
+
+    if value is None:
+        return "null"
+    if isinstance(value, list):
+        return "[" + ", ".join(_value(part) for part in value) + "]"
+    return str(value)
 
 
 def _verifier_issue(
@@ -2051,6 +2488,63 @@ def check_start_markers(
 
 # The hints, in the order they run.
 HINTS: dict[BreakHintName, Hint] = {"start_markers": check_start_markers}
+
+
+def compare_verdicts(
+    kept: BreakVerdict, verifier: BreakVerdict, *, page_index: int
+) -> list[CheckFailure]:
+    """Compare the kept verdict for a break with the verifier's.
+
+    When only one verdict says content continues, that is the one difference, and
+    when neither does, nothing else is compared. Otherwise the pieces are paired by
+    their end, then by their start. Each piece left unpaired is a difference, the
+    kept verdict's first, and each pair is compared field by field in the kept
+    verdict's order. Repeated items, markers, containers and the reason are not
+    compared.
+
+    Parameters
+    ----------
+    kept
+        The kept verdict.
+    verifier
+        The verifier's verdict.
+    page_index
+        The page before the break, where every difference is recorded.
+
+    Returns
+    -------
+    list[CheckFailure]
+        One ``verdicts_differ`` difference per way the verdicts differ, empty when
+        they match. Each names the field, both values and the piece's end on the
+        earlier page in its ``details``.
+    """
+
+    if kept.continues != verifier.continues:
+        return [_continues_difference(kept, verifier, page_index=page_index)]
+    if not kept.continues:
+        return []
+
+    pairs = _pair_pieces(kept.pieces, verifier.pieces)
+    paired = set(pairs.values())
+    differences = [
+        _piece_difference(piece, kept=True, page_index=page_index, position=index + 1)
+        for index, piece in enumerate(kept.pieces)
+        if index not in pairs
+    ]
+    differences += [
+        _piece_difference(piece, kept=False, page_index=page_index, position=index + 1)
+        for index, piece in enumerate(verifier.pieces)
+        if index not in paired
+    ]
+    for index, other in pairs.items():
+        piece = kept.pieces[index]
+        differences += _pair_differences(
+            piece,
+            verifier.pieces[other],
+            name=_piece_name(index + 1, piece),
+            page_index=page_index,
+        )
+    return differences
 
 
 def compare_with_hints(

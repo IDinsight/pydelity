@@ -122,10 +122,10 @@ What a page's extraction depends on, which its fingerprint covers.
 A problem a person should review.
 
 - `check` (one of `ids`, `continues`, `duplicates`, `joins`, `furniture`,
-  `header_rows`, `repeats`, `markers` or `start_markers` or one of `labels`,
-  `content`, `languages`, `boxes`, `containers`, `captions` or one of
-  `reading_order`, `artifacts`, `form_fields`, `text_dropped`, `text_added` or
-  `no_matching_label` or one of `labels`, `regions`, `rotation`,
+  `header_rows`, `repeats`, `markers` or `verdicts_differ` or `start_markers` or
+  one of `labels`, `content`, `languages`, `boxes`, `containers`, `captions` or
+  one of `reading_order`, `artifacts`, `form_fields`, `text_dropped`,
+  `text_added` or `no_matching_label` or one of `labels`, `regions`, `rotation`,
   `page_numbering`, `artifacts`, `writing_direction`, `languages` or one of
   `rotation_differs`, `page_number_differs` or `verifier`; required): What found
   the problem: a check, a hint or another source. `step` says whose, since two
@@ -136,7 +136,10 @@ A problem a person should review.
   page or `{"item": "p0004-002"}` on a page break. A `no_matching_label` issue
   gives the `kind` and `role` that no label fits, with the items' refs and IDs
   (`item_refs`, `item_ids`). A `verifier` issue gives the problem's `category`,
-  with its `item_ref` on a page and its `item` on a page break.
+  with its `item_ref` on a page and its `item` on a page break. A
+  `verdicts_differ` issue gives the difference's `details`, with the `field`,
+  the `kept` and `verifier` values, and the `item`, `entry` and `cell` where
+  they apply.
 - `item_id` (string or null; required): The item the problem is about, or `None`
   when no single item applies.
 - `message` (string; required): What is wrong.
@@ -208,9 +211,13 @@ A problem a check found in a model's answer, or a difference from a hint.
   answer, and the page file's items have IDs instead. A page-break verification
   check or hint gives the IDs of the item, list entry or container it is about,
   and the row and cell of a table cell, such as `{"item": "p0004-002"}` or
-  `{"cell": 1, "item": "p0004-002", "row": 0}`.
-- `message` (string; required): What is wrong or differs, starting with the
-  check's or hint's name.
+  `{"cell": 1, "item": "p0004-002", "row": 0}`. A difference between two
+  verdicts for the same break gives the `field` that differs, each verdict's
+  value as `kept` and `verifier`, the `item` and `entry` where the piece ends on
+  the earlier page, and the `cell` of a cell join, such as
+  `{"entry": "p0004-002.3", "field": "join", "item": "p0004-002", "kept": "continue_entry", "verifier": "new_entry"}`.
+- `message` (string; required): What is wrong or differs, starting with the name
+  of the check, hint or comparison.
 - `page_index` (integer or null; required): The page the problem is on, or
   `None` when no single page applies.
 

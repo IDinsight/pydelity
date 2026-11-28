@@ -62,10 +62,10 @@ The PDF a run processed.
 A problem a person should review.
 
 - `check` (one of `ids`, `continues`, `duplicates`, `joins`, `furniture`,
-  `header_rows`, `repeats`, `markers` or `start_markers` or one of `labels`,
-  `content`, `languages`, `boxes`, `containers`, `captions` or one of
-  `reading_order`, `artifacts`, `form_fields`, `text_dropped`, `text_added` or
-  `no_matching_label` or one of `labels`, `regions`, `rotation`,
+  `header_rows`, `repeats`, `markers` or `verdicts_differ` or `start_markers` or
+  one of `labels`, `content`, `languages`, `boxes`, `containers`, `captions` or
+  one of `reading_order`, `artifacts`, `form_fields`, `text_dropped`,
+  `text_added` or `no_matching_label` or one of `labels`, `regions`, `rotation`,
   `page_numbering`, `artifacts`, `writing_direction`, `languages` or one of
   `rotation_differs`, `page_number_differs` or `verifier`; required): What found
   the problem: a check, a hint or another source. `step` says whose, since two
@@ -76,7 +76,10 @@ A problem a person should review.
   page or `{"item": "p0004-002"}` on a page break. A `no_matching_label` issue
   gives the `kind` and `role` that no label fits, with the items' refs and IDs
   (`item_refs`, `item_ids`). A `verifier` issue gives the problem's `category`,
-  with its `item_ref` on a page and its `item` on a page break.
+  with its `item_ref` on a page and its `item` on a page break. A
+  `verdicts_differ` issue gives the difference's `details`, with the `field`,
+  the `kept` and `verifier` values, and the `item`, `entry` and `cell` where
+  they apply.
 - `item_id` (string or null; required): The item the problem is about, or `None`
   when no single item applies.
 - `message` (string; required): What is wrong.

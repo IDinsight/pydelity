@@ -26,6 +26,10 @@ type BreakCheckName = Literal[
     "markers",
 ]
 
+# Page-break verification's comparison of the verifier's verdict for a break with the
+# kept verdict. Each difference between the two is a review issue.
+type BreakComparisonName = Literal["verdicts_differ"]
+
 # Page-break verification's hints, the comparisons of each verdict with what the
 # survey found. A difference never sends the verdict back.
 type BreakHintName = Literal["start_markers"]
@@ -59,6 +63,7 @@ type ExtractionIssueName = Literal["no_matching_label"]
 # The name of what found a review issue, in any step.
 type IssueName = (
     BreakCheckName
+    | BreakComparisonName
     | BreakHintName
     | ExtractionCheckName
     | ExtractionHintName
@@ -109,10 +114,16 @@ class CheckFailure(_Output):
     comes from the answer, and the page file's items have IDs instead. A page-break
     verification check or hint gives the IDs of the item, list entry or container it
     is about, and the row and cell of a table cell, such as ``{"item": "p0004-002"}``
-    or ``{"cell": 1, "item": "p0004-002", "row": 0}``."""
+    or ``{"cell": 1, "item": "p0004-002", "row": 0}``. A difference between two
+    verdicts for the same break gives the ``field`` that differs, each verdict's value
+    as ``kept`` and ``verifier``, the ``item`` and ``entry`` where the piece ends on
+    the earlier page, and the ``cell`` of a cell join, such as
+    ``{"entry": "p0004-002.3", "field": "join", "item": "p0004-002", "kept":
+    "continue_entry", "verifier": "new_entry"}``."""
 
     message: str
-    """What is wrong or differs, starting with the check's or hint's name."""
+    """What is wrong or differs, starting with the name of the check, hint or
+    comparison."""
 
     page_index: int | None
     """The page the problem is on, or ``None`` when no single page applies."""
@@ -137,7 +148,9 @@ class ReviewIssue(_Output):
     break. A ``no_matching_label`` issue gives the ``kind`` and ``role`` that no
     label fits, with the items' refs and IDs (``item_refs``, ``item_ids``). A
     ``verifier`` issue gives the problem's ``category``, with its ``item_ref`` on a
-    page and its ``item`` on a page break."""
+    page and its ``item`` on a page break. A ``verdicts_differ`` issue gives the
+    difference's ``details``, with the ``field``, the ``kept`` and ``verifier``
+    values, and the ``item``, ``entry`` and ``cell`` where they apply."""
 
     item_id: str | None
     """The item the problem is about, or ``None`` when no single item applies."""
