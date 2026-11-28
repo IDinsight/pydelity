@@ -10,7 +10,8 @@ verdict that fails a check is sent back to the model.
 
 The hint compares the verdict with the survey's start markers, text that marks where
 a new unit of content starts. A piece whose start on the later page begins with one
-may join content that does not continue. The survey can be wrong, and the model's
+may join content that does not continue, unless it appends table rows or the verdict
+names a continuation marker in that start. The survey can be wrong, and the model's
 reading of the pages decides. A hint difference never sends a verdict back. The
 verdict file records it, and the review list shows it unless a verifier passed the
 verdict or its correction was kept.
@@ -45,6 +46,18 @@ from pydelity.verifying.schemas import (
     TextJoin,
 )
 
+# How the cells of a merged row join the cells above them, besides null.
+_CELL_JOINS: tuple[TextJoin, ...] = ("space", "no_space", "dehyphenate", "repeat")
+
+# The kinds of item each join can end in on the earlier page.
+_JOIN_END_KINDS: dict[Join, frozenset[ItemKind]] = {
+    "append_rows": frozenset({ItemKind.TABLE}),
+    "continue_entry": frozenset({ItemKind.LIST, ItemKind.TEXT}),
+    "continue_text": frozenset({ItemKind.CODE, ItemKind.TEXT}),
+    "merge_split_row": frozenset({ItemKind.TABLE}),
+    "new_entry": frozenset({ItemKind.LIST, ItemKind.TEXT}),
+}
+
 # Which of `_JOIN_ONLY_FIELDS` each join sets. A join leaves the others null, apart
 # from ``continue_entry``, which sets each entry whose end is a list item.
 _JOIN_FIELDS: dict[Join, frozenset[str]] = {
@@ -55,16 +68,6 @@ _JOIN_FIELDS: dict[Join, frozenset[str]] = {
     "new_entry": frozenset(),
 }
 
-# The kinds of item each join can end in on the earlier page and start in on the
-# later page.
-_JOIN_KINDS: dict[Join, frozenset[ItemKind]] = {
-    "append_rows": frozenset({ItemKind.TABLE}),
-    "continue_entry": frozenset({ItemKind.LIST, ItemKind.TEXT}),
-    "continue_text": frozenset({ItemKind.CODE, ItemKind.TEXT}),
-    "merge_split_row": frozenset({ItemKind.TABLE}),
-    "new_entry": frozenset({ItemKind.LIST}),
-}
-
 # The piece fields that only some joins use.
 _JOIN_ONLY_FIELDS = (
     "cell_joins",
@@ -73,6 +76,15 @@ _JOIN_ONLY_FIELDS = (
     "repeated_header_rows",
     "text_join",
 )
+
+# The kinds of item each join can start in on the later page.
+_JOIN_START_KINDS: dict[Join, frozenset[ItemKind]] = {
+    "append_rows": frozenset({ItemKind.TABLE}),
+    "continue_entry": frozenset({ItemKind.LIST, ItemKind.TEXT}),
+    "continue_text": frozenset({ItemKind.CODE, ItemKind.TEXT}),
+    "merge_split_row": frozenset({ItemKind.TABLE}),
+    "new_entry": frozenset({ItemKind.LIST}),
+}
 
 # How alike two texts whose comparison forms differ must be to match, as the Dice
 # coefficient of their runs of three characters.
@@ -221,7 +233,7 @@ def _cell_join_problems(
     -------
     list[CheckFailure]
         A ``joins`` failure when ``cell_joins`` does not have one value per cell,
-        and one when it uses ``newline``.
+        and one when it uses ``newline``, which only joins code.
     """
 
     cell_joins = piece.piece.cell_joins
@@ -245,7 +257,7 @@ def _cell_join_problems(
             _failure(
                 "joins",
                 f"{piece.name} uses newline in cell_joins, but table cells join with "
-                f"{_alternatives(_PROSE_JOINS)}, or null when a cell has no text to "
+                f"{_alternatives(_CELL_JOINS)}, or null when a cell has no text to "
                 "join",
                 details={"item": item, "row": row},
                 page=piece.later,
@@ -306,9 +318,9 @@ def _continue_entry_problems(piece: _Piece) -> list[CheckFailure]:
     Returns
     -------
     list[CheckFailure]
-        A ``joins`` failure when the text join is ``newline``, when no entry is
-        named, when an end in a list item is not its last or first entry, and when
-        an end in a text item names an entry.
+        A ``joins`` failure when the text join is ``newline`` or ``repeat``, when no
+        entry is named, when an end in a list item is not its last or first entry,
+        and when an end in a text item names an entry.
     """
 
     failures = []
@@ -318,7 +330,8 @@ def _continue_entry_problems(piece: _Piece) -> list[CheckFailure]:
             _failure(
                 "joins",
                 f"{piece.name} uses continue_entry with text_join {text_join}, but a "
-                f"list entry joins with {_alternatives(_PROSE_JOINS)}",
+                f"list entry joins with {_alternatives(_PROSE_JOINS)}"
+                f"{_repeat_note(text_join)}",
                 details={"item": piece.piece.earlier_item},
                 page=None,
             )
@@ -360,7 +373,7 @@ def _continue_text_problems(piece: _Piece) -> list[CheckFailure]:
     """
 
     end, start = piece.end, piece.start
-    kinds = _JOIN_KINDS["continue_text"]
+    kinds = _JOIN_END_KINDS["continue_text"]
     if end is None or end.kind not in kinds:
         return []
 
@@ -382,7 +395,8 @@ def _continue_text_problems(piece: _Piece) -> list[CheckFailure]:
             _failure(
                 "joins",
                 f"{piece.name} joins {end.kind} with text_join {text_join}, but "
-                f"{end.kind} joins with {_alternatives(fitting)}",
+                f"{end.kind} joins with {_alternatives(fitting)}"
+                f"{_repeat_note(text_join)}",
                 details={"item": end.id},
                 page=piece.earlier,
             )
@@ -921,22 +935,22 @@ def _join_kind_problems(piece: _Piece) -> list[CheckFailure]:
     -------
     list[CheckFailure]
         A ``joins`` failure for each end whose item is of a kind the join does not
-        join. Figures, fields and formulas fit no join.
+        end or start in. Figures, fields and formulas fit no join.
     """
 
     join = piece.piece.join
-    kinds = _JOIN_KINDS[join]
     return [
         _failure(
             "joins",
-            f"{piece.name} uses {join}, which joins {_alternatives(sorted(kinds))} "
-            f"items, but it {verb} in {item.id}, a {item.kind} item",
+            f"{piece.name} uses {join}, which {verb} in "
+            f"{_alternatives(sorted(kinds))} items, but it {verb} in {item.id}, a "
+            f"{item.kind} item",
             details={"item": item.id},
             page=page,
         )
-        for item, page, verb in (
-            (piece.end, piece.earlier, "ends"),
-            (piece.start, piece.later, "starts"),
+        for item, page, verb, kinds in (
+            (piece.end, piece.earlier, "ends", _JOIN_END_KINDS[join]),
+            (piece.start, piece.later, "starts", _JOIN_START_KINDS[join]),
         )
         if item is not None and item.kind not in kinds
     ]
@@ -1272,6 +1286,70 @@ def _printed_text(item: Item) -> str:
     return " ".join(_printed_parts(item))
 
 
+def _repeat_cell_problems(piece: _Piece) -> list[CheckFailure]:
+    """Check that each ``repeat`` cell of a merged row repeats a cell above it.
+
+    Parameters
+    ----------
+    piece
+        The piece.
+
+    Returns
+    -------
+    list[CheckFailure]
+        A ``repeats`` failure for each cell of the merged row whose cell join is
+        ``repeat`` and that has no text, or whose text matches the text of no cell
+        in the split row on the earlier page, the earlier table's last row. A cell
+        join with no cell in the merged row, and missing tables or rows, are left to
+        the ``joins`` check.
+    """
+
+    cell_joins = piece.piece.cell_joins
+    count = piece.piece.repeated_header_rows
+    earlier_rows, later_rows = _table_rows(piece.end), _table_rows(piece.start)
+    if (
+        piece.piece.join != "merge_split_row"
+        or cell_joins is None
+        or count is None
+        or not earlier_rows
+        or not later_rows
+        or not 0 <= count < len(later_rows)
+    ):
+        return []
+
+    # Any cell of the split row counts, so cells that span differently on the two
+    # pages still match.
+    split_row = [
+        form for cell in earlier_rows[-1] if (form := comparison_form(cell.text or ""))
+    ]
+    item = piece.piece.later_item
+    failures = []
+    for position, (cell_join, cell) in enumerate(
+        zip(cell_joins, later_rows[count], strict=False)
+    ):
+        form = comparison_form(cell.text or "")
+        if cell_join != "repeat" or (
+            form and any(_repeat_matches(form, text) for text in split_row)
+        ):
+            continue
+        problem = (
+            f"its text matches no cell of the split row, the last row of "
+            f"{piece.piece.earlier_item}"
+            if form
+            else "that cell has no text"
+        )
+        failures.append(
+            _failure(
+                "repeats",
+                f"{piece.name} gives cell {position} of row {count} of {item} the cell "
+                f"join repeat, but {problem}",
+                details={"cell": position, "item": item, "row": count},
+                page=piece.later,
+            )
+        )
+    return failures
+
+
 def _repeat_matches(form: str, printed: str) -> bool:
     """Decide whether a repeated item's text matches a text on the earlier page.
 
@@ -1294,6 +1372,26 @@ def _repeat_matches(form: str, printed: str) -> bool:
     """
 
     return _forms_match(form, printed) or form in printed or printed in form
+
+
+def _repeat_note(text_join: TextJoin | None) -> str:
+    """Say where ``repeat`` belongs, for a message about a piece's text join.
+
+    Parameters
+    ----------
+    text_join
+        The piece's text join.
+
+    Returns
+    -------
+    str
+        A sentence to end the message with when the text join is ``repeat``, and an
+        empty string otherwise.
+    """
+
+    if text_join != "repeat":
+        return ""
+    return ". repeat is only for the cell_joins of merge_split_row"
 
 
 def _repeat_problems(piece: _Piece, *, printed: Sequence[str]) -> list[CheckFailure]:
@@ -1406,6 +1504,36 @@ def _row_text(cells: Sequence[TableCell]) -> str:
     """
 
     return " ".join(cell.text for cell in cells if cell.text)
+
+
+def _start_has_marker(piece: _Piece) -> bool:
+    """Tell whether the verdict names a continuation marker in a piece's start.
+
+    Parameters
+    ----------
+    piece
+        The piece.
+
+    Returns
+    -------
+    bool
+        Whether one of the piece's markers is on its start item and, when that item
+        is a table, on the row its start text comes from, the first row after the
+        repeated header rows.
+    """
+
+    start = piece.start
+    if start is None:
+        return False
+    row = (
+        (piece.piece.repeated_header_rows or 0)
+        if start.kind == ItemKind.TABLE
+        else None
+    )
+    return any(
+        marker.item == start.id and (row is None or marker.row == row)
+        for marker in piece.piece.markers
+    )
 
 
 def _start_text(piece: _Piece) -> str | None:
@@ -1709,6 +1837,9 @@ def check_joins(
     uses and leaves the others null. ``continue_text`` joins two items of one kind,
     ``continue_entry`` joins the last or first entry of a list, and the table joins
     keep ``repeated_header_rows`` and ``cell_joins`` within the later table.
+    ``new_entry`` starts in a list, and ends in a list or in a text item, for a list
+    whose part on the earlier page was extracted as text. ``repeat`` joins only the
+    cells of a merged row, and ``newline`` only code.
 
     Parameters
     ----------
@@ -1780,11 +1911,15 @@ def check_markers(
 def check_repeats(
     verdict: BreakVerdict, earlier: PageFile, later: PageFile
 ) -> list[CheckFailure]:
-    """Check that each repeated item repeats text printed on the earlier page.
+    """Check that repeated items and ``repeat`` cells repeat text on the earlier page.
 
     A repeated item with text matches when its text matches an item's text, a list
     entry's text, or a table row's cell texts joined in order, or when either
-    contains the other in comparison form.
+    contains the other in comparison form. A cell of a merged row whose cell join is
+    ``repeat`` must have text, and that text must match the text of a cell in the
+    split row on the earlier page, the earlier table's last row, in the same way.
+    Any cell of that row counts, so cells that span differently on the two pages
+    still match.
 
     Parameters
     ----------
@@ -1799,13 +1934,14 @@ def check_repeats(
     -------
     list[CheckFailure]
         A failure for each repeated item whose text matches no text on the earlier
-        page.
+        page, and for each ``repeat`` cell with no text or no matching cell.
     """
 
     printed = _printed_forms(earlier)
     failures = []
     for piece in _pieces(verdict, earlier=earlier, later=later):
         failures += _repeat_problems(piece, printed=printed)
+        failures += _repeat_cell_problems(piece)
     return failures
 
 
@@ -1858,7 +1994,11 @@ def check_start_markers(
 
     A piece starts with the start entry's text, a list's first entry, the cell texts
     of a table's first row after the repeated header rows, or the start item's text.
-    A start marker whose comparison form is empty is skipped.
+    A start marker whose comparison form is empty is skipped. Two kinds of piece are
+    skipped too: an ``append_rows`` piece, whose new rows can begin with a start
+    marker while the table carries on, and a piece whose verdict names a
+    continuation marker in its start, on its start item and, for a table, on the
+    row its start text comes from.
 
     Parameters
     ----------
@@ -1874,8 +2014,8 @@ def check_start_markers(
     Returns
     -------
     list[CheckFailure]
-        A difference for each piece whose start begins with a start marker in
-        comparison form, naming the first such marker.
+        A difference for each piece that is not skipped and whose start begins with
+        a start marker in comparison form, naming the first such marker.
     """
 
     markers = [
@@ -1885,6 +2025,8 @@ def check_start_markers(
     ]
     differences = []
     for piece in _pieces(verdict, earlier=earlier, later=later):
+        if piece.piece.join == "append_rows" or _start_has_marker(piece):
+            continue
         start = comparison_form(_start_text(piece) or "")
         found = next(
             (marker for marker, form in markers if start.startswith(form)), None

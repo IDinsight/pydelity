@@ -58,7 +58,10 @@ Check each piece against the rules of its join.
 Each join ends and starts in items of the kinds it joins, sets the fields it
 uses and leaves the others null. `continue_text` joins two items of one kind,
 `continue_entry` joins the last or first entry of a list, and the table joins
-keep `repeated_header_rows` and `cell_joins` within the later table.
+keep `repeated_header_rows` and `cell_joins` within the later table. `new_entry`
+starts in a list, and ends in a list or in a text item, for a list whose part on
+the earlier page was extracted as text. `repeat` joins only the cells of a
+merged row, and `newline` only code.
 
 ### `furniture`
 
@@ -75,11 +78,15 @@ their cell texts joined in order, and two empty rows match.
 
 ### `repeats`
 
-Check that each repeated item repeats text printed on the earlier page.
+Check that repeated items and `repeat` cells repeat text on the earlier page.
 
 A repeated item with text matches when its text matches an item's text, a list
 entry's text, or a table row's cell texts joined in order, or when either
-contains the other in comparison form.
+contains the other in comparison form. A cell of a merged row whose cell join is
+`repeat` must have text, and that text must match the text of a cell in the
+split row on the earlier page, the earlier table's last row, in the same way.
+Any cell of that row counts, so cells that span differently on the two pages
+still match.
 
 ### `markers`
 
@@ -93,7 +100,11 @@ Compare where pieces start with the survey's start markers.
 
 A piece starts with the start entry's text, a list's first entry, the cell texts
 of a table's first row after the repeated header rows, or the start item's text.
-A start marker whose comparison form is empty is skipped.
+A start marker whose comparison form is empty is skipped. Two kinds of piece are
+skipped too: an `append_rows` piece, whose new rows can begin with a start
+marker while the table carries on, and a piece whose verdict names a
+continuation marker in its start, on its start item and, for a table, on the row
+its start text comes from.
 
 ## How text is compared
 

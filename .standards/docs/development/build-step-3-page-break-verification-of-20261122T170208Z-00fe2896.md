@@ -7,8 +7,8 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
 
 `Cycle`: `build-step-3-page-break-verification-of-20261122T170208Z-00fe2896`
 `Mode`: `STEPWISE` `User Style`: `tony` `User Style Locked`: `true` `Status`:
-`COMPLETE` `Verification Cadence`: `AFTER_IMPLEMENTATION` `Current Increment`:
-`NONE`
+`IN_PROGRESS` `Verification Cadence`: `AFTER_IMPLEMENTATION`
+`Current Increment`: `NONE`
 
 ## Implementation Contract
 
@@ -17,7 +17,7 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
 - `Architecture`:
   `.standards/docs/specs/build-step-3-page-break-verification-of-20261122T170208Z-00fe2896.md`
 - `Request`:
-  `Build page-break verification (step 3) on top of 0.2.0: one verdict per break between consecutive pages, judged from both whole pages, naming the continuing pieces by item ID with their join rules, repeated header rows, repeated items, continuation markers and continuing containers; code checks and the survey's start-marker hint; an opt-in verifier; the step's settings, pause, estimate, spend control, reuse, review list, report, Python functions, smoke test and reference pages, ready for release 0.3.0.`
+  `Build page-break verification (step 3) on top of 0.2.0: one verdict per break between consecutive pages, judged from both whole pages, naming the continuing pieces by item ID with their join rules, repeated header rows, repeated items, continuation markers and continuing containers; code checks and the survey's start-marker hint; an opt-in verifier; the step's settings, pause, estimate, spend control, reuse, review list, report, Python functions, smoke test and reference pages, ready for release 0.3.0. Rework of 2026-11-28 after the real Anthropic runs (DEV-012 to DEV-016): new_entry from a text item, a repeat cell join, the unfinished-text rule, a narrower start-marker hint, and a verifier that judges each break a second time without seeing the first, compared in code.`
 
 ## Build Steps
 
@@ -1132,6 +1132,302 @@ link). Nothing under `src` or `examples` changed.
 - The smoke script's load and run checks require a verdict for each break, so a
   run that skipped page-break verification fails them.
 
+### DEV-012 — Verdict format additions, the unfinished-text rule and a narrower start-marker hint
+
+`Status`: `DONE` `Depends On`: `NONE` `Acceptance`:
+`AC-013, AC-014, AC-022, AC-047, AC-052, AC-053, AC-054, AC-055`
+
+**Goal**
+
+Let a verdict start a new list entry from a text item and mark a split row's
+cell that only repeats the cell above it, tell the model when text is
+unfinished, and stop the start-marker hint from flagging appended rows and
+pieces whose start carries a continuation marker.
+
+**Affected Area**
+
+MODIFY `src/pydelity/verifying/schemas.py` (`TextJoin`, the `cell_joins` and
+`text_join` docstrings), `src/pydelity/verifying/validators.py` (`joins`,
+`repeats`, `start_markers`), `src/pydelity/verifying/prompts.py` (the joins rule
+and the new rule 6), `scripts/generate_reference_docs.py` (the page-break checks
+page's text for these three); regenerate the reference pages.
+
+**Expected Outcome**
+
+- `TextJoin` holds `repeat`. `joins` accepts `repeat` only in a
+  `merge_split_row` piece's `cell_joins` and fails it in `text_join`; `newline`
+  still fails in `cell_joins`. A `new_entry` piece passes from a list item or a
+  text item on the earlier page to a list item on the later page, and fails when
+  its start is not a list item.
+- `repeats` fails a `repeat` cell whose merged-row cell has no text, or whose
+  text matches no cell of the earlier table's last row, by the matching rules
+  repeated items use, containment included.
+- `start_markers` skips an `append_rows` piece, and a piece with a marker on its
+  start item and, for a table, on the row its start text comes from. Other
+  pieces are compared as before.
+- The judge's rules add `new_entry` from a text item and `repeat` to the joins
+  rule, and the design's "when text continues" rule as rule 6, with the later
+  rules renumbered. No added text names a language, document type, marker style
+  or direction. `PROMPT_VERSION` stays 1.
+- The page-break checks reference page describes the new `joins` and `repeats`
+  cases and the hint's two exceptions.
+
+**Self-Check**
+
+The lint commands; pytest and doctests, with tests of replaced rules listed for
+Tester; a scratchpad script with hand-built page files and verdicts that passes
+and fails each new `joins`, `repeats` and `start_markers` case, matches `repeat`
+cells with and without "(contd)" in Latin, Chinese and Arabic text, and reads
+the new rules for language, document-type and direction words; the
+reference-page generator and the Markdown formatter, run twice with no change
+the second time.
+
+Evidence, 2026-11-28, repo root, on `33492a6` plus the uncommitted DEV-012
+changes (macOS arm64, Python 3.13.9, tools from `.venv/bin`). Assessed content:
+`git diff HEAD -- src scripts examples docs` (5 files, 231 insertions and 56
+deletions), SHA-256 starting `08631ca3615b7d34`.
+
+- `ruff check scripts src tests`, `ruff format --check scripts src tests` (101
+  files) and `ty check scripts src tests`: all passed.
+  `interrogate scripts src tests`: 100%.
+- `.venv/bin/pytest --numprocesses auto -p no:cacheprovider`: 248 passed, none
+  failed. No existing test covered a rule this step replaced.
+  `--doctest-modules src`: 37 passed, 1 skipped.
+- Scratchpad `dev012_check.py` (`PYTHONPATH=src:.`, page files from the builders
+  in `tests/pydelity/verifying/conftest.py`): 38 of 38 checks passed.
+  - `new_entry` from a text item to a list passes every check, and from a list
+    to a list still passes `joins`. Starting in a text item fails `joins` on the
+    later page ("uses new_entry, which starts in list items, but it starts in
+    p0003-002, a text item"), and ending in a code item fails it.
+  - `repeat` cells pass every check for "PHONICS (contd)" and "PHONICS" over
+    "PHONICS", "语音（续）" over "语音", "الصوتيات (تابع)" over "الصوتيات", and
+    over another cell of the split row. A `repeat` cell matching no split-row
+    cell, with no text, or over a split row whose cells are empty fails
+    `repeats`, with the cell, item and row in `details` and the later page in
+    `page_index`. A cell join past the row's cells is left to `joins`, which
+    still fails it. `newline` in `cell_joins` fails `joins`, whose message now
+    lists `repeat` as allowed. `repeat` as the `text_join` of `continue_text`
+    (text and code) and of `continue_entry` fails `joins`, ending "repeat is
+    only for the cell_joins of merge_split_row".
+  - `start_markers` skips an `append_rows` piece, a `merge_split_row` piece with
+    a marker on its start row, and text and list pieces with a marker on their
+    start item. A marker on another row of the start table or on another item
+    skips nothing, and a text piece starting with a start marker is still a
+    difference. `retry_message` holds no `start_markers` text.
+  - The judge's instructions define `repeat`, allow `new_entry` from a text
+    item, and hold the "When text carries on" rule between "Text joins" and
+    "Tables". The rules hold none of 22 language, script, direction,
+    document-type and marker words checked, such as "Arabic", "left to right",
+    "report", "contd" and "bullet".
+- `scripts/generate_reference_docs.py`, then the Markdown formatter (outside the
+  sandbox, which blocks prek's log in `~/.cache/prek`): only
+  `page-break-checks.md` (the `joins`, `repeats` and `start_markers` text) and
+  `page-break-json.md` (`cell_joins`, `text_join`) changed. A second run of both
+  changed nothing. `markdownlint-cli2 --all-files`: passed.
+
+**Implementation Notes**
+
+- The prompt's rules are headed paragraphs, not numbered ones, so the design's
+  rule 6 is a new paragraph, "When text carries on", between "Text joins" and
+  "Tables". Nothing was renumbered.
+- `_JOIN_KINDS` became `_JOIN_END_KINDS` and `_JOIN_START_KINDS`, since
+  `new_entry` now ends in more kinds than it starts in.
+- `scripts/generate_reference_docs.py` needed no change. The page-break checks
+  page takes each check's and hint's text from its docstring.
+- Code cannot tell a repeated label from a joined one, so a text join for a cell
+  that only repeats the cell above it still passes the checks. The prompt rule
+  and, with the verifier on, DEV-015's comparison are what catch it.
+
+### DEV-013 — Comparing two verdicts for the same break
+
+`Status`: `PENDING` `Depends On`: `DEV-012` `Acceptance`: `AC-058`
+
+**Goal**
+
+Give code a comparison of two verdicts for the same break, so the verifier's
+second judgment can be compared with the kept one.
+
+**Affected Area**
+
+MODIFY `src/pydelity/verifying/validators.py` (`compare_verdicts`),
+`src/pydelity/review.py` (`verdicts_differ` in `IssueName`, the `details`
+docstrings of `CheckFailure` and `ReviewIssue`).
+
+**Expected Outcome**
+
+- `compare_verdicts(kept, verifier)` returns one `CheckFailure` per difference,
+  as **Verdict comparison** sets out: one `continues` difference and nothing
+  else when only one verdict continues; pieces paired by end, then by start; one
+  `piece` difference per unpaired piece, the kept verdict's first; per pair
+  `end`, `start` and `join`, and, when the joins are equal, `text_join`,
+  `cell_joins` (one per differing cell, or one for the whole list when the
+  lengths differ) and `repeated_header_rows`. Repeated items, markers,
+  containers and `reason` are not compared. An empty list means the verdicts
+  match.
+- Each difference has a message starting `verdicts_differ` that names both
+  values and the piece, the break's earlier page as `page_index`, and `details`
+  with `field`, `kept`, `verifier`, and `item`, `entry` and `cell` where they
+  apply.
+- `verdicts_differ` is in `IssueName`, in its own type `BreakComparisonName`.
+  Nothing calls `compare_verdicts` yet.
+
+**Self-Check**
+
+The lint commands; pytest and doctests; a scratchpad script with pairs of
+verdicts for each rule above, including pieces in a different order, a pair
+found by start only, two pieces with the same end, a cell-join list of another
+length, and verdicts that differ only in repeated items, markers, containers or
+reason (no difference).
+
+### DEV-014 — The stand-in answers a break's requests in arrival order
+
+`Status`: `PENDING` `Depends On`: `NONE` `Acceptance`: `AC-040, AC-042`
+
+**Goal**
+
+Let the stand-in answer page-break requests without telling the judge's from the
+verifier's, since after DEV-015 the two send the same request.
+
+**Affected Area**
+
+MODIFY `tests/fixtures/mock_providers.py`,
+`tests/fixtures/break_answers/irs_form_1040a_1965_scan.json`.
+`scripts/smoke_installed_wheel.py` and `tests/conftest.py` pass the file's
+content through and should need no change.
+
+**Expected Outcome**
+
+- `break_answers` (the argument, the `--break-answers` file and
+  `read_break_answers`) maps each break's earlier page index to one answer or a
+  list. Each request for that break gets the next answer, the last one
+  repeating, however different breaks' requests interleave. A page-break request
+  without an answer gets HTTP 400 naming the break.
+- A page-break request is recorded with its `break_index` and `agent: None`, and
+  `"judge"` leaves the stand-in's agent names. The cost ledger says which agent
+  sent each request. Page and survey routing stay as they are.
+- The canned 1965 scan file holds the judge's verdict alone for break 0, with no
+  agent key.
+
+**Self-Check**
+
+The lint commands on `tests/fixtures`; the existing tests, with those that key
+break answers by agent or read a break request's agent listed for Tester; a
+scratchpad script that runs the current step through the stand-in for both
+providers with a list of answers per break, two breaks interleaved and a check
+retry, and a break without an answer (HTTP 400);
+`python -m tests.fixtures.mock_providers --help`.
+
+### DEV-015 — The verifier judges each break a second time
+
+`Status`: `PENDING` `Depends On`: `DEV-013, DEV-014` `Acceptance`:
+`AC-027, AC-028, AC-031, AC-032, AC-033, AC-038, AC-039, AC-047, AC-056, AC-057, AC-058, AC-059`
+
+**Goal**
+
+Replace the verifier's review of the judge's verdict with the judge's request
+sent again and compared in code, through the verdict file, the review list, the
+log, the estimate and the report.
+
+**Affected Area**
+
+MODIFY `src/pydelity/verifying/schemas.py`, `prompts.py`, `agents.py`, `llm.py`,
+`validators.py` (`review_issues`) and `verification.py`;
+`src/pydelity/costs/budget.py`; `src/pydelity/review.py` (the `verifier` name's
+comment); `src/pydelity/report/html.py`; `src/pydelity/config/schemas.py`,
+`src/pydelity/cli.py` (`--verify` help) and `examples/config.yaml` where they
+describe the page-break verifier; `scripts/generate_reference_docs.py` (the
+comparison in place of the verifier issue on the page-break checks page);
+regenerate the reference pages.
+
+**Expected Outcome**
+
+- `BreakVerification` holds `attempts`, `checks` (`list[BreakCheckResult]` in
+  `CHECKS` order), `differences` (`list[CheckFailure]`) and `verdict`
+  (`BreakVerdict`). `BreakVerifierVerdict`, `BreakProblem` and
+  `BreakProblemCategory` are gone.
+- `judge_break` builds the break's one request. `verify_break`, the review text
+  and the verifier-only instructions are gone. One agent factory and one send
+  function serve both agents, with the agent's name in log lines, errors and the
+  ledger. The verifier's request has the judge's instructions and user content
+  and no message history, and its verdict is checked and sent back within
+  `check_retries` as the judge's is, the last one accepted as it is.
+- Per break, the judge's accepted verdict is written with `verification: null`.
+  With the verifier on, the same request is then sent for `verifier`, and
+  `verification` saves its verdict, attempts, check results and
+  `compare_verdicts(kept, verifier's)`. The issues are recomputed and the file
+  is rewritten. The judge's verdict is always the kept one.
+- Issues: checks still failing on the kept verdict, then hint differences unless
+  `verification` is set with no differences, then one `verdicts_differ` issue
+  per difference with its `details`. The verifier's own check failures are saved
+  and not listed, and page-break verification gives no `verifier` issue.
+- The break's log line says `verifier agrees`, `verifier differs in <n> places`
+  (`1 place`) or `no verifier`.
+- Estimate: `BreakRequestSize.chars` (the one request), one judge request and,
+  with the verifier on, one verifier request per break, each with
+  `TYPICAL_BREAK_OUTPUT_TOKENS` of output; the maximum covers every attempt of
+  each agent. `TYPICAL_BREAK_VERDICT_OUTPUT_TOKENS` and the verifier's own
+  allowance are removed.
+- A break card's verifier line says the verifier's verdict matches, lists each
+  difference's message, or says no verifier ran.
+- `advanced.page_breaks.verify`, `verify`, `--verify` and the YAML example's
+  comments describe the page-break verifier as a second judgment compared with
+  the first. The page-break checks and verdict file reference pages describe the
+  comparison and the new `verification`.
+
+**Self-Check**
+
+The lint commands; pytest and doctests, with tests of the replaced verifier
+listed for Tester; a scratchpad script through the stand-in on the 1965 scan and
+hand-built page files: with the verifier off, one request per break and
+`verification: null`; with it on, two requests with equal instructions and user
+content, ledger lines `judge` then `verifier`, a matching verdict that adds no
+issue and drops the hint issues, a differing one that adds `verdicts_differ`
+issues, a failing verifier verdict sent back and then kept with its failures
+saved but not listed, and a failed verifier request that raises `PageBreakError`
+naming `verifier` and leaves the judge's verdict file; the estimate against
+hand-computed figures; a report with the three verifier lines and escaped
+difference text; the reference-page generator and the Markdown formatter.
+
+### DEV-016 — Keep the judge's verdict when only the verifier's judgment is missing
+
+`Status`: `PENDING` `Depends On`: `DEV-015` `Acceptance`:
+`AC-033, AC-035, AC-042, AC-060`
+
+**Goal**
+
+When the verifier is turned on over verdicts judged without it, ask only the
+verifier and keep the judge's verdict, and price only that request.
+
+**Affected Area**
+
+MODIFY `src/pydelity/verifying/verification.py` (`PlannedBreak`, `plan_breaks`,
+the reuse rule, the break task, request sizes), `src/pydelity/costs/budget.py`
+(`BreakRequestSize.judge`, `estimate_page_breaks`), and
+`src/pydelity/pipeline/runner.py` only where its estimate paths need the flag.
+
+**Expected Outcome**
+
+- A valid, matching verdict file with `judgment: "model"` and no verification,
+  while the verifier is on and `overwrite` is off, keeps its judge's verdict: it
+  counts among the breaks to judge, gets an info line that the verifier judges
+  it now and the judge's verdict is kept, sends only the verifier's request, and
+  keeps its `verdict`, `checks` and `hints` while the file is rewritten with
+  `verification` set. Other files are reused or judged as before.
+- `BreakRequestSize.judge` is `False` for such a break, and the estimate prices
+  only its verifier request. `requests_max` sums, over the breaks, the agents
+  that run times the attempts. The run's estimate, `estimate()` and
+  `aestimate()` follow.
+
+**Self-Check**
+
+The lint commands; pytest and doctests; a scratchpad script through the
+stand-in: a run with the verifier off, then on, sends only verifier requests and
+keeps each verdict, its checks and its hints; a rerun reuses every break;
+`overwrite` sends both requests again; a failed verifier request followed by a
+rerun asks only the verifier; the estimates price only the verifier for those
+breaks. A wheel built with `uv build --wheel --offline`, `twine check --strict`,
+and the smoke script against it, as DEV-011 ran it.
+
 ---
 
 ## Plan Notes
@@ -1171,3 +1467,43 @@ link). Nothing under `src` or `examples` changed.
   model run, download or new dependency is planned; any would need the user's
   go-ahead.
 - The user makes the commits.
+
+### Rework after the real runs (2026-11-28)
+
+- Recovery frame 1 (`Owner: SCOPING`, `ResumeAt: REVIEWING_FINAL`,
+  `RerunThrough: DOCUMENTING`) reran Scoper and Architect. Developer reruns
+  downstream with its full gate. No Developer assignment was interrupted: the
+  plan was `COMPLETE` when final review routed the rework, so no suspended
+  assignment is saved.
+- DEV-001 to DEV-011 stay `DONE` with the earlier pass's evidence. The rework
+  replaces these parts of their outcomes: DEV-002's `BreakVerifierVerdict`,
+  `BreakProblem` and `BreakVerification` fields (DEV-015) and `TextJoin`
+  (DEV-012); DEV-003's `joins`, `repeats` and `start_markers` rules (DEV-012)
+  and its review-issue order (DEV-015); DEV-004's verifier prompt, agent and
+  `ask_verifier` (DEV-015) and the judge's rules (DEV-012); DEV-005's break
+  answers keyed by agent (DEV-014); DEV-006's verdict application (DEV-015) and
+  reuse rule (DEV-016); DEV-007's `BreakRequestSize` fields, the verdict-review
+  constant and the verifier allowance (DEV-015, DEV-016); DEV-010's verifier
+  line (DEV-015); DEV-011's reference pages (DEV-012, DEV-015).
+- Names for the user's approval. From the design: the cell join `repeat`, the
+  issue name `verdicts_differ`, `BreakVerification`'s fields `attempts`,
+  `checks`, `differences` and `verdict`, the difference `details` keys `field`,
+  `kept`, `verifier`, `item`, `entry` and `cell`, with `field` values
+  `continues`, `piece`, `end`, `start`, `join`, `text_join`, `cell_joins` and
+  `repeated_header_rows`, the function `compare_verdicts`, and
+  `BreakRequestSize`'s `chars` and `judge`. Developer's proposals:
+  `BreakComparisonName` for the type holding `verdicts_differ` (DEV-013);
+  `create_break_agent(agent=...)` for the one agent factory, `ask_model` for the
+  one send function and `BreakAnswer` for its result, in place of `JudgeAnswer`
+  and `VerifierAnswer` (DEV-015); page-break requests recorded by the stand-in
+  with `agent: None` (DEV-014).
+- Order: DEV-014 needs nothing earlier and may run before DEV-012 or DEV-013.
+  DEV-015 is the critical path. Each step leaves the package importable.
+- Tests are Tester's. Tests of the replaced contracts fail until Tester updates
+  them, as in the earlier pass: verdicts and verifier answers with the old
+  shapes, break answers keyed by agent, a break request's recorded agent, the
+  review rules for a verifier's problems and correction, the old reuse rule and
+  the old estimate. Each step lists the failing tests in its evidence.
+- No real model run, download or new dependency is planned. The user's next real
+  runs (`AC-061`, `AC-062`) come after the build, with new output folders or
+  `--overwrite`, since earlier verdict files with a verification no longer load.

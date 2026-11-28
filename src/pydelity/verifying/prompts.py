@@ -96,7 +96,9 @@ item. Set text_join.
 - continue_entry: text carries on where at least one end is a list entry, from the \
 last entry of a list or a text item to the first entry of a list or a text item. Set \
 text_join, and the entry at each end that is a list.
-- new_entry: a list carries on with a new entry.
+- new_entry: a list carries on with a new entry, which starts in a list on the page \
+after the break. It ends in the list on the page before the break, or in a text item \
+when that page's part of the list was extracted as text, such as its first entry.
 - append_rows: a table carries on with new rows. Set repeated_header_rows.
 - merge_split_row: a table carries on, and the break cuts its last row on the page \
 before the break, which goes on in the first row on the page after the break after \
@@ -112,9 +114,21 @@ that has no hyphen at the end of the earlier piece.
 - dehyphenate: a word broken with a hyphen at the end of the earlier piece carries \
 on, and the hyphen is removed.
 - newline: code carries on, on a new line. Use it for code only.
+- repeat: the cell on the page after the break only repeats the text of the cell \
+above it, such as a row label printed again, with or without a continuation marker, \
+so the text is kept once. Use it in cell_joins only, and never give such a cell a \
+text join that would print its text twice.
 For merge_split_row, give cell_joins one value per cell of the merged row on the page \
 after the break, in the row's cell order: how that cell's text joins the text of the \
-cell it continues in the split row, or null when either cell has no text to join.
+cell it continues in the split row, repeat when it only repeats that text, or null \
+when either cell has no text.
+
+When text carries on. Text or a list entry carries on only when the break cuts off a \
+sentence, a paragraph or an entry, so that the text itself is unfinished at the end \
+of the page before the break. A paragraph that breaks between two sentences, with no \
+new paragraph starting on the page after the break, is unfinished. An entry that is \
+complete on the page before the break, followed by an entry with its own new number, \
+is a new entry: use new_entry, not continue_entry.
 
 Tables. A table on the page after the break is the same table when its columns \
 match, nothing outside the grid announces a new table between the start of the page \

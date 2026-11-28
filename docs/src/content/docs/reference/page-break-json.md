@@ -222,12 +222,14 @@ A bordered or shaded box that continues across the break.
 
 A piece of content that carries on from the earlier page to the later page.
 
-- `cell_joins` (list of (one of `space`, `no_space`, `dehyphenate`, `newline` or
-  null) or null; required): For `merge_split_row`, one value per cell of the
-  later page's merged row (its first row after the repeated header rows), in the
-  row's cell order: how that cell's text joins the text of the cell above it on
-  the earlier page, or null when either cell has no text to join. Null for every
-  other join.
+- `cell_joins` (list of (one of `space`, `no_space`, `dehyphenate`, `newline`,
+  `repeat` or null) or null; required): For `merge_split_row`, one value per
+  cell of the later page's merged row (its first row after the repeated header
+  rows), in the row's cell order: how that cell's text joins the text of the
+  cell above it on the earlier page (`space`, `no_space` or `dehyphenate`),
+  `repeat` when the later cell only repeats the earlier cell's text, such as a
+  row label printed again, so that the text is kept once, or null when either
+  cell has no text. Null for every other join.
 - `earlier_entry` (string or null; required): When the piece ends in a list
   entry on the earlier page, that entry's ID; null otherwise.
 - `earlier_item` (string; required): The ID of the item where the piece ends on
@@ -248,9 +250,10 @@ A piece of content that carries on from the earlier page to the later page.
 - `repeated_items` (list of strings; required): The IDs of items on the later
   page, before the continued unit, that repeat what the earlier page printed for
   it, such as a repeated title; empty when there are none.
-- `text_join` (one of `space`, `no_space`, `dehyphenate`, `newline` or null;
-  required): For `continue_text` and `continue_entry`, how the two pieces of
-  text join; null for every other join.
+- `text_join` (one of `space`, `no_space`, `dehyphenate`, `newline`, `repeat` or
+  null; required): For `continue_text` and `continue_entry`, how the two pieces
+  of text join: `space`, `no_space` or `dehyphenate`, or `newline` between code
+  items. Null for every other join.
 
 ## `verification.verdict`
 

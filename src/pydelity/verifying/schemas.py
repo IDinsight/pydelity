@@ -44,9 +44,10 @@ type BreakProblemCategory = Literal[
 # How a continuing piece joins the later page's content to the earlier page's.
 # ``continue_text`` joins a text item to a text item, or a code item to a code item.
 # ``continue_entry`` joins text where at least one end is a list entry. ``new_entry``
-# continues a list with a new entry. ``append_rows`` continues a table with new rows.
-# ``merge_split_row`` merges the row the break cuts with the later page's first row
-# after any repeated header rows.
+# continues a list with a new entry, from the list on the earlier page, or from a text
+# item when page extraction read the list's part on that page as text.
+# ``append_rows`` continues a table with new rows. ``merge_split_row`` merges the row
+# the break cuts with the later page's first row after any repeated header rows.
 type Join = Literal[
     "continue_text",
     "continue_entry",
@@ -61,8 +62,9 @@ type Judgment = Literal["model", "no_content"]
 
 # How two pieces of text join across the break: with a space, with nothing between
 # them, by removing the hyphen at the end of the earlier piece, or, for code, with a
-# line break.
-type TextJoin = Literal["space", "no_space", "dehyphenate", "newline"]
+# line break. ``repeat`` is only for the cells of a split row: the later cell only
+# repeats the text of the cell above it, so the text is kept once.
+type TextJoin = Literal["space", "no_space", "dehyphenate", "newline", "repeat"]
 
 
 class _Output(BaseModel):
@@ -217,8 +219,10 @@ class ContinuingPiece(_Output):
     cell_joins: list[TextJoin | None] | None
     """For ``merge_split_row``, one value per cell of the later page's merged row
     (its first row after the repeated header rows), in the row's cell order: how that
-    cell's text joins the text of the cell above it on the earlier page, or null when
-    either cell has no text to join. Null for every other join."""
+    cell's text joins the text of the cell above it on the earlier page (``space``,
+    ``no_space`` or ``dehyphenate``), ``repeat`` when the later cell only repeats the
+    earlier cell's text, such as a row label printed again, so that the text is kept
+    once, or null when either cell has no text. Null for every other join."""
 
     earlier_entry: str | None
     """When the piece ends in a list entry on the earlier page, that entry's ID; null
@@ -252,8 +256,9 @@ class ContinuingPiece(_Output):
     are none."""
 
     text_join: TextJoin | None
-    """For ``continue_text`` and ``continue_entry``, how the two pieces of text join;
-    null for every other join."""
+    """For ``continue_text`` and ``continue_entry``, how the two pieces of text join:
+    ``space``, ``no_space`` or ``dehyphenate``, or ``newline`` between code items.
+    Null for every other join."""
 
 
 class BreakVerdict(_Output):

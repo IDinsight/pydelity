@@ -17,7 +17,8 @@
 `.standards/docs/specs/build-step-3-page-break-verification-of-20261122T170208Z-00fe2896.md`
 `Development`:
 `.standards/docs/development/build-step-3-page-break-verification-of-20261122T170208Z-00fe2896.md`
-`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`: `NONE`
+`PromotionReason`: `NONE` `AuditTarget`: `NONE` `BlockedOn`:
+`Continue with DEV-013 (comparing two verdicts for the same break).`
 `PendingVerificationCadence`: `NONE`
 
 `BaselineReconciliation`: `NONE`
