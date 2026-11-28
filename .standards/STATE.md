@@ -1,6 +1,6 @@
 # S.T.A.N.D.A.R.D.S. Workflow State
 
-`WorkflowState`: `ARCHITECTING` `CycleMode`: `STANDARD` `PendingCycleMode`:
+`WorkflowState`: `DEVELOPING` `CycleMode`: `STANDARD` `PendingCycleMode`:
 `UNSET` `PendingCycleRequest`: `UNSET` `PendingCycleBlockedOn`: `NONE`
 
 ## Active Work
@@ -30,8 +30,8 @@ Preserve existing entries; see PROTOCOL.md, Baseline Reconciliation Format.
 
 ## Handoff
 
-`Kind`: `FORWARD` `From`: `SCOPING` `FailureType`: `NONE` `Reason`:
-`Scope reworked: new AC-052 to AC-062 replace AC-025, AC-026, AC-029, AC-030, AC-036, AC-050 and AC-051, so design, plan, verification, implementation review and docs rerun.`
+`Kind`: `FORWARD` `From`: `ARCHITECTING` `FailureType`: `NONE` `Reason`:
+`Design revised for the rework: the verifier judges each break a second time without seeing the first and code compares the two, new_entry from a text item, a repeat cell join, the unfinished-text rule and a narrower start-marker hint.`
 
 ## Recovery
 

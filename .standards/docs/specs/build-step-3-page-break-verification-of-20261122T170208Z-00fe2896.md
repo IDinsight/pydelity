@@ -9,11 +9,23 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
 
 - Scope:
   `.standards/docs/scope/build-step-3-page-break-verification-of-20261122T170208Z-00fe2896.md`
-  (`AC-001` to `AC-051`). Target maturity is Level 3. Architect mode: feature.
-  The new step is a bounded capability that follows the shape the survey and
-  page extraction already set (settings, checks and hints, opt-in verifier,
-  reuse, estimate, review list, report). Nothing here is a transition or a new
-  cross-cutting rule.
+  (`AC-001` to `AC-024`, `AC-027`, `AC-028`, `AC-031` to `AC-035`, `AC-037` to
+  `AC-049`, `AC-052` to `AC-062`). `AC-025`, `AC-026`, `AC-029`, `AC-030`,
+  `AC-036`, `AC-050` and `AC-051` are retired. Target maturity is Level 3.
+  Architect mode: feature. The new step is a bounded capability that follows the
+  shape the survey and page extraction already set (settings, checks and hints,
+  opt-in verifier, reuse, estimate, review list, report). Nothing here is a
+  transition or a new cross-cutting rule.
+- Rework after the real runs. The user's ten Anthropic runs and their review
+  (`.standards/docs/reviews/build-step-3-page-break-verification-of-20261122T170208Z-00fe2896/final-deliverable.md`,
+  C12 and R-1 to R-4) led to the scope rework this revision follows. It changes
+  decisions 2, 4, 5, 7, 9, 13 and 14 and the sections they reach, and the rest
+  stands as built. The code from the earlier pass (`src/pydelity/verifying/` and
+  the run, estimate and report changes) is this cycle's own work, not baseline.
+  **Build Plan** lists only what changes in it. R-2, a header row that page
+  extraction misread, is a page file fault with no fix in this step. R-4, merge
+  or append for the same row, is the kind of disagreement the verifier's
+  comparison now flags.
 - Baseline: 0.2.0 as merged (`.standards/CONTEXT.md`). The designs of the survey
   (`git show 83743ef:...`), page extraction and the verifier cycle (both
   `git show af1b2d1:.standards/docs/specs/<id>.md`) stay in force. This design
@@ -44,18 +56,26 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
   reading decides; code's measurements and the survey's findings are hints that
   never send an answer back; checks may send it back within the step's check
   retries; a run stops only on an unusable answer or a provider error after
-  retries; an opt-in verifier reviews every break or none; one structured-output
-  mode per provider; document-type, language and direction agnostic; PyMuPDF on
-  one worker thread; no per-model limits; no default `max_cost`; async twins; no
-  backwards compatibility; existing `schema_version`s, `PROBE_VERSION` and
-  `PROMPT_VERSION`s stay; the step's own versions start at 1 and `"1.0"`.
-- Names are proposals for the user to approve in the development plan before the
-  build step that creates them: the step name `page_breaks`, the settings
-  section `advanced.page_breaks` and its keys, the folder `page_breaks/` and its
-  file names, the agent `judge`, the Python functions `verify_breaks` and
-  `averify_breaks`, the module `verifying/verification.py`, the warning code
-  `missing_page_files`, and the new `run.json`, estimate and verdict-file field
-  names, check and hint names listed under **Interfaces and Contracts**.
+  retries; an opt-in verifier judges every break a second time without seeing
+  the first judgment, or judges none, and code compares the two; one
+  structured-output mode per provider; document-type, language and direction
+  agnostic; PyMuPDF on one worker thread; no per-model limits; no default
+  `max_cost`; async twins; no backwards compatibility; existing
+  `schema_version`s, `PROBE_VERSION` and `PROMPT_VERSION`s stay; the step's own
+  versions start at 1 and `"1.0"`.
+- The user approved the earlier pass's names in the development plan: the step
+  name `page_breaks`, the settings section `advanced.page_breaks` and its keys,
+  the folder `page_breaks/` and its file names, the agents `judge` and
+  `verifier`, the Python functions `verify_breaks` and `averify_breaks`, the
+  module `verifying/verification.py`, the warning code `missing_page_files`, and
+  the `run.json`, estimate and verdict-file field names and the check and hint
+  names. This revision's new names are proposals for the user to approve before
+  the build step that creates them: the cell join value `repeat`, the review
+  issue name `verdicts_differ`, the fields of `BreakVerification` (`attempts`,
+  `checks`, `differences`, `verdict`), the difference `details` keys (`field`,
+  `kept`, `verifier`, `item`, `entry`, `cell`) and their `field` values, the
+  function `compare_verdicts`, and the `BreakRequestSize` fields `chars` and
+  `judge`.
 - No project references exist under `.standards/project-references/`.
 
 ## Decision
@@ -90,7 +110,9 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
    The instructions are the same for every break of a run, so Anthropic caches
    them (`anthropic_cache_instructions`) and OpenAI caches the prefix itself. No
    request carries the PDF, the text layer, a page file's `inputs`, `checks`,
-   `hints` or `issues`, or another step's instructions (`AC-009`).
+   `hints` or `issues`, another step's instructions (`AC-009`), another verdict
+   or a hint difference. The judge and the verifier send the same request
+   (decision 7).
 3. **The verdict names continuing pieces by item ID, each with a join rule.**
    The answer (`BreakVerdict`) says whether content continues, lists each
    continuing piece, lists the continuing containers and gives a short reason. A
@@ -108,14 +130,21 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
    end is a list entry and the other is a list entry or a text item: the last
    entry of the list on page N, the first entry of the list on page N+1. It
    covers a list whose last entry continues, including when page extraction made
-   the continued text a text item. `new_entry` continues a list with a new
-   entry. `append_rows` continues a table with new rows. `merge_split_row`
-   merges the row cut by the break with the first row on page N+1 after any
-   repeated header rows, and gives one text join per cell of that row, `null`
-   where one side of the cell has no text to join. Figures, fields and formulas
-   never continue: assembly has nothing to join for them, and a figure printed
-   across two pages stays two images. The text join is the verdict's because
-   code cannot choose it without language rules (`AC-014`).
+   the continued text a text item. `new_entry` continues a list with a new entry
+   on page N+1. Its earlier end is the list on page N, or a text item when page
+   extraction read the list's part on page N, such as its first entry, as text
+   (`AC-052`). Its later start is a list. `append_rows` continues a table with
+   new rows. `merge_split_row` merges the row cut by the break with the first
+   row on page N+1 after any repeated header rows, and gives one cell join per
+   cell of that row. A cell join is a text join, or `repeat` when the later cell
+   only repeats the text of the cell above it, such as a row label printed again
+   with or without "(contd)", so that assembly keeps the text once (`AC-053`),
+   or `null` where one side of the cell has no text. Text and list entries
+   continue only when the break leaves the text itself unfinished, and the
+   instructions say so (**Judge request**, `AC-054`). Figures, fields and
+   formulas never continue: assembly has nothing to join for them, and a figure
+   printed across two pages stays two images. The text join is the verdict's
+   because code cannot choose it without language rules (`AC-014`).
 5. **Checks are what code can decide about the verdict, and the only hint is the
    survey's start markers.** Checks test the verdict against itself, the two
    page files and its hard limits; a failure may send it back within
@@ -123,17 +152,19 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
    kept and listed while the run goes on (`AC-023`). Checks, in order: `ids`,
    `continues`, `duplicates`, `joins`, `furniture`, `header_rows`, `repeats`,
    `markers` (**Checks and hints**). `header_rows` compares the rows a verdict
-   counts as repeated with the earlier table's leading rows, and `repeats`
-   compares each repeated item with text printed on page N, both by tolerant
-   text similarity in any script. They are checks, not hints, because assembly
-   drops the rows and items they name, so a wrong count or a wrong item loses
-   content; a model that keeps its answer after the retries is kept and listed
+   counts as repeated with the earlier table's leading rows. `repeats` compares
+   each repeated item with text printed on page N, and each `repeat` cell with
+   the cells of the split row on page N. Both use tolerant text similarity in
+   any script. They are checks, not hints, because assembly drops the rows,
+   items and cell texts they name, so a wrong count or a wrong item loses
+   content. A model that keeps its answer after the retries is kept and listed
    (`AC-024`). The one hint, `start_markers`, flags a piece whose start on page
-   N+1 begins with one of the survey's start markers (`AC-025`). Hints follow
-   the verifier cycle's decision 14: never sent back, never fail anything,
-   listed unless the step's verifier passed the verdict or its correction was
-   kept, and always kept in the verdict file's `hints` (`AC-026`). The survey's
-   continuation notes are free text, so code compares nothing with them; they
+   N+1 begins with one of the survey's start markers, except an `append_rows`
+   piece and a piece that names a continuation marker in that start (`AC-055`).
+   A hint difference is never sent back and never fails anything. It is listed
+   unless the verifier ran and its verdict matched the kept verdict (decision
+   7), and the verdict file's `hints` always keep it (`AC-056`). The survey's
+   continuation notes are free text, so code compares nothing with them. They
    reach only the model.
 6. **A break where a page has no content items gets a verdict without a
    request.** When either page has no item whose role is not `artifact` (a blank
@@ -141,19 +172,27 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
    consecutive pages are judged. The step writes a verdict saying nothing
    continues, with `judgment: "no_content"`, all checks passed with 0 attempts,
    no hints, no issues and `verification: null`, and makes no request, with or
-   without the verifier. Every other verdict has `judgment: "model"`.
-7. **The verifier mirrors page extraction's.** With `verify_page_breaks` on,
-   after the judge's verdict is accepted, a second request to the same model
-   with the same pages and items, the verdict as JSON, its failing checks and
-   its hint differences returns a `BreakVerifierVerdict`: passed, or problems
-   plus an optional full corrected verdict. Its output validator runs the checks
-   on the correction and sends it back while retries remain. A correction is
-   kept when it passes every check, whatever its hint differences. Passed: keep
-   the verdict. Correction kept: keep it, and the problems stay in the
-   verifier's verdict only. Otherwise: keep the judge's verdict and list each
-   problem (`AC-029`). Its instructions are the step's rules and hints and
-   `advanced.page_breaks.instructions` only, and the effort, output tokens,
-   timeout and check retries are the step's.
+   without the verifier. No model judged it, so the verifier has no judgment to
+   repeat (`AC-057`). Every other verdict has `judgment: "model"`.
+7. **The verifier judges each break a second time without seeing the first
+   judgment, and code compares the two.** With `verify_page_breaks` on, after
+   the judge's verdict is accepted and written, the verifier sends the judge's
+   request again unchanged: the same instructions and user content, with no
+   message history, so it never sees the judge's verdict, checks or hints. Its
+   answer is a `BreakVerdict`, checked and sent back within `check_retries` by
+   the judge's output validator (`AC-057`). The judge's verdict is always the
+   kept verdict. Code compares the two on `continues` and, for each piece, its
+   end, start, join, text join, cell joins and repeated header rows (**Verdict
+   comparison**). Each difference becomes a `verdicts_differ` review issue, a
+   match adds none, and no third request settles a difference (`AC-058`). The
+   verdict file saves the verifier's verdict, its attempts and checks, and the
+   differences (`AC-059`). A verifier's verdict that still fails a check after
+   its retries is compared as it is. Its check failures are saved and not
+   listed, since assembly never uses that verdict, while any difference it gives
+   is listed. The verifier's request runs after the judge's in the same break
+   task, so it reads the request from the provider's cache. Its effort, output
+   tokens, timeout and check retries are the step's, and the ledger names its
+   agent `verifier`.
 8. **The step runs only when every page has a current page file.** A page file
    is current when page extraction made it in this run, or when page extraction
    would reuse it now without a model call: `plan_pages` over every page of the
@@ -177,12 +216,16 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
    the fingerprint adds the verdict file's schema version. A page extracted
    again has a new `extracted_at`, so its bytes change and both its breaks are
    judged again, even when its page fingerprint is unchanged. A verdict file is
-   reused when it is valid, its fingerprint matches, `overwrite` is off, and it
-   is a `no_content` verdict, holds a verification, or the step's verifier is
-   off (`AC-035`, `AC-036`). No verifier switch is in the fingerprint, as for
-   the other steps. A damaged file gives the `damaged_output` warning and the
-   break is judged again (`AC-037`). Settings of page-break verification are in
-   no survey or page fingerprint, so changing them reruns neither.
+   reused as it is when it is valid, its fingerprint matches, `overwrite` is
+   off, and it is a `no_content` verdict, holds a verification, or the step's
+   verifier is off (`AC-035`). A valid, matching file with `judgment: "model"`
+   and no verification, while the verifier is on and `overwrite` is off, keeps
+   its judge's verdict, checks and hints without a request, and only the
+   verifier's request is made (`AC-060`). No verifier switch is in the
+   fingerprint, as for the other steps. A damaged file gives the
+   `damaged_output` warning and the break is judged again (`AC-037`). Settings
+   of page-break verification are in no survey or page fingerprint, so changing
+   them reruns neither.
 10. **The run goes survey, page extraction, page-break verification, with a
     pause after each step that wrote new output.** After page extraction, the
     run decides in this order: a one-page PDF skips the step; a page without a
@@ -225,15 +268,19 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
     and the agent. The other breaks' tasks are canceled, the step ends `failed`,
     the run ends `failed`, the CLI shows the error and exits `FAILED` (1), and
     Python raises it. Verdict files already written are valid, and the next run
-    judges only the breaks without a reusable verdict (`AC-038`).
+    judges only the breaks without a reusable verdict (`AC-038`). The judge's
+    verdict is written before the verifier's request, so when that request
+    fails, the next run with the verifier on keeps the judge's verdict and asks
+    only the verifier.
 14. **The report shows each break beside its two pages.** A new section, after
     the pages, has one card per verdict: both page images (the report's existing
     `report/pages/<NNNN>.jpg`, no new image files) with the items and containers
     the verdict names drawn on them, and beside them whether content continues,
     each piece with its join rule, text join or cell joins, repeated header
-    rows, repeated items and markers, the continuing containers, the reason, the
-    verifier's outcome or that no verifier ran (or that no request was made, for
-    a `no_content` verdict), and the break's review issues. Each review issue
+    rows, repeated items and markers, the continuing containers, the reason,
+    whether the verifier's verdict matched, with each difference when it did
+    not, or that no verifier ran (or that no request was made, for a
+    `no_content` verdict), and the break's review issues. Each review issue
     about a break links to its card (`AC-039`).
 15. **The step's code lives in `src/pydelity/verifying/`.** `schemas.py`,
     `prompts.py`, `validators.py`, `agents.py`, `llm.py` and the step module
@@ -281,7 +328,13 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
 - `AC-011`: decision 12; **Verdict file**.
 - `AC-012`: decision 3; **Verdict contract**.
 - `AC-013`: decision 4; **Verdict contract**, **Checks and hints** (`joins`).
+- `AC-052`: decision 4; **Verdict contract** (`new_entry` row), **Checks and
+  hints** (`joins`), **Judge request** (joins rule).
 - `AC-014`: decision 4; **Verdict contract** (`text_join`, `cell_joins`).
+- `AC-053`: decision 4; **Verdict contract** (`repeat` in `cell_joins`),
+  **Checks and hints** (`joins`, `repeats`), **Judge request** (text joins
+  rule).
+- `AC-054`: decision 4; **Judge request** (unfinished-text rule).
 - `AC-015`: **Verdict contract** (`repeated_header_rows`).
 - `AC-016`: **Verdict contract** (`repeated_items`).
 - `AC-017`: **Verdict contract** (`markers`), **Checks and hints** (`markers`).
@@ -293,12 +346,14 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
   names a document type, language or direction.
 - `AC-023`: decision 5; **Checks and hints**, **Agents**.
 - `AC-024`: decision 5; **Checks and hints** (`header_rows`).
-- `AC-025`: decisions 2 and 5; **Checks and hints** (`start_markers`).
-- `AC-026`: decision 5; **Review issues**, **Test seams**.
+- `AC-055`: decisions 2 and 5; **Judge request** (hints), **Checks and hints**
+  (`start_markers` and its exceptions).
+- `AC-056`: decision 5; **Review issues**, **Test seams**.
 - `AC-027`: decisions 7 and 11; **Verdict file** (`verification: null`).
 - `AC-028`: decision 11; **Settings**.
-- `AC-029`: decision 7; **Verifier request**, **Verdict application**.
-- `AC-030`: **Verdict file** (`verification`).
+- `AC-057`: decision 7; **Verifier request**, **Verdict application**.
+- `AC-058`: decision 7; **Verdict comparison**, **Review issues**.
+- `AC-059`: decision 7; **Verdict file** (`verification`).
 - `AC-031`: decision 12; **Review issues**, **Summary and log lines**.
 - `AC-032`: decision 12; **`cost.jsonl`**.
 - `AC-033`: decision 10; **Cost estimate**.
@@ -306,7 +361,8 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
   reserves its bound in the run's `SpendGuard` before sending, so concurrent
   requests are covered as page extraction's are; **`cost.jsonl`**.
 - `AC-035`: decision 9; **Verdict inputs and reuse**.
-- `AC-036`: decision 9.
+- `AC-060`: decisions 9 and 13; **Verdict inputs and reuse**, **Verdict
+  application**, **Cost estimate** (`judge`).
 - `AC-037`: decision 9; **Verdict file** (atomic writes, damage).
 - `AC-038`: decision 13; **Errors**.
 - `AC-039`: decision 14; **HTML report**.
@@ -329,8 +385,10 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
 - `AC-049`: No architectural impact — Documenter's update to
   `artifacts/next_cycle_inputs.md`; **Risks and Follow-up** lists what this
   design leaves to later steps.
-- `AC-050`, `AC-051`: No architectural impact — the user's review of real runs
-  after the build, with the default settings and with `verify` on.
+- `AC-061`, `AC-062`: No architectural impact — the user's review of real runs
+  with Anthropic models after the build, with the default settings and with the
+  step's verifier on. The verdict file, review list and report fields they rely
+  on are covered under `AC-011` to `AC-039` and `AC-052` to `AC-060`.
 
 ## Components
 
@@ -338,26 +396,29 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
   `PageBreaksConfig`, `AdvancedConfig.page_breaks`, `Config.page_breaks_model`,
   `Config.verify_page_breaks`, `DEFAULT_PAGE_BREAKS_MODEL`.
 - **Page-break verification** (`verifying/`):
-  - `schemas.py`: the verdict, the verifier's verdict, the verdict file and its
-    parts.
-  - `prompts.py`: `PROMPT_VERSION = 1`, the judge's and the verifier's
-    `PromptPair`s.
+  - `schemas.py`: the verdict, the verifier's record (`BreakVerification`), the
+    verdict file and its parts.
+  - `prompts.py`: `PROMPT_VERSION = 1` and the break request's prompts, which
+    the judge and the verifier both send.
   - `validators.py`: `CHECKS`, `HINTS`, `run_checks`, `compare_with_hints`,
-    `retry_message`, and the helpers that turn failures into check results, hint
-    results and review issues.
-  - `agents.py`: the judge and verifier agents with their output validators.
+    `compare_verdicts`, `retry_message`, and the helpers that turn failures and
+    differences into check results, hint results and review issues.
+  - `agents.py`: the one agent factory both agents use, with its output
+    validator.
   - `llm.py`: `JUDGE` and `VERIFIER` agent names, the step's `StepModel`, the
-    per-break input, `ask_judge`, `ask_verifier`, and the error mapping.
+    per-break input, one function that sends the break's request for either
+    agent, and the error mapping.
   - `verification.py`: current page files with their hashes, break inputs and
     fingerprints, `plan_breaks`, `verify_breaks` (the concurrent tasks),
     `break_file_path`, `BREAKS_FOLDER_NAME`, and request sizes for the estimate.
 - **Review** (`review.py`): `page_breaks` in `StepName`, `BreakCheckName`,
-  `BreakHintName`, both in `IssueName`; `verifier` shared.
+  `BreakHintName` and the `verdicts_differ` issue name, all in `IssueName`. The
+  `verifier` issue name stays the survey's and page extraction's only.
 - **Errors** (`errors.py`): `PageBreakError`, warning code `missing_page_files`.
 - **Versions** (`schema_versions.py`): `BREAK_SCHEMA_VERSION = "1.0"`.
 - **Costs and providers** (`costs/budget.py`, `costs/schemas.py`,
   `providers/ledger_model.py`): `estimate_page_breaks`, `BreakRequestSize`,
-  `StepEstimate.breaks`, the typical-token constants, ledger lines for breaks.
+  `StepEstimate.breaks`, the typical-token constant, ledger lines for breaks.
 - **Runner** (`pipeline/runner.py`, `pipeline/schemas.py`): the step, the run
   flow and pauses, the single estimate, `BreakCounts`, `StepRecord.breaks`,
   `RunResult.breaks`, the review list, `load_run`.
@@ -366,8 +427,8 @@ Cycle: build-step-3-page-break-verification-of-20261122T170208Z-00fe2896
   option.
 - **Report** (`report/html.py`, its stylesheet): the page-breaks section.
 - **Test tooling** (`tests/fixtures/mock_providers.py`, canned break answers,
-  `scripts/smoke_installed_wheel.py`): routing break requests and running the
-  step from the wheel.
+  `scripts/smoke_installed_wheel.py`): answering break requests in the order
+  they arrive and running the step from the wheel.
 - **Docs generator** (`scripts/generate_reference_docs.py`): the verdict file
   and page-break checks pages.
 
@@ -409,10 +470,10 @@ that a verifier adds cost.
 
 ### Verdict contract
 
-`BreakVerdict`, the judge's answer and the verdict a verdict file keeps. Plain
-types, enums, lists and objects only, with no patterns or bounds, so it fits
-prompted output on Anthropic and native output on OpenAI. Fields in alphabetical
-order, as pydelity's other models:
+`BreakVerdict`, the judge's and the verifier's answer, and the verdict a verdict
+file keeps. Plain types, enums, lists and objects only, with no patterns or
+bounds, so it fits prompted output on Anthropic and native output on OpenAI.
+Fields in alphabetical order, as pydelity's other models:
 
 - `containers: list[ContinuingContainer]` — each box that continues across the
   break: `earlier` (its container ID on page N) and `later` (on page N+1).
@@ -426,8 +487,10 @@ order, as pydelity's other models:
 - `cell_joins: list[TextJoin | None] | None` — for `merge_split_row`, one value
   per cell of page N+1's merged row (the first row after the repeated header
   rows), in the row's cell order: how that cell's text joins the text of the
-  cell above it on page N, `null` when either cell has no text to join. `null`
-  for every other join.
+  cell above it on page N (`space`, `no_space` or `dehyphenate`), `repeat` when
+  both cells have text and the later cell only repeats the earlier cell's text,
+  so that assembly keeps that text once, or `null` when either cell has no text
+  to join. `null` for every other join.
 - `earlier_entry: str | None` — the list entry's ID when the piece ends in a
   list entry on page N.
 - `earlier_item: str` — the ID of the item where the piece ends on page N.
@@ -448,15 +511,21 @@ order, as pydelity's other models:
 - `text_join: TextJoin | None` — `space`, `no_space`, `dehyphenate` or
   `newline`, for `continue_text` and `continue_entry`; `null` for other joins.
 
+`TextJoin` is `space`, `no_space`, `dehyphenate`, `newline` or `repeat`.
+`repeat` is for `cell_joins` only and `newline` never goes there. One enum
+serves both fields so that a value in the wrong field fails the `joins` check,
+which is kept and listed after the retries, rather than the answer format, which
+stops the run at the last attempt.
+
 Join rules (enforced by the `joins` check):
 
-| Join              | Earlier end                               | Later start                                | Text join                                                         | Other fields                                           |
-| ----------------- | ----------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------ |
-| `continue_text`   | text item, or code item                   | same kind as the earlier end               | text: `space`, `no_space`, `dehyphenate`; code: `newline`         | entries, cell joins, header rows `null`                |
-| `continue_entry`  | last entry of a list item, or a text item | first entry of a list item, or a text item | `space`, `no_space`, `dehyphenate`                                | at least one entry set; cell joins, header rows `null` |
-| `new_entry`       | list item                                 | list item                                  | `null`                                                            | entries, cell joins, header rows `null`                |
-| `append_rows`     | table item                                | table item                                 | `null`                                                            | header rows set, from 0 to the later table's rows      |
-| `merge_split_row` | table item with at least one row          | table item                                 | `null`; `cell_joins` one per cell of the merged row, no `newline` | header rows set, below the later table's rows          |
+| Join              | Earlier end                                                    | Later start                                | Text join                                                                                                   | Other fields                                           |
+| ----------------- | -------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `continue_text`   | text item, or code item                                        | same kind as the earlier end               | text: `space`, `no_space`, `dehyphenate`; code: `newline`                                                   | entries, cell joins, header rows `null`                |
+| `continue_entry`  | last entry of a list item, or a text item                      | first entry of a list item, or a text item | `space`, `no_space`, `dehyphenate`                                                                          | at least one entry set; cell joins, header rows `null` |
+| `new_entry`       | list item, or a text item (the list's part on page N, as text) | list item                                  | `null`                                                                                                      | entries, cell joins, header rows `null`                |
+| `append_rows`     | table item                                                     | table item                                 | `null`                                                                                                      | header rows set, from 0 to the later table's rows      |
+| `merge_split_row` | table item with at least one row                               | table item                                 | `null`; `cell_joins` one per cell of the merged row: `space`, `no_space`, `dehyphenate`, `repeat` or `null` | header rows set, below the later table's rows          |
 
 Figures, fields and formulas are never an end or a start.
 
@@ -476,11 +545,14 @@ Figures, fields and formulas are never an end or a start.
 - `judged_at: datetime` — when the verdict was written (UTC).
 - `judgment: Literal["model", "no_content"]` — decision 6.
 - `pydelity_version: str`, `schema_version: str` (`BREAK_SCHEMA_VERSION`).
-- `verdict: BreakVerdict` — the kept verdict.
-- `verification: BreakVerification | None` — the verifier's review: `attempts`,
-  `correction_applied`, `correction_failures` (checks a correction that was not
-  kept still failed), `verdict` (`BreakVerifierVerdict` as given); `null` when
-  no verifier ran (`AC-027`, `AC-030`).
+- `verdict: BreakVerdict` — the kept verdict, always the judge's.
+- `verification: BreakVerification | None` — the verifier's second judgment:
+  `attempts` (1 plus the retries it used), `checks` (each check's result on the
+  verifier's verdict, in `CHECKS` order), `differences` (`list[CheckFailure]`
+  from **Verdict comparison**, empty when the two verdicts match) and `verdict`
+  (the verifier's `BreakVerdict` as accepted); `null` when no verifier ran
+  (`AC-027`, `AC-059`). `BreakVerifierVerdict`, `BreakProblem` and
+  `BreakProblemCategory` are removed.
 
 Written with `write_model_atomic`; temporary files left in `page_breaks/` are
 removed when the step starts. A file that does not load or has another major
@@ -498,8 +570,10 @@ the page file does.
 `plan_breaks` computes every break's inputs from the current page files, loads
 each verdict file, warns on damage, applies the reuse rule of decision 9, and
 logs `Page-break verification: <n> breaks, <r> reused, <j> to judge` unless
-quiet. A verdict file passed over only because no verifier reviewed it gets an
-info line, as for pages.
+quiet. A break whose verdict file keeps the judge's verdict and needs only the
+verifier's request counts among those to judge, is marked as needing no judge
+request, and gets an info line saying that the verifier judges it now and the
+judge's verdict is kept.
 
 ### Judge request
 
@@ -521,21 +595,34 @@ info line, as for pages.
      where the script separates the two pieces with a space, no space where it
      writes none or the break falls inside a word without a hyphen, removing the
      hyphen where a word broken with a hyphen at the line end continues, and a
-     newline for code.
-  6. Tables: the same table continues when its column structure matches, nothing
+     newline for code. `new_entry` may start from a text item when page
+     extraction read the list's part on page N as text (`AC-052`). A cell join
+     is `repeat` when the later cell only repeats the earlier cell's text, such
+     as a row label printed again with a continuation marker, and never a text
+     join that would print that text twice (`AC-053`).
+  6. When text continues: text or a list entry continues only when the break
+     cuts off a sentence, paragraph or entry, so that the text itself is
+     unfinished at the end of page N. A paragraph that breaks between two
+     sentences, with no new paragraph starting page N+1, is unfinished. A
+     complete entry followed by an entry with its own new number is a new entry
+     (`new_entry`), not a continued one (`AC-054`). The rule names no language
+     and no marker style.
+  7. Tables: the same table continues when its column structure matches, nothing
      outside the grid announces a new table between the start of page N+1 and
      the table, and no header redefines the columns; a border or closed box
      around each page's part is no sign of a new table; a split row is a row
      whose cells are cut by the break and resume in the first row after any
      repeated header rows.
-  7. Repeated items, continuation markers and containers, as defined.
-  8. Nothing continuing is a valid answer; decide from what the pages show.
-  9. The answer is checked by code for consistency, and the model is told what
-     to fix if a check fails.
-  10. Hints: the survey's continuation notes and start markers (each start
+  8. Repeated items, continuation markers and containers, as defined.
+  9. Nothing continuing is a valid answer; decide from what the pages show.
+  10. The answer is checked by code for consistency, and the model is told what
+      to fix if a check fails.
+  11. Hints: the survey's continuation notes and start markers (each start
       marker's text and description), which describe the whole PDF, can be
       wrong, and are overridden by the pages; `none` when the survey gave none.
-  11. `advanced.page_breaks.instructions` under its own heading, when set.
+  12. `advanced.page_breaks.instructions` under its own heading, when set.
+- The instructions say nothing about a second judgment, so the judge's and the
+  verifier's requests are the same.
 - No instruction, example or field description is in a particular language,
   names a document type or domain concept, or assumes a direction (`AC-022`).
 - User content: decision 2. The first text part's first line is
@@ -546,46 +633,38 @@ info line, as for pages.
   `retries={"output": check_retries}`, an output validator that runs
   `run_checks` only and raises `ModelRetry` with `retry_message(failures)` while
   retries remain, and accepts the last verdict as it is. Request settings as
-  `extracting/llm.py` `_model_settings`.
+  `extracting/llm.py` `_model_settings`. Its log lines name the agent, so the
+  verifier's agent comes from the same factory.
 
 ### Verifier request
 
-- Instructions (`verify_break`): another model's verdict on this break, check it
-  against the pages and correct it; a checklist of what code cannot judge
-  (content that continues but is missed, pieces that do not continue, wrong ends
-  or starts, wrong join or text joins, a wrong count of repeated header rows,
-  repeated items or markers missed or wrong, containers missed or wrong);
-  verdict rules as page extraction's (passed with no problems and no correction
-  when nothing material is wrong, otherwise every problem and the whole verdict
-  corrected, starting from the verdict); a correction must pass the checks and
-  need not agree with the hints; then the judge's rules, hints and instructions
-  as above.
-- User content: the judge's content, then a text part with
-  `The page-break verdict to review:` and the verdict as JSON,
-  `Checks it still fails, which a correction must pass:` with one line per
-  failure or `none`, and `Differences from the hints, which the pages override:`
-  with one line per difference or `none`, then the cache point.
-- `BreakVerifierVerdict`: `corrected: BreakVerdict | None`, `passed: bool`,
-  `problems: list[BreakProblem]`, with `VerifierVerdict`'s invariants.
-  `BreakProblem`: `category` (`continues`, `piece`, `join`, `header_rows`,
-  `repeated_items`, `markers`, `containers`, `other`), `description` (what is
-  wrong and where), `item` (the ID of the item or container on either page it is
-  about, or `null`).
-- Agent: as page extraction's verifier agent, with the correction retry message
-  "Your corrected verdict does not pass every check. Give the whole verdict
-  again, with the correction fixed." followed by `retry_message`.
+- The judge's request, sent again unchanged: the same instructions and user
+  content from the same prompt function, with no message history. It never
+  carries the judge's verdict, its check failures or its hint differences, so
+  the verifier judges the break without seeing the first judgment (`AC-057`).
+  The verifier-only prompt (`verify_break`, `_REVIEW`, `_VERDICT`) and the
+  `review_text` part are removed.
+- It is sent in the same break task once the judge's verdict is accepted and
+  written, so it reads the request from the provider's cache, and the stand-in's
+  arrival order for a break is fixed (**Test seams**).
+- Agent: the judge's factory, output validator, `check_retries` and settings,
+  with a ledger wrapper for agent `verifier`. Its answer is a `BreakVerdict`,
+  and a verdict that still fails a check at the last attempt is accepted as it
+  is. Errors name the agent `verifier`, as now.
 
 ### Verdict application
 
-1. The judge's verdict is accepted (every check passed, or retries ran out).
-2. With `verify_page_breaks` on: the verifier request on it, given its check
-   failures and `compare_with_hints` differences.
-3. Kept verdict: the correction when it has no check failure, else the judge's
-   verdict. `checks` are the kept verdict's results with the attempts of the
-   model that gave it.
-4. `hints`: `compare_with_hints` on the kept verdict.
-5. `issues` (**Review issues**), the verdict file, its atomic write, and the
-   break's log line.
+1. The judge's verdict. When the break's verdict file keeps its judge's verdict
+   (decision 9), take the file's `verdict`, `checks` and `hints`. Otherwise send
+   the judge's request with its checks and retries. Its accepted verdict is the
+   kept verdict, `checks` are its results with the judge's attempts, and `hints`
+   are `compare_with_hints` on it. Write the verdict file with
+   `verification: null` and its issues.
+2. With `verify_page_breaks` on, the verifier's request. `verification` holds
+   its verdict as accepted, its attempts, its check results, and
+   `compare_verdicts(kept, verifier's)`.
+3. `issues` (**Review issues**), the verdict file rewritten atomically, and the
+   break's log line, once per break.
 
 ### Checks and hints
 
@@ -611,7 +690,11 @@ and its `page_index` is the page it is on:
    N's table's first n + h rows, where h is page N's table's `header_rows`.
 7. `repeats` — each repeated item whose text is not empty matches some text
    printed on page N: an item's text, a list entry's text, or a table row's cell
-   texts joined in order.
+   texts joined in order. Each `repeat` value in a `merge_split_row` piece's
+   `cell_joins` names a merged-row cell whose text is not empty and matches the
+   text of some cell in page N's split row (the last row of the earlier table).
+   Any cell of that row counts, so cell spans that differ between the pages do
+   not matter.
 8. `markers` — each marker's text is in the text of the item or cell that
    carries it.
 
@@ -619,9 +702,9 @@ Text matching in checks and hints uses `comparison_form` (NFKC, case-folded,
 letters, marks and numbers only), so it holds in any script. Two texts match
 when their comparison forms are equal or both have at least 3 characters and the
 Dice coefficient of their `trigrams` is at least 0.8; `repeats` also accepts
-either form containing the other, so a repeated heading with a marker added
-matches the original; `markers` requires the marker's form to be contained in
-the carrier's. Both empty counts as a match for header rows.
+either form containing the other, so a repeated heading or cell with a marker
+added matches the original; `markers` requires the marker's form to be contained
+in the carrier's. Both empty counts as a match for header rows.
 
 Hint (`BreakHintName`), never sent back:
 
@@ -629,25 +712,65 @@ Hint (`BreakHintName`), never sent back:
   start entry's text, or for a table the cell texts of its first row after the
   repeated header rows) begins, in comparison form, with the comparison form of
   one of the survey's start markers. A marker whose comparison form is empty is
-  skipped. The difference message says which marker the start begins with and
-  that the verdict joins it to page N; it never tells the model what to change.
+  skipped. Two kinds of piece are skipped (`AC-055`): an `append_rows` piece,
+  and a piece that names a continuation marker in its start, meaning one of its
+  `markers` has the start item as its `item` and, for a table, the row the start
+  text comes from as its `row`. These exceptions read only the verdict's join
+  and markers. The difference message says which marker the start begins with
+  and that the verdict joins it to page N. It never tells the model what to
+  change, and no request carries it.
 
 Check failure messages may say what to fix. Every retry message is built from
 `run_checks` failures only.
 
+### Verdict comparison
+
+`compare_verdicts(kept, verifier)` in `validators.py` compares the kept verdict
+with the verifier's and returns `list[CheckFailure]`, one per difference. Each
+difference's message starts with `verdicts_differ` and names both verdicts'
+values and the items, its `page_index` is the break's earlier page, and its
+`details` hold `field`, the `kept` and `verifier` values, and `item`, `entry`
+and `cell` where they apply.
+
+1. `continues`. When the two verdicts differ on it, that is the one difference
+   (`field: "continues"`), and its message names the pieces of the verdict that
+   continues. When both say nothing continues, nothing else is compared.
+2. Pairing, when both say content continues. For each kept piece in order, the
+   first unpaired verifier piece with the same end (`earlier_item` and
+   `earlier_entry`). Then, for each kept piece still unpaired, the first
+   unpaired verifier piece with the same start (`later_item` and `later_entry`).
+   Each piece left unpaired on either side is one difference (`field: "piece"`),
+   the kept verdict's first.
+3. Per pair, in the kept verdict's order: the end (`end`), the start (`start`)
+   and the join (`join`). When the joins are the same, also `text_join`,
+   `cell_joins` (one difference per differing cell, or one for the whole list
+   when the lengths differ) and `repeated_header_rows`. When the joins differ,
+   the join is the pair's only further difference, since the other fields follow
+   from the join.
+
+`item` and `entry` are the kept piece's earlier end, or the verifier piece's
+when only the verifier names that piece, so a difference's review issue points
+at the piece. For a `continues` difference they are the first piece's of the
+verdict that continues, or `null` when it names none. Repeated items, markers,
+containers and `reason` are not compared (`AC-058`). The verdicts match when the
+list is empty.
+
 ### Review issues
 
 A break's `issues`, in this order: each check still failing on the kept verdict;
-each hint difference, unless a verifier ran and passed the verdict or its
-correction was kept; each verifier problem, when a verifier ran and its
-correction was not kept. Every issue has `step: "page_breaks"`, `page_index` =
-the break's earlier page, `item_id` = the item the failure or problem names when
-it is on either page, else `null`, and a message that names both pages, such as
-`pages 4 and 5: ...`. Verifier issues have `check: "verifier"` and
-`details: {"category": <category>, "item": <item or null>}`. `run.json` `review`
-lists the survey's issues, then each selected page's, then each break's in break
-order. `ReviewIssue.page_index`'s docstring says that for page-break
-verification it is the break's earlier page.
+each hint difference, unless a verifier ran and its verdict matched the kept
+verdict (`AC-056`); each difference from **Verdict comparison**, with
+`check: "verdicts_differ"` and the difference's `details` (`AC-058`). The
+verifier's verdict's own check failures are saved in `verification.checks` and
+not listed. Every issue has `step: "page_breaks"`, `page_index` = the break's
+earlier page, `item_id` = the item the failure or difference names when it is on
+either page, else `null`, and a message that names both pages, such as
+`pages 4 and 5: ...`. Page-break verification gives no `verifier` issue.
+`run.json` `review` lists the survey's issues, then each selected page's, then
+each break's in break order. `ReviewIssue.page_index`'s docstring says that for
+page-break verification it is the break's earlier page, and the `details`
+docstrings of `ReviewIssue` and `CheckFailure` describe a `verdicts_differ`
+issue's keys.
 
 ### `cost.jsonl`
 
@@ -689,46 +812,49 @@ step's `cost_usd` sum both agents' lines.
   The summary knows which step paused from the last step that is not `skipped`.
 - One-page PDF: an info line that the PDF has one page and so no page breaks.
 - Per break:
-  `Break after page 4 (pages 4 and 5): continues, 2 pieces, 0 review issues, verifier passed; $0.06 for 2 requests`
+  `Break after page 4 (pages 4 and 5): continues, 2 pieces, 0 review issues, verifier agrees; $0.06 for 2 requests`
   (or `nothing continues`, `no request, page 5 has no content items`,
-  `no verifier`).
+  `verifier differs in 2 places`, `no verifier`).
 - Estimate lines name steps with a title (`Survey`, `Extraction`,
   `Page-break verification`) instead of capitalizing the step name, and say
   `7 breaks` where the extraction line says pages.
 
 ### Cost estimate
 
-- `BreakRequestSize`: `judge_chars` (instructions, both page texts and the
-  verdict format, without images) and `verifier_chars` (the verifier's
-  instructions, both page texts and the verifier verdict format, without images
-  and without the verdict it reviews).
-- `estimate_page_breaks(config, breaks)`: per break, judge input =
-  `ceil(judge_chars / PROMPT_CHARS_PER_TOKEN) + 2 * image_tokens` of the step's
-  model's profile. Expected: one judge request with
-  `TYPICAL_BREAK_OUTPUT_TOKENS = 4_000` of output, plus, with the verifier on,
-  one verifier request reading that verdict with
-  `TYPICAL_BREAK_VERDICT_OUTPUT_TOKENS = 3_000`. Maximum: every attempt of each
-  agent that runs with `max_output_tokens`, earlier answers added to the input,
-  as `estimate_extraction`. `requests_max = agents * attempts * breaks`.
+- `BreakRequestSize`: `chars` (instructions, both page texts and the verdict
+  format, without images, the request both agents send) and `judge` (whether the
+  break needs the judge's request, `False` when its verdict file keeps the
+  judge's verdict and only the verifier's request is needed).
+- `estimate_page_breaks(config, breaks)`: per break, input =
+  `ceil(chars / PROMPT_CHARS_PER_TOKEN) + 2 * image_tokens` of the step's
+  model's profile. Expected: one judge request when `judge` is set and one
+  verifier request when the verifier is on, each with
+  `TYPICAL_BREAK_OUTPUT_TOKENS = 4_000` of output.
+  `TYPICAL_BREAK_VERDICT_OUTPUT_TOKENS` is removed. Maximum: every attempt of
+  each agent that runs with `max_output_tokens`, earlier answers added to the
+  input, as `estimate_extraction`. `requests_max` sums, over the breaks, the
+  agents that run times the attempts.
   `StepEstimate(name="page_breaks", breaks=<n>, pages=None, verifier=...)`;
   `reused` when no break is to be judged. `no_content` breaks cost nothing and
   are not counted.
 - `StepEstimate.breaks: int | None` (required): breaks the step would judge, for
   page-break verification; `None` for the other steps.
 - Sizes: a break whose page files are both current and unchanged by this run is
-  measured by building its prompts (with an empty verdict for the verifier). A
-  break with a page that this run will extract, or before the survey exists,
-  uses an allowance: the instructions measured from the survey when it exists,
-  else a fixed allowance, plus for each page a fixed allowance plus twice its
-  text-layer characters. Developer rounds the allowance constants up from
-  measured requests on the test PDFs, as page extraction's were.
+  measured by building its prompts. A break with a page that this run will
+  extract, or before the survey exists, uses an allowance: the instructions
+  measured from the survey when it exists, else one fixed allowance, plus for
+  each page a fixed allowance plus twice its text-layer characters. The
+  verifier's separate allowance goes. Developer rounds the allowance constants
+  up from measured requests on the test PDFs, as page extraction's were.
 - Which breaks an estimate covers (in the run's single estimate, in `estimate()`
   and in `aestimate()`):
   - none when the PDF has one page, or the run will pause before the step (a new
     survey or a page extraction that will extract a page, with `pause` on), or a
     page will lack a current page file after page extraction;
-  - with the survey reused: every break whose verdict would not be reused, where
-    a break touching a page to extract is always judged;
+  - with the survey reused: every break whose verdict would not be reused as it
+    is, where a break touching a page to extract is always judged, and a break
+    whose verdict file keeps the judge's verdict is priced for the verifier
+    only;
   - with the survey to run and `pause` off: every break, when every page is
     selected or has a page file whose `inputs.pdf_sha256` matches the PDF; none
     otherwise.
@@ -772,7 +898,9 @@ file does.
   `break-<NNNN>` (earlier page index): heading `Pages <n> and <n+1>`, both page
   images with boxes for each piece's end and start, repeated items, marker items
   and continuing containers (boxes in points on the displayed page, as page
-  cards draw them), and the details of decision 14. `_STEP_TITLES` gains
+  cards draw them), and the details of decision 14. The card's verifier line
+  says that the verifier's verdict matches, or lists each difference's message,
+  or that no verifier ran. `_STEP_TITLES` gains
   `page_breaks: "Page-break verification"`, and review entries for a break link
   to its card. All text from the PDF, settings or model is escaped.
 - No verdicts: no section.
@@ -789,17 +917,22 @@ it, never as an error. The step reads no profile range or artifact mapping.
 
 ### Test seams
 
-- The judge's user content contains
-  `Page break between page indexes <i> and <i+1>`; the verifier's contains
-  `The page-break verdict to review:`. No page-break request contains
-  `Page index <i> (`, `The extraction to review:` or
+- The judge's and the verifier's requests are the same, and both contain
+  `Page break between page indexes <i> and <i+1>`. No page-break request
+  contains `Page index <i> (`, `The extraction to review:` or
   `The survey answer to review:`, so the stand-in routes them apart from the
   other steps' requests.
-- Hint differences reach a model only in the verifier's user content, after
-  `Differences from the hints, which the pages override:`. Every retry message
+- The stand-in cannot tell the verifier's request from the judge's, so it
+  answers each break's requests in the order they arrive, retries included, from
+  a list of answers for the break's earlier page index, the last one repeating,
+  whatever order different breaks' requests interleave in. Within a break the
+  verifier's request starts only after the judge's verdict is accepted, so that
+  order is fixed. The ledger's `agent` says which agent sent each request. The
+  canned break answers (`tests/fixtures/break_answers/`) and the stand-in's
+  `break_answers` argument become one answer or a list per break, with no agent
+  key.
+- No request carries a hint difference or another verdict. Every retry message
   is built from `run_checks` failures only.
-- The stand-in answers a break request with the canned judge or verifier answer
-  for its earlier page index, whatever order concurrent requests arrive in.
 - No step code reads the environment or chooses behavior for tests.
 
 ### CI and release
@@ -818,11 +951,12 @@ it, never as an error. The step reads no profile range or artifact mapping.
 `scripts/generate_reference_docs.py` gains a verdict file page
 (`page_breaks/<NNNN>-<NNNN>.json` from `BreakFile` and its parts) and a
 page-break checks page (checks and hints apart, from `CHECKS` and `HINTS`, with
-the rules of decision 5), and picks up `advanced.page_breaks`, `verify_breaks`,
-`averify_breaks`, `StepRecord.breaks`, `RunResult.breaks`,
-`StepEstimate.breaks`, the new ledger docstrings and the new constants in
-`costs/budget.py` from the code, so CI's staleness check covers them. Page names
-are the user's to approve with the other names.
+the rules of decision 5, and the verifier's comparison from **Verdict
+comparison**, in place of the verifier issue it describes now), and picks up
+`advanced.page_breaks`, `verify_breaks`, `averify_breaks`, `StepRecord.breaks`,
+`RunResult.breaks`, `StepEstimate.breaks`, the new ledger docstrings and the new
+constants in `costs/budget.py` from the code, so CI's staleness check covers
+them. Page names are the user's to approve with the other names.
 
 ## Data and Control Flow
 
@@ -840,12 +974,14 @@ are the user's to approve with the other names.
    Otherwise `plan_breaks`; when the estimate has not been made, estimate and
    ask; with nothing to judge, the step ends `reused`.
 6. Breaks to judge run at most `concurrent_breaks` at once on one `PdfWorker`.
-   Per break: a page without content items → `no_content` verdict; else render
-   both upright images, build the texts, the judge request with checks and
-   retries, the verifier when on, apply the verdict, compute hints and issues,
-   write the verdict file atomically, log the line. Developer may keep a page's
-   image until both its breaks have used it. The first failure cancels the other
-   tasks and ends the step `failed`.
+   Per break: a page without content items → `no_content` verdict. Otherwise
+   render both upright images and build the request. Unless the verdict file
+   keeps the judge's verdict, send the judge's request with checks and retries,
+   compute hints and issues, and write the verdict file atomically. With the
+   verifier on, send the same request for the verifier, compare, recompute the
+   issues and write the file again. Then log the line. Developer may keep a
+   page's image until both its breaks have used it. The first failure cancels
+   the other tasks and ends the step `failed`.
 7. Every request goes through its agent's `LedgerModel` wrapper: reserve its
    bound, send, write its ledger line (`page_breaks`, earlier page, agent),
    release.
@@ -891,6 +1027,15 @@ are the user's to approve with the other names.
   fails `joins`; `continue_text` and `continue_entry` always carry a text join,
   `newline` only between code items, and `merge_split_row` one cell join per
   cell of the merged row.
+- `AC-052`: a `new_entry` piece from a text item on page N to a list item on
+  page N+1 passes `joins`, and one whose start is not a list item fails it.
+- `AC-053`: `repeat` passes `joins` in `cell_joins` and fails it in `text_join`.
+  A `repeat` cell whose text is empty, or matches no cell of page N's split row,
+  fails `repeats`. The instructions say when a cell join is `repeat`.
+- `AC-054`: the instructions say that text or a list entry continues only when
+  the break leaves it unfinished, that a paragraph broken between two sentences
+  with no new paragraph on page N+1 is unfinished, and that a complete entry
+  followed by an entry with a new number is a new entry.
 - `AC-015`: every table piece carries `repeated_header_rows` ≥ 0.
 - `AC-016`: `repeated_items` holds page N+1 item IDs, checked by `ids` and
   `repeats`.
@@ -914,25 +1059,32 @@ are the user's to approve with the other names.
   written with each failure in `checks` and `issues`, and the run goes on.
 - `AC-024`: a table piece whose counted rows do not match page N's leading rows
   fails `header_rows`.
-- `AC-025`: the instructions hold the survey's continuation notes and start
-  markers under the hints heading; a piece starting with a start marker gives a
-  `start_markers` difference.
-- `AC-026`: a hint difference never raises `ModelRetry`, never appears in a
-  retry message, and never sets a step or run status; it is in `hints` always
-  and in `issues` unless the verifier passed the verdict or its correction was
-  kept.
+- `AC-055`: the instructions hold the survey's continuation notes and start
+  markers under the hints heading. A piece starting with a start marker gives a
+  `start_markers` difference, unless its join is `append_rows` or one of its
+  markers is on its start item (and, for a table, on its start row).
+- `AC-056`: a hint difference never raises `ModelRetry`, never appears in a
+  request or a retry message, and never sets a step or run status. It is in
+  `hints` always, and in `issues` unless `verification` is set with no
+  differences.
 - `AC-027`: with default settings, no request goes through a page-break
   `verifier` wrapper, no ledger line has `step: "page_breaks"` and
   `agent: "verifier"`, and every verdict file has `verification: null`.
 - `AC-028`: `verify` (file, `--verify`/`-vf`, `verify=True`) turns on
   `verify_page_breaks` when the override is `null`; the override's `true` or
   `false` wins; `Config.verify_page_breaks` exists.
-- `AC-029`: a correction failing a check is sent back within `check_retries` and
-  never kept; one passing every check is kept whatever its hint differences;
-  issues follow **Review issues** for each outcome.
-- `AC-030`: `verification` holds the verifier's verdict as given, its attempts,
-  whether the correction was applied and the checks a rejected correction
-  failed.
+- `AC-057`: with the verifier on, each break with `judgment: "model"` gets one
+  verifier request whose instructions and user content equal the judge's, with
+  no message history, and a verifier verdict failing a check is sent back within
+  `check_retries`.
+- `AC-058`: the kept verdict is always the judge's. `compare_verdicts` gives no
+  difference for verdicts that agree on every compared field, one `continues`
+  difference when only one verdict continues, and one difference per unpaired
+  piece and per differing compared field of a pair. Repeated items, markers,
+  containers and `reason` give none. Each difference is one `verdicts_differ`
+  issue, and no third request is made.
+- `AC-059`: when the verifier ran, `verification` holds its verdict, attempts,
+  check results and differences.
 - `AC-031`: every page-break issue has `step: "page_breaks"`, the earlier page
   in `page_index`, both pages in its message, and its item when one applies, and
   appears in `run.json` `review` and the summary's lines.
@@ -950,10 +1102,12 @@ are the user's to approve with the other names.
   or answer settings re-judges exactly the affected breaks; re-extracting one
   page re-judges its two breaks only; `overwrite` re-judges every break;
   changing only `advanced.page_breaks` settings makes no survey or page request.
-- `AC-036`: with the step's verifier turned on, verdicts with
-  `verification: null` and `judgment: "model"` are judged again; changing
-  another step's verifier setting re-judges a break only when that step's
-  outputs changed a page file's bytes or the survey's continuation fields.
+- `AC-060`: with the step's verifier turned on over matching verdict files with
+  `verification: null` and `judgment: "model"`, each such break gets one
+  verifier request and no judge request, keeps its `verdict`, `checks` and
+  `hints`, and its file is rewritten with `verification` set. Changing another
+  step's verifier setting re-judges a break only when that step's outputs
+  changed a page file's bytes or the survey's continuation fields.
 - `AC-037`: verdict files are written atomically; a damaged one gives
   `damaged_output` and is judged again.
 - `AC-038`: a failed page-break request after the provider retries, or an
@@ -961,54 +1115,64 @@ are the user's to approve with the other names.
   `PageBreakError`, the CLI exits 1, verdict files already written stay, and the
   next run judges only breaks without a reusable verdict.
 - `AC-039`: the report holds one card per verdict with both page images, the
-  named items and containers drawn, every verdict field of decision 14, the
-  verifier's outcome, and links from the break's review issues.
+  named items and containers drawn, every verdict field of decision 14, whether
+  the verifier's verdict matched with each difference, or that no verifier ran,
+  and links from the break's review issues.
 - `AC-042`: the smoke script's runs complete with one verdict and load.
 - `AC-044`: the package description names the three steps and the optional
   verifiers.
 - `AC-047`: the generated reference pages hold every new setting, function,
-  verdict-file field, `run.json` and `cost.jsonl` change, and the page-break
-  checks and hint, and CI's staleness check passes.
+  verdict-file field, `run.json` and `cost.jsonl` change, the page-break checks
+  and hint, and the verifier's comparison, and CI's staleness check passes.
 
 ## Build Plan
 
-1. **Settings** (`AC-008` to `AC-010`, `AC-028`). MODIFY
-   `src/pydelity/config/schemas.py`, `src/pydelity/providers/profiles.py`,
-   `src/pydelity/providers/factory.py` (settings type), `examples/config.json`,
-   `examples/config.yaml`. Names approved first.
-2. **Verdict contract and names** (`AC-011` to `AC-018`, `AC-027`, `AC-030`).
-   CREATE `src/pydelity/verifying/__init__.py`,
-   `src/pydelity/verifying/schemas.py`; MODIFY `src/pydelity/review.py`,
-   `src/pydelity/schema_versions.py`, `src/pydelity/errors.py`. Depends on 1.
-3. **Checks and hints** (`AC-019`, `AC-021` to `AC-026`). CREATE
-   `src/pydelity/verifying/validators.py`. Depends on 2.
-4. **Prompts, agents and requests** (`AC-009`, `AC-020`, `AC-022`, `AC-023`,
-   `AC-029`, `AC-038` mapping). CREATE `src/pydelity/verifying/prompts.py`,
-   `src/pydelity/verifying/agents.py`, `src/pydelity/verifying/llm.py`; MODIFY
-   `src/pydelity/providers/ledger_model.py` only if Developer adds a break
-   wrapper. Depends on 3.
-5. **The step** (`AC-002`, `AC-011`, `AC-029` to `AC-031`, `AC-035` to
-   `AC-038`). CREATE `src/pydelity/verifying/verification.py`. Depends on 4.
-6. **Test tooling** (seams for self-checks). MODIFY
-   `tests/fixtures/mock_providers.py`; CREATE canned break answers under
-   `tests/fixtures/` (folder name to approve). Depends on 4; may go with 5.
-   Tests themselves are Tester's.
-7. **Costs** (`AC-032` to `AC-034`). MODIFY `src/pydelity/costs/budget.py`,
-   `src/pydelity/costs/schemas.py` (`StepEstimate.breaks`, `LedgerEntry`
-   docstrings). Depends on 5 for request sizes.
-8. **Run flow, API and CLI** (`AC-001` to `AC-007`, `AC-031`, `AC-033`). MODIFY
-   `src/pydelity/pipeline/runner.py`, `src/pydelity/pipeline/schemas.py`,
-   `src/pydelity/api.py`, `src/pydelity/__init__.py`, `src/pydelity/cli.py`
-   (error mapping and summary only, if needed). The run flow, the single
-   estimate's placement, `StepRecord.breaks` and `RunResult.breaks` change
-   together. Depends on 5 and 7. This is the critical path.
-9. **Report** (`AC-039`). MODIFY `src/pydelity/report/html.py` and its
-   stylesheet. Depends on 8.
-10. **Smoke test, docs generator and package text** (`AC-042`, `AC-044`,
-    `AC-047` in code). MODIFY `scripts/smoke_installed_wheel.py`,
-    `scripts/generate_reference_docs.py`, `pyproject.toml` (description);
-    regenerate `docs/src/content/docs/reference/` with `just docs-reference`.
-    After 1–9.
+The earlier pass built the settings, the step, the run flow, the API, the
+estimate, the report, the smoke test and the reference pages (DEV-001 to DEV-011
+in the development plan), and they stand except where the steps below change
+them. The rework, in dependency order:
+
+1. **Verdict contract and names** (`AC-053`, `AC-058`, `AC-059`). MODIFY
+   `src/pydelity/verifying/schemas.py` (`TextJoin` gains `repeat`,
+   `BreakVerification` takes its new fields, `BreakVerifierVerdict`,
+   `BreakProblem` and `BreakProblemCategory` go, docstrings of `cell_joins`,
+   `verdict`, `verification` and `issues`) and `src/pydelity/review.py` (the
+   `verdicts_differ` issue name in `IssueName`, the `verifier` name's docstring
+   limited to the survey and page extraction, the `details` docstrings). Names
+   approved first.
+2. **Checks, hint and comparison** (`AC-052`, `AC-053`, `AC-055`, `AC-056`,
+   `AC-058`). MODIFY `src/pydelity/verifying/validators.py`: `joins`
+   (`new_entry` from a text item, `repeat` only in `cell_joins`), `repeats`
+   (`repeat` cells), the `start_markers` exceptions, `compare_verdicts`, and
+   `review_issues` with the new hint rule and difference issues in place of
+   verifier problems. Depends on 1.
+3. **Prompts and requests** (`AC-052` to `AC-054`, `AC-057`). MODIFY
+   `src/pydelity/verifying/prompts.py` (the rules for `new_entry`, `repeat` and
+   unfinished text, the verifier prompt and `review_text` removed;
+   `PROMPT_VERSION` stays 1), `src/pydelity/verifying/agents.py` (one factory
+   for both agents) and `src/pydelity/verifying/llm.py` (one function that sends
+   the break's request for either agent). Depends on 2.
+4. **The step** (`AC-038`, `AC-057` to `AC-060`). MODIFY
+   `src/pydelity/verifying/verification.py`: the reuse rule, the verdict file
+   written after the judge's verdict and again after the verifier's, the log
+   lines, and request sizes with `chars` and `judge`. Depends on 3. This is the
+   critical path.
+5. **Estimate** (`AC-033`, `AC-060`). MODIFY `src/pydelity/costs/budget.py`
+   (`BreakRequestSize`, `estimate_page_breaks`, the removed constant) and the
+   call sites in `src/pydelity/pipeline/runner.py` if their arguments change.
+   Depends on 4.
+6. **Report** (`AC-039`). MODIFY `src/pydelity/report/html.py` (the page-break
+   branch of the verifier line). Depends on 4; may go with 5.
+7. **Test tooling** (seams for self-checks). MODIFY
+   `tests/fixtures/mock_providers.py` (break answers in arrival order, no agent
+   key), `tests/fixtures/break_answers/irs_form_1040a_1965_scan.json` and
+   `scripts/smoke_installed_wheel.py` (the answer file's new shape). Depends on
+   3; goes with 4 so the step can be run against the stand-in. Tests themselves
+   are Tester's.
+8. **Reference pages** (`AC-047` in code). MODIFY
+   `scripts/generate_reference_docs.py` (the page-break checks page's comparison
+   section, the verdict file page) and regenerate
+   `docs/src/content/docs/reference/` with `just docs-reference`. After 1–6.
 
 New code follows the user styles' module order and keyword-argument order. Tests
 are Tester's; the guides, README and `artifacts/next_cycle_inputs.md` are
@@ -1018,8 +1182,20 @@ Documenter's.
 
 - Cost: each break sends two whole page images and both pages' items, and each
   page's image is sent for two breaks. The instructions are cached across
-  breaks, the images are not. No pydelity measurement exists; the 4,000- and
-  3,000-token typical outputs are guesses the real runs check.
+  breaks, and within a break the verifier reads the judge's request from the
+  cache. The ten real runs before the rework cost about $4.36 with the verifier
+  off and $7.92 with it on, for 29 breaks with page extraction of new pages
+  included. The verifier now costs about one more judge answer per break. The
+  4,000-token typical output is still a guess that the next real runs check.
+- Two answers from the same model to the same request share its blind spots. A
+  match does not prove a verdict right. The rework rests on C12, where two
+  separate judge runs differed at exactly the breaks R-1 to R-4 and nowhere
+  else, while the reviewing verifier caught none of them.
+- The comparison only flags. A difference stays for a person to settle, and
+  assembly follows the kept verdict, the judge's.
+- `repeat` lets assembly drop a later cell's text. The `repeats` check matches
+  it against any cell of the split row, so it can pass a wrong `repeat` when
+  another cell of that row has similar text.
 - Verdicts cite item IDs, which change when a page is extracted again. The
   page-file hashes make such verdicts stale, so they are judged again, never
   misapplied, but re-extracting a page pays for its two breaks too.
@@ -1031,11 +1207,19 @@ Documenter's.
 - Models must count table rows and cells for `markers` and `cell_joins`; the
   listing numbers them to help. A miscount fails `ids` or `joins`.
 - The `start_markers` hint depends on the survey's markers. Wrong markers list
-  correct joins for review when no verifier runs.
+  correct joins for review when no verifier runs or the two verdicts differ. Its
+  exceptions clear the six CAPS false alarms of C12 (four `append_rows` pieces
+  and two pieces with a "(contd)" marker on their start), and a new row that
+  starts with a strand label and has no marker is still listed.
 - Page extraction can structure two pages differently (a list on one page, text
   on the next; providers differ). `continue_entry` accepts a list entry joined
-  to a text item, but a table on one page and text on the other cannot be
-  joined, and fails `joins` if the model tries.
+  to a text item, and `new_entry` a text item on page N, but a table on one page
+  and text on the other cannot be joined, and fails `joins` if the model tries.
+  A header row that page extraction misread (R-2) can still make a correct
+  repeated-header count fail `header_rows`. That is a page extraction fault.
+- The unfinished-text rule is a prompt rule only. Code cannot tell a finished
+  sentence in any script, so a model that breaks the rule is caught only by the
+  verifier's comparison or the user's review.
 - With `pause` on, a new PDF takes three runs. With `overwrite` and a narrowed
   `pages`, page-break verification never runs (decision 8).
 - Prompted output on Anthropic has no grammar, so a verdict that is not valid
@@ -1043,7 +1227,17 @@ Documenter's.
 - Left to later steps for `artifacts/next_cycle_inputs.md`: continuation across
   pages that do not follow each other; "continued on the next page" notes on
   page N, which the verdict does not name; structure tags as evidence (option
-  A); whether a `no_content` page breaks a unit that continues around it.
+  A); whether a `no_content` page breaks a unit that continues around it; how
+  assembly keeps a `repeat` cell's text once and drops its continuation marker;
+  and what assembly does at a break whose two verdicts differ.
+- Verdict files from the earlier 0.3.0 builds, such as the user's real-run
+  folders, are not migrated. `PROMPT_VERSION` and `BREAK_SCHEMA_VERSION` stay at
+  1 and `"1.0"`, as the scope says. A file whose verifier ran has the old
+  `verification` shape, so it does not load: a run warns `damaged_output` and
+  judges the break again, and `load()` raises `OutputError` on its folder. A
+  file without a verifier still loads and its fingerprint still matches, so it
+  is reused with the older prompt's verdict. Real runs after the rework use new
+  output folders or `--overwrite`, as the scope says.
 - What stops working (no backwards compatibility is kept):
   - A 0.2.0 `run.json` has no `breaks` in its step records, so `load()` on a
     0.2.0 output folder raises `OutputError` until a run rewrites `run.json`.
@@ -1078,8 +1272,31 @@ Documenter's.
   and nothing links them to items yet; that link is new probe work no acceptance
   condition needs.
 - A confidence field with thresholds: rejected. No acceptance condition uses it,
-  assembly joins where the verdict says, and the verifier reviews every break or
+  assembly joins where the verdict says, and the verifier judges every break or
   none.
+- A verifier that reviews and corrects the judge's verdict, as page extraction's
+  does (the earlier design): replaced at the user's request. In C12 it passed
+  all 29 verdicts and corrected none, while two separate judge runs differed at
+  exactly the breaks R-1 to R-4. A third request to choose between two differing
+  verdicts is a scope non-goal.
+- A verifier request worded differently from the judge's, or told that it is a
+  second judgment: rejected. Any change to the request changes the judgment
+  being compared, and the evidence in C12 is for the same request sent twice.
+- The verifier's request sent at the same time as the judge's: rejected. It
+  would shorten a break's wait but lose the cache read, and the stand-in's
+  arrival order within a break would no longer be fixed. Breaks already run
+  `concurrent_breaks` at a time.
+- A `CellJoin` enum without `newline`, apart from `TextJoin`: rejected. On
+  Anthropic's prompted output a value outside the enum fails the answer format,
+  which stops the run at the last attempt, while a `joins` failure is kept and
+  listed.
+- Listing the verifier's own check failures as review issues: rejected. Assembly
+  never uses its verdict, and its differences already flag the break.
+- Comparing repeated items, markers and containers: the scope leaves them out.
+- One verdict file write per break, after the verifier: rejected. Writing the
+  judge's verdict first lets a failed verifier request keep it, and the same
+  code then serves a break whose file already holds the judge's verdict
+  (`AC-060`).
 - `header_rows` and `repeats` as hints: rejected, since assembly drops what they
   name and a wrong count loses content; hints would let it through with only a
   review-list line.
